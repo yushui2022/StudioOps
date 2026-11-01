@@ -618,6 +618,78 @@ function renderProjects() {
     .join("");
 }
 
+function renderDiscovered() {
+  const snapshot = state.discovered;
+  if (!snapshot) return;
+  const list = $("discovered-list");
+  const processes = snapshot.processes;
+  $("discovered-summary").textContent = processes.length
+    ? `发现 ${processes.length} 个正在监听的开发服务；没有登记的可以一键纳入项目。`
+    : "没有发现新的开发服务。";
+  if (!processes.length) {
+    list.innerHTML =
+      '<p class="muted" style="padding: 8px 2px">启动本地 Node/Python/Go/Rust 服务并监听端口后，这里会自动出现。</p>';
+    return;
+  }
+  list.innerHTML = processes
+    .map(
+      (processInfo) => `<div class="discovered-row">
+        ${processIconHtml(processInfo)}
+        <div class="discovered-main">
+          <strong>${escapeHtml(processInfo.name)}</strong>
+          <small title="${escapeHtml(`${processInfo.command} ${processInfo.args.join(" ")}`)}">${escapeHtml(processInfo.command)} ${escapeHtml(processInfo.args.join(" "))} · ${escapeHtml(processInfo.cwd)}</small>
+        </div>
+        <div class="discovered-port">
+          <span>端口</span><strong>${processInfo.port}</strong>
+        </div>
+        <div class="discovered-memory">
+          <span>内存</span><strong>${fmtBytes(processInfo.memoryBytes)}</strong>
+        </div>
+        <div class="discovered-actions">
+          <button class="btn btn-small" data-adopt-discovered="${processInfo.pid}">纳入项目</button>
+          ${
+            processInfo.killable
+              ? `<button class="btn btn-small btn-danger" data-terminate-pid="${processInfo.pid}" data-terminate-name="${escapeHtml(processInfo.name)}">终止</button>`
+              : `<span class="muted" title="${escapeHtml(processInfo.protectedReason ?? "")}">—</span>`
+          }
+        </div>
+      </div>`,
+    )
+    .join("");
+}
+
+async function loadDiscovered() {
+  try {
+    state.discovered = await api("/api/discovered");
+    renderDiscovered();
+  } catch {
+    // Keep the last discovery result on transient failures.
+  }
+}
+
+function adoptDiscovered(processInfo) {
+  openServiceForm({
+    id: processInfo.suggestedId || `project-${processInfo.port}`,
+    name: processInfo.name,
+    kind: "process",
+    category: "project",
+    group: "项目服务",
+    adapter: "process",
+    target: processInfo.cwd,
+    command: processInfo.command,
+    args: processInfo.args,
+    cwd: processInfo.cwd,
+    port: processInfo.port,
+    allowedActions: ["start", "stop", "restart", "pause", "resume"],
+    health: { type: "none" },
+  });
+  state.formServiceId = null;
+  $("form-id").readOnly = false;
+  $("config-title").textContent = "纳入项目";
+  $("config-delete").classList.add("hidden");
+  setFormError("");
+}
+
 /* ---------- processes ---------- */
 
 function renderProcesses() {
@@ -1530,6 +1602,7 @@ async function terminatePid(pid, name) {
     await refreshAll({ quiet: true });
     await loadProcesses();
     await loadInference();
+    if (state.view === "projects") loadDiscovered();
     if (state.expandedServiceId) {
       loadInlineLog(state.expandedServiceId);
       const service = state.services.find(
@@ -1612,7 +1685,10 @@ function switchView(view, { updateHash = true } = {}) {
     history.replaceState(null, "", `${location.pathname}${hash}`);
   }
 
-  if (view === "projects") renderProjects();
+  if (view === "projects") {
+    renderProjects();
+    loadDiscovered();
+  }
   if (view === "processes") loadProcesses();
   if (view === "containers") loadDocker();
   if (view === "settings") {
@@ -1770,6 +1846,17 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "add-project" || target.id === "add-project-empty") {
     openProjectForm();
+    return;
+  }
+  if (target.id === "discovered-refresh") {
+    loadDiscovered();
+    return;
+  }
+  if (target.dataset.adoptDiscovered) {
+    const processInfo = state.discovered?.processes.find(
+      (item) => item.pid === Number(target.dataset.adoptDiscovered),
+    );
+    if (processInfo) adoptDiscovered(processInfo);
     return;
   }
   if (target.id === "config-close" || target.id === "config-cancel") {
@@ -2002,6 +2089,9 @@ setInterval(() => {
 setInterval(() => {
   if (!document.hidden) loadInference();
 }, 5000);
+setInterval(() => {
+  if (!document.hidden && state.view === "projects") loadDiscovered();
+}, 10000);
 setInterval(() => {
   if (!document.hidden) refreshEvents();
 }, 15000);

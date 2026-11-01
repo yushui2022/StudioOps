@@ -40,7 +40,7 @@
 | Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`                                                    | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态                                  |
 | 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                                                      | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                                              |
 | 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs` | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent |
-| 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`apps/web/app.js`                                                          | `category: project` 单独成页；端口/PID/CPU/内存/日志/启停                                        |
+| 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`core/discovery.ts`、`apps/web/app.js`                                     | `category: project` 单独成页；自动发现监听端口的开发进程并可纳入项目                             |
 | 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
 | 进程终止                | 已完成                 | `services/agent/src/core/process-control.ts`、`/api/processes/:pid/terminate`                                      | 仅当前用户；保护祖先进程链；SIGTERM 失败后可 SIGKILL；写入审计                                   |
 | 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`                                                        | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                                          |
@@ -102,6 +102,7 @@
 17. 推理进程面板实际显示 ComfyUI 主进程 2.28 GB、Ollama 40 MB、ComfyUI worker/bridge；主进程显示“停止服务”，子进程显示“终止”，压力徽标为正常。
 18. 后端加固验收：同一服务并发动作串行（单测）；系统/服务轮询有 busy guard；配置 YAML 损坏后 add 返回 400、restore 可恢复；配置变更写入审计；恶意 Origin 的 HTTP 返回 403、WebSocket 返回 1008；`/../etc/passwd` 返回 404；桌面端检测到 7227 已有 Agent 时不再启动第二个。
 19. 项目视图验收：新增 `category: project` 的 Demo API 后，只在“项目”页出现，显示端口 3100、PID、CPU/内存和日志/编辑/启动操作；服务页与进程页不混入项目卡片。
+20. 自动发现验收：本机启动一个监听 4322 的 Node 服务后，“项目 → 自动发现”自动列出它及已运行的 kopi 开发服务，显示端口、内存和命令；无需手工录入即可“一键纳入项目”。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -165,17 +166,23 @@
 
 ## 已知限制和风险
 
-| 限制                                    | 影响                                        | 处理方式                                                    |
-| --------------------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
-| `config/services.yaml` 是本机私有文件   | 其他机器没有真实服务登记                    | 提供配置编辑器和示例模板；不提交真实路径和用户信息          |
-| 面板保存会重写 YAML                     | 手写注释不会保留；覆盖前原文件在备份目录    | 重要配置先备份；恢复后注释同样来自备份文件                  |
-| Compose 项目还没有真实动作证据          | 只能验证单容器启停，不能声称 Compose 已完成 | 找到真实 Compose 项目后实测 up/down/restart/logs            |
-| Tailscale/frp 未安装                    | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                             |
-| macOS 不能保存任意进程内存快照          | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                             |
-| 进程终止只覆盖当前用户                  | 无法结束 root 和其他用户的进程              | 需要更高权限时使用系统工具，不扩大 Agent 权限               |
-| 推理进程按命令行和进程树识别            | 特殊启动脚本可能识别不到                    | 优先用服务 PID 和子进程树；后续可加显式启动路径配置         |
-| RSS 汇总不等于独占内存                  | 共享内存可能被重复计算                      | 文案标为“内存占用”，不宣称精确独占                          |
-| 强制终止可能丢失未保存数据              | SIGKILL 不会给应用收尾机会                  | UI 二次确认，默认先 SIGTERM                                 |
-| release App 还未签名/notarize           | 只能本机开发使用                            | 发布前完成证书、DMG 和升级策略                              |
-| 从 `~/Documents` 启动 App 会被 TCC 拦截 | Agent 可能卡在“访问文稿文件夹”权限框        | 验收和日常使用都从 `/Applications` 或 `~/Applications` 启动 |
-| 远程绑定需要 token                      | 忘记 token 会无法访问                       | 做设置页、环境变量说明和安全错误提示                        |
+| 限制                                     | 影响                                        | 处理方式                                                    |
+| ---------------------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
+| `config/services.yaml` 是本机私有文件    | 其他机器没有真实服务登记                    | 提供配置编辑器和示例模板；不提交真实路径和用户信息          |
+| 面板保存会重写 YAML                      | 手写注释不会保留；覆盖前原文件在备份目录    | 重要配置先备份；恢复后注释同样来自备份文件                  |
+| Compose 项目还没有真实动作证据           | 只能验证单容器启停，不能声称 Compose 已完成 | 找到真实 Compose 项目后实测 up/down/restart/logs            |
+| Tailscale/frp 未安装                     | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                             |
+| macOS 不能保存任意进程内存快照           | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                             |
+| 进程终止只覆盖当前用户                   | 无法结束 root 和其他用户的进程              | 需要更高权限时使用系统工具，不扩大 Agent 权限               |
+| 推理进程按命令行和进程树识别             | 特殊启动脚本可能识别不到                    | 优先用服务 PID 和子进程树；后续可加显式启动路径配置         |
+| RSS 汇总不等于独占内存                   | 共享内存可能被重复计算                      | 文案标为“内存占用”，不宣称精确独占                          |
+| 强制终止可能丢失未保存数据               | SIGKILL 不会给应用收尾机会                  | UI 二次确认，默认先 SIGTERM                                 |
+| Agent 崩溃后不会自动重启                 | 桌面 App 会显示断开，但不会自动恢复         | 后续加 Rust 守护/重启或 launchd 托管 Agent                  |
+| 端口 7227 被其他程序占用时只有日志提示   | UI 只显示无法连接，没有弹窗原因             | 后续在桌面端加启动错误对话框                                |
+| 没有请求限流和多用户权限                 | 本机同用户可调用所有 API                    | 远程模式必须配置 Token；多用户场景再引入角色                |
+| 项目服务目前由 Agent 启动                | Mac 重启后不会自动拉起                      | 后续生成 LaunchAgent 或开机启动项；现在需要先启动 App       |
+| 项目对外访问还没有统一入口               | 端口可看，但公网域名/隧道未绑定             | 后续接 cloudflared/tunnel，并在项目卡片展示入口地址         |
+| 自动发现要求工作目录在用户目录且监听 TCP | 系统目录启动或无端口的进程不会出现          | 特殊项目可用“新增项目服务”手动登记                          |
+| release App 还未签名/notarize            | 只能本机开发使用                            | 发布前完成证书、DMG 和升级策略                              |
+| 从 `~/Documents` 启动 App 会被 TCC 拦截  | Agent 可能卡在“访问文稿文件夹”权限框        | 验收和日常使用都从 `/Applications` 或 `~/Applications` 启动 |
+| 远程绑定需要 token                       | 忘记 token 会无法访问                       | 做设置页、环境变量说明和安全错误提示                        |

@@ -17,6 +17,7 @@ import { LaunchdAdapter } from "./adapters/launchd.js";
 import { ProcessAdapter } from "./adapters/process.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
+import { listDiscoveredProcesses } from "./core/discovery.js";
 import { EventStore } from "./core/event-store.js";
 import { listInferenceProcesses } from "./core/inference.js";
 import { getOllamaModels } from "./core/ollama.js";
@@ -164,7 +165,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/health", (c) =>
-  json({ status: "ok", service: "studioops-agent", version: "0.1.2" }),
+  json({ status: "ok", service: "studioops-agent", version: "0.1.3" }),
 );
 app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
@@ -212,6 +213,12 @@ app.post("/api/processes/:pid/terminate", async (c) => {
     });
     return c.json({ error: message }, 400);
   }
+});
+app.get("/api/discovered", async (c) => {
+  const snapshot = await listDiscoveredProcesses(configStore.services);
+  for (const processInfo of snapshot.processes)
+    processInfo.iconUrl = iconStore.register(processInfo.command);
+  return json(snapshot);
 });
 app.get("/api/inference", async (c) => {
   const snapshot = await listInferenceProcesses(configStore.services);
@@ -269,7 +276,7 @@ app.get("/api/config", (c) =>
     port,
     tokenRequired: Boolean(configuredToken),
     dataDir,
-    version: "0.1.2",
+    version: "0.1.3",
   }),
 );
 app.get("/api/config/services", (c) => json(configStore.services));

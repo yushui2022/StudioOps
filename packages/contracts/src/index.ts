@@ -198,6 +198,29 @@ export interface InferenceProcess {
   iconUrl?: string;
 }
 
+export interface DiscoveredProcess {
+  pid: number;
+  ppid: number;
+  user: string;
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  port: number;
+  cpuPercent: number;
+  memoryPercent: number;
+  memoryBytes: number;
+  suggestedId: string;
+  killable: boolean;
+  protectedReason?: string;
+  iconUrl?: string;
+}
+
+export interface DiscoveredSnapshot {
+  processes: DiscoveredProcess[];
+  capturedAt: string;
+}
+
 export interface InferenceSnapshot {
   processes: InferenceProcess[];
   totalMemoryBytes: number;
