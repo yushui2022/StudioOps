@@ -39,6 +39,7 @@
 | 进程指标                | 已完成第一版           | `services/agent/src/core/process-metrics.ts`                                  | `ps` 读取 CPU、RSS、内存占比                                            |
 | Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`               | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态         |
 | 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                 | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                     |
+| 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`   | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作       |
 | 进程终止                | 已完成                 | `services/agent/src/core/process-control.ts`、`/api/processes/:pid/terminate` | 仅当前用户；保护祖先进程链；SIGTERM 失败后可 SIGKILL；写入审计          |
 | 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`                   | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                 |
 | Docker 状态和动作       | 已完成                 | `services/agent/src/core/docker-status.ts`、`/api/docker`                     | daemon 状态、容器列表、启动/停止/重启；已用真实容器验证                 |
@@ -96,6 +97,7 @@
 14. 进程页实际终止一个测试 node 进程：确认框 → SIGTERM → 进程消失 → toast 和 `process:<pid>` 审计记录。Agent 父进程链（zsh）被拒绝终止，返回 400 “StudioOps 进程链”。
 15. 进程页显示真实应用图标：Chrome、WeChat、StudioOps、Ollama 等取到 `.app` 图标，WindowServer 等系统进程使用首字母占位；图标缓存在 `data/icons/`。
 16. 总览顶部硬件摘要显示 Apple M5 Max、12P + 6S + 40GPU、64 GB，以及活跃核心数（总计 18，P/S 分列）；P-CPU/S-CPU 百分比之和与整体 CPU 一致。
+17. 推理进程面板实际显示 ComfyUI 主进程 2.28 GB、Ollama 40 MB、ComfyUI worker/bridge；主进程显示“停止服务”，子进程显示“终止”，压力徽标为正常。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -167,6 +169,8 @@
 | Tailscale/frp 未安装                    | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                             |
 | macOS 不能保存任意进程内存快照          | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                             |
 | 进程终止只覆盖当前用户                  | 无法结束 root 和其他用户的进程              | 需要更高权限时使用系统工具，不扩大 Agent 权限               |
+| 推理进程按命令行和进程树识别            | 特殊启动脚本可能识别不到                    | 优先用服务 PID 和子进程树；后续可加显式启动路径配置         |
+| RSS 汇总不等于独占内存                  | 共享内存可能被重复计算                      | 文案标为“内存占用”，不宣称精确独占                          |
 | 强制终止可能丢失未保存数据              | SIGKILL 不会给应用收尾机会                  | UI 二次确认，默认先 SIGTERM                                 |
 | release App 还未签名/notarize           | 只能本机开发使用                            | 发布前完成证书、DMG 和升级策略                              |
 | 从 `~/Documents` 启动 App 会被 TCC 拦截 | Agent 可能卡在“访问文稿文件夹”权限框        | 验收和日常使用都从 `/Applications` 或 `~/Applications` 启动 |

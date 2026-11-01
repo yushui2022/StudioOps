@@ -177,6 +177,31 @@ export interface OllamaModelsSnapshot {
   capturedAt: string;
 }
 
+export interface InferenceProcess {
+  pid: number;
+  ppid: number;
+  user: string;
+  name: string;
+  command: string;
+  role: "ollama" | "comfyui";
+  serviceId?: string;
+  serviceRoot?: boolean;
+  cpuPercent: number;
+  memoryPercent: number;
+  memoryBytes: number;
+  isRoot: boolean;
+  killable: boolean;
+  protectedReason?: string;
+  iconUrl?: string;
+}
+
+export interface InferenceSnapshot {
+  processes: InferenceProcess[];
+  totalMemoryBytes: number;
+  systemMemoryBytes: number;
+  capturedAt: string;
+}
+
 export type Topic = "system" | "services" | "logs" | "events";
 
 export type ClientMessage =

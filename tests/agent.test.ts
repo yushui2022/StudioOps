@@ -21,6 +21,7 @@ import { EventStore } from "../services/agent/src/core/event-store.js";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { withHealth } from "../services/agent/src/core/health.js";
+import { detectRole } from "../services/agent/src/core/inference.js";
 import { appBundlePath } from "../services/agent/src/core/process-icons.js";
 import { terminateProcess } from "../services/agent/src/core/process-control.js";
 import {
@@ -230,6 +231,21 @@ test("ollama base URL derives from the health endpoint", () => {
     health: { type: "http", endpoint: "http://127.0.0.1:11434/api/tags" },
   };
   assert.equal(ollamaBaseUrl(definition), "http://127.0.0.1:11434");
+});
+
+test("inference roles are detected from full command lines", () => {
+  assert.equal(
+    detectRole("/Applications/Ollama.app/Contents/Resources/ollama serve"),
+    "ollama",
+  );
+  assert.equal(
+    detectRole(
+      "/Users/orlando/Documents/默认项目/ComfyUI/.venv/bin/python main.py --port 8188 --preview-method auto",
+    ),
+    "comfyui",
+  );
+  assert.equal(detectRole("/usr/bin/node server.js"), undefined);
+  assert.equal(detectRole("/bin/bash ollama-tunnel"), undefined);
 });
 
 test("app bundle path is extracted from executable path", () => {

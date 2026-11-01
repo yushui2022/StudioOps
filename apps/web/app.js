@@ -58,6 +58,7 @@ const state = {
   expandedServiceId: null,
   ollamaModels: {},
   inlineLogs: {},
+  inference: null,
   logServiceId: null,
   logLines: [],
   logAuto: false,
@@ -125,8 +126,12 @@ const baseName = (command) => {
   return parts[parts.length - 1] || trimmed;
 };
 
-function processIconHtml(processInfo) {
-  const letter = (baseName(processInfo.command)[0] ?? "?").toUpperCase();
+function processIconHtml(processInfo, fallbackLetter) {
+  const letter = (
+    fallbackLetter ??
+    baseName(processInfo.command)[0] ??
+    "?"
+  ).toUpperCase();
   if (processInfo.iconUrl) {
     const src = processInfo.iconUrl.startsWith("http")
       ? processInfo.iconUrl
@@ -1228,8 +1233,9 @@ async function refreshAll({ quiet = false } = {}) {
     api("/api/services"),
     api("/api/events?limit=20"),
     api("/api/config"),
+    api("/api/inference"),
   ]);
-  const [system, services, events, config] = results;
+  const [system, services, events, config, inference] = results;
   if (system.status === "fulfilled") renderSystem(system.value);
   if (services.status === "fulfilled") {
     state.services = services.value;
@@ -1243,6 +1249,8 @@ async function refreshAll({ quiet = false } = {}) {
     state.config = config.value;
     renderSettingsFacts();
   }
+  if (inference.status === "fulfilled") state.inference = inference.value;
+  renderInference();
   const failed = results.find((result) => result.status === "rejected");
   if (failed?.status === "rejected") {
     showError(failed.reason?.message ?? "无法读取 Agent 数据");
@@ -1255,6 +1263,97 @@ async function refreshAll({ quiet = false } = {}) {
   }
   if (state.view === "logs" && state.logAuto && state.logServiceId)
     loadLogs().catch(() => {});
+}
+
+function roleLabel(role) {
+  return role === "ollama" ? "Ollama" : "ComfyUI";
+}
+
+function renderInference() {
+  const snapshot = state.inference;
+  if (!snapshot) return;
+  const list = $("inference-list");
+  if (!list) return;
+  const totals = new Map();
+  for (const processInfo of snapshot.processes)
+    totals.set(
+      processInfo.role,
+      (totals.get(processInfo.role) ?? 0) + processInfo.memoryBytes,
+    );
+  const sumText = [...totals.entries()]
+    .map(([role, bytes]) => `${roleLabel(role)} ${fmtBytes(bytes)}`)
+    .join(" · ");
+  $("inference-summary").textContent = snapshot.processes.length
+    ? `${sumText} · 合计 ${fmtBytes(snapshot.totalMemoryBytes)}`
+    : "未检测到 Ollama / ComfyUI 进程";
+
+  const systemMemory = state.system?.memory;
+  const systemUsedPercent = systemMemory
+    ? ((systemMemory.usedBytes ??
+        systemMemory.totalBytes - systemMemory.freeBytes) /
+        systemMemory.totalBytes) *
+      100
+    : 0;
+  const inferenceShare =
+    (snapshot.totalMemoryBytes / snapshot.systemMemoryBytes) * 100;
+  const pressure =
+    systemUsedPercent >= 90 || inferenceShare >= 60
+      ? "high"
+      : systemUsedPercent >= 80 || inferenceShare >= 45
+        ? "elevated"
+        : "normal";
+  const badge = $("inference-pressure");
+  badge.className = `pressure-badge ${pressure}`;
+  badge.textContent =
+    pressure === "high"
+      ? "内存紧张"
+      : pressure === "elevated"
+        ? "内存偏高"
+        : "正常";
+
+  if (!snapshot.processes.length) {
+    list.innerHTML =
+      '<p class="muted" style="padding: 8px 2px">Ollama 和 ComfyUI 当前没有运行。</p>';
+    return;
+  }
+
+  list.innerHTML = snapshot.processes
+    .map((processInfo) => {
+      const action =
+        processInfo.serviceRoot && processInfo.serviceId
+          ? `<button data-inference-stop="${escapeHtml(processInfo.serviceId)}" data-inference-name="${escapeHtml(processInfo.name)}">停止服务</button>`
+          : processInfo.killable
+            ? `<button data-terminate-pid="${processInfo.pid}" data-terminate-name="${escapeHtml(processInfo.name)}">终止</button>`
+            : `<span class="muted" title="${escapeHtml(processInfo.protectedReason ?? "")}">—</span>`;
+      return `<div class="inference-row">
+        ${processIconHtml(processInfo, processInfo.role === "comfyui" ? "C" : "O")}
+        <div class="inference-main">
+          <strong>${escapeHtml(processInfo.name)}</strong>
+          <small>${escapeHtml(roleLabel(processInfo.role))} · PID ${processInfo.pid} · CPU ${fmtPercent(processInfo.cpuPercent)}</small>
+        </div>
+        <div class="inference-memory">
+          <strong>${fmtBytes(processInfo.memoryBytes)}</strong>
+          <small>${fmtPercent(processInfo.memoryPercent)} 内存</small>
+        </div>
+        <div class="inference-actions">${action}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+async function loadInference() {
+  try {
+    state.inference = await api("/api/inference");
+    renderInference();
+  } catch {
+    // Keep the last snapshot on transient failures.
+  }
+}
+
+async function stopInferenceService(serviceId, name) {
+  if (!confirm(`停止推理服务 ${name}？`)) return;
+  await performAction(serviceId, "stop");
+  await loadInference();
 }
 
 async function loadProcesses() {
@@ -1326,6 +1425,7 @@ async function terminatePid(pid, name) {
     );
     await refreshAll({ quiet: true });
     await loadProcesses();
+    await loadInference();
     if (state.expandedServiceId) {
       loadInlineLog(state.expandedServiceId);
       const service = state.services.find(
@@ -1598,6 +1698,13 @@ document.addEventListener("click", (event) => {
     loadInlineLog(target.dataset.inlineLog);
     return;
   }
+  if (target.dataset.inferenceStop) {
+    stopInferenceService(
+      target.dataset.inferenceStop,
+      target.dataset.inferenceName ?? "推理服务",
+    );
+    return;
+  }
   if (target.dataset.terminatePid) {
     terminatePid(
       Number(target.dataset.terminatePid),
@@ -1777,6 +1884,9 @@ connect();
 setInterval(() => {
   if (!document.hidden) loadProcesses();
 }, 4000);
+setInterval(() => {
+  if (!document.hidden) loadInference();
+}, 5000);
 setInterval(() => {
   if (!document.hidden) refreshEvents();
 }, 15000);

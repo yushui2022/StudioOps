@@ -1063,6 +1063,114 @@ select {
   text-overflow: ellipsis;
 }
 
+.inference-panel {
+  border-color: var(--border);
+}
+
+.inference-list {
+  display: grid;
+  gap: 1px;
+  padding: 0 12px 10px;
+}
+
+.inference-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.inference-row:last-child {
+  border-bottom: 0;
+}
+
+.inference-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.inference-main strong {
+  display: block;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inference-main small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inference-memory {
+  flex: 0 0 auto;
+  min-width: 86px;
+  text-align: right;
+}
+
+.inference-memory strong {
+  display: block;
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.inference-memory small {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.inference-actions {
+  flex: 0 0 auto;
+}
+
+.inference-actions button {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.inference-actions button:hover {
+  border-color: #5d3a36;
+  background: #1a1211;
+  color: var(--red);
+}
+
+.pressure-badge {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.pressure-badge.elevated {
+  border-color: #5a4a2a;
+  color: var(--amber);
+}
+
+.pressure-badge.high {
+  border-color: #5d3a36;
+  color: var(--red);
+}
+
 .overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);

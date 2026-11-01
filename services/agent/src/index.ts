@@ -18,6 +18,7 @@ import { ProcessAdapter } from "./adapters/process.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { EventStore } from "./core/event-store.js";
+import { listInferenceProcesses } from "./core/inference.js";
 import { getOllamaModels } from "./core/ollama.js";
 import { ProcessIconStore } from "./core/process-icons.js";
 import { terminateProcess } from "./core/process-control.js";
@@ -162,6 +163,12 @@ app.post("/api/processes/:pid/terminate", async (c) => {
     });
     return c.json({ error: message }, 400);
   }
+});
+app.get("/api/inference", async (c) => {
+  const snapshot = await listInferenceProcesses(configStore.services);
+  for (const processInfo of snapshot.processes)
+    processInfo.iconUrl = iconStore.register(processInfo.command);
+  return json(snapshot);
 });
 app.get("/api/docker", async (c) => json(await getDockerSnapshot()));
 app.post("/api/docker/containers/:id/:action", async (c) => {
