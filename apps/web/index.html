@@ -112,13 +112,26 @@
 
         <main class="content">
           <section class="view" data-view-panel="overview">
+            <div class="hardware-bar">
+              <strong id="hw-chip">—</strong>
+              <span id="hw-cores">—</span>
+              <span id="hw-memory">—</span>
+              <span class="hardware-line"></span>
+              <span class="hardware-active"
+                >活跃 <b id="hw-active">—</b> /
+                <span id="hw-total">—</span> 核</span
+              >
+              <span class="hardware-detail" id="hw-active-detail"></span>
+            </div>
             <div class="chip-strip">
               <div class="chip">
-                <span>P-CPU</span><strong id="val-pcpu">—</strong>
+                <span id="label-pcpu">P-CPU</span
+                ><strong id="val-pcpu">—</strong>
                 <div class="bar"><i id="bar-pcpu"></i></div>
               </div>
               <div class="chip">
-                <span>S-CPU</span><strong id="val-ecpu">—</strong>
+                <span id="label-ecpu">S-CPU</span
+                ><strong id="val-ecpu">—</strong>
                 <div class="bar"><i id="bar-ecpu"></i></div>
               </div>
               <div class="chip">

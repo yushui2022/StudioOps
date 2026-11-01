@@ -5,10 +5,14 @@ import type { SystemSnapshot } from "../../../../packages/contracts/src/index.js
 
 const execFileAsync = promisify(execFile);
 
+type HardwareInfo = NonNullable<SystemSnapshot["hardware"]>;
+let hardwarePromise: Promise<HardwareInfo> | undefined;
+
 export async function getSystemSnapshot(): Promise<SystemSnapshot> {
+  const hardware = await getHardwareInfo();
   const [disk, macmon, fallbackMemory] = await Promise.all([
     readDisk(),
-    readMacmon(),
+    readMacmon(hardware),
     readMemory(),
   ]);
   const memory = macmon.memory ?? fallbackMemory;
@@ -19,11 +23,71 @@ export async function getSystemSnapshot(): Promise<SystemSnapshot> {
     uptimeSeconds: os.uptime(),
     load: os.loadavg(),
     memory,
-    cpuCount: os.cpus().length,
+    cpuCount: hardware.totalCores || os.cpus().length,
+    hardware,
     disk,
     silicon: macmon.silicon,
     updatedAt: new Date().toISOString(),
   };
+}
+
+export function getHardwareInfo(): Promise<HardwareInfo> {
+  hardwarePromise ??= readHardwareInfo();
+  return hardwarePromise;
+}
+
+async function readHardwareInfo(): Promise<HardwareInfo> {
+  const fallback: HardwareInfo = {
+    chip: os.cpus()[0]?.model?.trim() || "Mac",
+    superCores: 0,
+    performanceCores: os.cpus().length,
+    totalCores: os.cpus().length,
+  };
+  try {
+    const [brand, names, counts, ioreg] = await Promise.all([
+      execFileAsync("sysctl", ["-n", "machdep.cpu.brand_string"], {
+        timeout: 1500,
+      }),
+      execFileAsync(
+        "sysctl",
+        ["-n", "hw.perflevel0.name", "hw.perflevel1.name"],
+        { timeout: 1500 },
+      ),
+      execFileAsync(
+        "sysctl",
+        ["-n", "hw.perflevel0.logicalcpu", "hw.perflevel1.logicalcpu"],
+        { timeout: 1500 },
+      ),
+      execFileAsync("ioreg", ["-l"], {
+        timeout: 4000,
+        maxBuffer: 16 * 1024 * 1024,
+      }),
+    ]);
+    const levelNames = names.stdout.trim().split(/\r?\n/);
+    const levelCounts = counts.stdout.trim().split(/\r?\n/).map(Number);
+    let superCores = 0;
+    let performanceCores = 0;
+    levelNames.forEach((name, index) => {
+      const count = levelCounts[index];
+      if (!Number.isFinite(count)) return;
+      if (/super/i.test(name)) superCores += count;
+      else if (/performance/i.test(name)) performanceCores += count;
+    });
+    if (!superCores && !performanceCores) performanceCores = os.cpus().length;
+    const gpuCores = Number(
+      ioreg.stdout.match(/"gpu-core-count"\s*=\s*(\d+)/)?.[1],
+    );
+    return {
+      chip: brand.stdout.trim() || fallback.chip,
+      superCores,
+      performanceCores,
+      gpuCores:
+        Number.isFinite(gpuCores) && gpuCores > 0 ? gpuCores : undefined,
+      totalCores: superCores + performanceCores || os.cpus().length,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 /**
@@ -73,7 +137,7 @@ async function readDisk(): Promise<SystemSnapshot["disk"]> {
   }
 }
 
-async function readMacmon(): Promise<{
+async function readMacmon(hardware: HardwareInfo): Promise<{
   silicon?: SystemSnapshot["silicon"];
   memory?: SystemSnapshot["memory"];
 }> {
@@ -100,32 +164,53 @@ async function readMacmon(): Promise<{
       .filter((rpm): rpm is number => rpm !== undefined);
     const usedBytes = numberOrUndefined(memoryData.ram_usage);
     const totalBytes = numberOrUndefined(memoryData.ram_total);
-    const pcpuCores = Array.isArray(data.pcpu_cores)
-      ? data.pcpu_cores.length
-      : 0;
-    const ecpuCores = Array.isArray(data.ecpu_cores)
-      ? data.ecpu_cores.length
-      : 0;
+    const pcpuList = Array.isArray(data.pcpu_cores)
+      ? (data.pcpu_cores as Array<Record<string, unknown>>)
+      : [];
+    const ecpuList = Array.isArray(data.ecpu_cores)
+      ? (data.ecpu_cores as Array<Record<string, unknown>>)
+      : [];
+    const pcpuCores = pcpuList.length;
+    const ecpuCores = ecpuList.length;
     const coreCount = pcpuCores + ecpuCores;
     const pcpuRatio = numberOrUndefined(data.pcpu_scaled_ratio);
     const ecpuRatio = numberOrUndefined(data.ecpu_scaled_ratio);
+    const activeSum = (cores: Array<Record<string, unknown>>): number =>
+      cores.reduce(
+        (sum, core) =>
+          sum + Math.min(numberOrUndefined(core.active_ratio) ?? 0, 1),
+        0,
+      );
+    const pcpuIsSuper =
+      !hardware.superCores || pcpuCores === hardware.superCores;
+    const pcpuPercent =
+      pcpuRatio === undefined
+        ? undefined
+        : ratioPercent(
+            coreCount ? (pcpuRatio * pcpuCores) / coreCount : pcpuRatio,
+          );
+    const ecpuPercent =
+      ecpuRatio === undefined
+        ? undefined
+        : ratioPercent(
+            coreCount ? (ecpuRatio * ecpuCores) / coreCount : ecpuRatio,
+          );
+    const superActive = pcpuIsSuper ? activeSum(pcpuList) : activeSum(ecpuList);
+    const performanceActive = pcpuIsSuper
+      ? activeSum(ecpuList)
+      : activeSum(pcpuList);
     return {
       silicon: {
         cpuPercent: ratioPercent(data.cpu_usage_pct),
         // Cluster percentages are contributions to total CPU capacity so that
         // P-CPU + S-CPU roughly matches the overall CPU number.
-        pcpuPercent:
-          pcpuRatio === undefined
-            ? undefined
-            : ratioPercent(
-                coreCount ? (pcpuRatio * pcpuCores) / coreCount : pcpuRatio,
-              ),
-        ecpuPercent:
-          ecpuRatio === undefined
-            ? undefined
-            : ratioPercent(
-                coreCount ? (ecpuRatio * ecpuCores) / coreCount : ecpuRatio,
-              ),
+        pcpuPercent,
+        ecpuPercent,
+        superPercent: pcpuIsSuper ? pcpuPercent : ecpuPercent,
+        performancePercent: pcpuIsSuper ? ecpuPercent : pcpuPercent,
+        activeCores: superActive + performanceActive,
+        superActiveCores: superActive,
+        performanceActiveCores: performanceActive,
         gpuPercent: ratioPercent(data.gpu_active_ratio),
         gpuFrequencyMhz: numberOrUndefined(data.gpu_freq_mhz),
         anePercent: ratioPercent(data.ane_active_ratio),

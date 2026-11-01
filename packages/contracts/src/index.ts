@@ -94,10 +94,22 @@ export interface SystemSnapshot {
     totalBytes: number;
     freeBytes: number;
   };
+  hardware?: {
+    chip: string;
+    superCores: number;
+    performanceCores: number;
+    gpuCores?: number;
+    totalCores: number;
+  };
   silicon?: {
     cpuPercent?: number;
     pcpuPercent?: number;
     ecpuPercent?: number;
+    superPercent?: number;
+    performancePercent?: number;
+    activeCores?: number;
+    superActiveCores?: number;
+    performanceActiveCores?: number;
     gpuPercent?: number;
     gpuFrequencyMhz?: number;
     anePercent?: number;

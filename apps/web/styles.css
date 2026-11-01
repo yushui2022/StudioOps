@@ -828,6 +828,49 @@ select {
 
 /* ---------- overview ---------- */
 
+.hardware-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 22px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.hardware-bar strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.hardware-bar > span {
+  white-space: nowrap;
+}
+
+.hardware-line {
+  flex: 1;
+  min-width: 20px;
+  height: 1px;
+  background: var(--border-soft);
+}
+
+.hardware-active {
+  color: var(--text-soft);
+}
+
+.hardware-active b {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.hardware-detail {
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
 .chip-strip {
   display: flex;
   align-items: stretch;

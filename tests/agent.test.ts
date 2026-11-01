@@ -417,4 +417,11 @@ test("system snapshot reports used memory and CPU count", async () => {
   assert.ok((system.memory.usedBytes ?? 0) > 0);
   assert.ok((system.cpuCount ?? 0) > 0);
   assert.ok(system.disk);
+  assert.ok(system.hardware);
+  assert.ok(system.hardware.totalCores > 0);
+  assert.equal(
+    system.hardware.totalCores,
+    system.hardware.superCores + system.hardware.performanceCores,
+  );
+  assert.ok((system.silicon?.activeCores ?? 0) >= 0);
 });

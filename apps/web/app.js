@@ -328,8 +328,30 @@ function renderSystem(system) {
       barElement.style.width = "0";
     }
   };
-  setChip("val-pcpu", "bar-pcpu", silicon?.pcpuPercent);
-  setChip("val-ecpu", "bar-ecpu", silicon?.ecpuPercent);
+  const hardware = system.hardware;
+  if (hardware) {
+    const gpu = hardware.gpuCores ? ` + ${hardware.gpuCores}GPU` : "";
+    $("hw-chip").textContent = hardware.chip;
+    $("hw-cores").textContent =
+      `${hardware.performanceCores}P + ${hardware.superCores}S${gpu}`;
+    $("hw-memory").textContent = `${Math.round(
+      system.memory.totalBytes / 1024 ** 3,
+    )} GB`;
+    $("hw-total").textContent = String(hardware.totalCores);
+    $("label-pcpu").textContent = `P-CPU ${hardware.performanceCores}c`;
+    $("label-ecpu").textContent = `S-CPU ${hardware.superCores}c`;
+  }
+  const activeCores = Number.isFinite(silicon?.activeCores)
+    ? Math.min(silicon.activeCores, hardware?.totalCores ?? Infinity)
+    : undefined;
+  $("hw-active").textContent = Number.isFinite(activeCores)
+    ? activeCores.toFixed(1)
+    : "—";
+  $("hw-active-detail").textContent = silicon
+    ? `P ${(silicon.performanceActiveCores ?? 0).toFixed(1)} · S ${(silicon.superActiveCores ?? 0).toFixed(1)}`
+    : "";
+  setChip("val-pcpu", "bar-pcpu", silicon?.performancePercent);
+  setChip("val-ecpu", "bar-ecpu", silicon?.superPercent);
   setChip("val-gpu", "bar-gpu", silicon?.gpuPercent);
   setChip("val-ane", "bar-ane", silicon?.anePercent);
   setChip("val-fan", "bar-fan", silicon?.fanRpm, 4000);
