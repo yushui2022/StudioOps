@@ -24,6 +24,7 @@ npm run dev
 - `launchd`：`launchctl print`、`kickstart`、`kill` 和配置日志。
 - `docker-compose`：项目级 `up -d`、`down`、`restart`、`ps` 和 `logs`。
 - `EventStore`：操作历史保存到 `data/studioops.sqlite`，面板可直接查看最近操作。
+- 配置备份：面板“备份配置”会把 `services.yaml` 复制到 `data/backups/`。
 - 主机监控：系统负载、内存、磁盘余量，以及 `macmon` 提供的 Apple Silicon GPU/功耗/温度。
 
 ```bash

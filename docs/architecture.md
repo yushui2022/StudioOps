@@ -51,6 +51,7 @@ StudioOps 是一台 Mac 的本地运维控制台：桌面端是主入口，Web �
 - 进程与端口健康检查。
 - SQLite 操作审计、服务日志入口和最近操作面板。
 - 进程级 CPU/RSS 内存采集，和服务状态一起通过 WebSocket 更新。
+- 配置备份入口，明确“保存”保存的是配置文件而不是进程内存。
 
 当前本机配置已验证 Ollama（11434）和 ComfyUI（8188）的真实状态；Docker Compose 适配器已完成，但 Docker daemon 当前未运行。
 

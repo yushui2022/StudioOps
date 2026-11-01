@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, normalize, resolve } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import { basename, join, normalize, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -92,6 +98,19 @@ app.get("/api/config", (c) =>
     usingFallback: loadedConfig.services.length === 0,
   }),
 );
+app.post("/api/config/backup", (c) => {
+  if (!loadedConfig.filePath)
+    return c.json({ error: "No services.yaml is configured" }, 400);
+  const backupDir = join(dataDir, "backups");
+  mkdirSync(backupDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupPath = join(
+    backupDir,
+    `${stamp}-${basename(loadedConfig.filePath)}`,
+  );
+  copyFileSync(loadedConfig.filePath, backupPath);
+  return json({ path: backupPath, createdAt: new Date().toISOString() });
+});
 app.get("/api/events", (c) =>
   json(eventStore.recent(Number(c.req.query("limit") ?? 50))),
 );

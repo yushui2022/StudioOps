@@ -166,6 +166,17 @@ function connect() {
 }
 
 $("refresh").addEventListener("click", refresh);
+$("backup-config").addEventListener("click", async () => {
+  try {
+    const result = await api("/api/config/backup", {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    alert(`配置已备份到\n${result.path}`);
+  } catch (error) {
+    alert(error.message);
+  }
+});
 $("close-logs").addEventListener("click", () =>
   $("log-card").classList.add("hidden"),
 );
