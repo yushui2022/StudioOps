@@ -127,8 +127,12 @@ const baseName = (command) => {
 
 function processIconHtml(processInfo) {
   const letter = (baseName(processInfo.command)[0] ?? "?").toUpperCase();
-  if (processInfo.iconUrl)
-    return `<img class="process-icon" src="${escapeHtml(processInfo.iconUrl)}" alt="" loading="lazy" data-fallback="${escapeHtml(letter)}" />`;
+  if (processInfo.iconUrl) {
+    const src = processInfo.iconUrl.startsWith("http")
+      ? processInfo.iconUrl
+      : `${agentOrigin}${processInfo.iconUrl}`;
+    return `<img class="process-icon" src="${escapeHtml(src)}" alt="" loading="lazy" data-fallback="${escapeHtml(letter)}" />`;
+  }
   return `<span class="process-icon process-icon-fallback">${escapeHtml(letter)}</span>`;
 }
 
@@ -307,7 +311,6 @@ function renderSystem(system) {
 
   applyMetricTone($("metric-cpu"), cpu, 70, 90);
   applyMetricTone($("metric-gpu"), gpu, 80, 95);
-  applyMetricTone($("metric-memory"), memoryPct, 75, 90);
   applyMetricTone($("metric-disk"), diskPct, 80, 92);
   applyMetricTone($("metric-power"), power, 60, 90);
   applyMetricTone($("metric-temp"), temp, 70, 85);
