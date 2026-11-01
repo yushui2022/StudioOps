@@ -9,36 +9,12 @@ const agentOrigin =
     : "http://127.0.0.1:7227";
 
 const viewMeta = {
-  overview: {
-    title: "总览",
-    subtitle: "一眼看清这台 Mac 的服务、进程和资源",
-    eyebrow: "LOCAL OPERATIONS CONSOLE",
-  },
-  services: {
-    title: "服务",
-    subtitle: "启停前先确认状态、健康检查和动作白名单",
-    eyebrow: "CONTROL PLANE",
-  },
-  processes: {
-    title: "进程",
-    subtitle: "按 CPU 或内存查看当前占用最高的进程",
-    eyebrow: "PROCESS EXPLORER",
-  },
-  containers: {
-    title: "容器",
-    subtitle: "Docker daemon 状态和容器启停",
-    eyebrow: "CONTAINER RUNTIME",
-  },
-  logs: {
-    title: "日志",
-    subtitle: "查看服务日志尾部，必要时自动刷新",
-    eyebrow: "SERVICE LOGS",
-  },
-  settings: {
-    title: "设置",
-    subtitle: "配置、连接、安全状态和复用策略",
-    eyebrow: "SETTINGS",
-  },
+  overview: { title: "总览" },
+  services: { title: "服务" },
+  processes: { title: "进程" },
+  containers: { title: "容器" },
+  logs: { title: "日志" },
+  settings: { title: "设置" },
 };
 
 const actionLabels = {
@@ -282,7 +258,7 @@ function renderSystem(system) {
     ? `ANE ${ane.toFixed(1)}%`
     : system.silicon
       ? "ANE —"
-      : "未检测到 macmon";
+      : "传感器不可用";
 
   const memoryPct = system.memory.totalBytes
     ? (system.memory.usedBytes ?? 0)
@@ -554,9 +530,6 @@ function renderProcesses() {
 
 function renderEvents() {
   const events = state.events.slice(0, 12);
-  $("overview-event-count").textContent = events.length
-    ? `最近 ${events.length} 条`
-    : "";
   $("overview-event-body").innerHTML = events.length
     ? events
         .map(
@@ -653,8 +626,8 @@ function renderSettingsFacts() {
     $("settings-config-path").textContent = config.filePath ?? "未找到";
     $("settings-service-count").textContent = String(config.serviceCount);
     $("settings-config-source").textContent = config.usingFallback
-      ? "内置示例（未找到 services.yaml）"
-      : "用户配置";
+      ? "未找到 services.yaml"
+      : "本地配置";
     $("settings-origin").textContent = agentOrigin;
     $("settings-bind").textContent = `${config.host}:${config.port}`;
     $("settings-token").textContent = config.tokenRequired
@@ -662,16 +635,18 @@ function renderSettingsFacts() {
       : "未启用（仅本机回环）";
     $("settings-data-dir").textContent = config.dataDir ?? "—";
     $("settings-version").textContent = `v${config.version}`;
+    if ($("brand-version"))
+      $("brand-version").textContent = `v${config.version}`;
     const hint = $("token-hint");
     if (hint)
       hint.textContent = config.tokenRequired
-        ? "Agent 已启用 Token；保存后 HTTP 请求和 WebSocket 都会携带它。"
-        : "Agent 当前仅监听本机回环；远程绑定需要在启动时设置 STUDIOOPS_TOKEN。";
+        ? "已启用；HTTP 与 WebSocket 自动携带。"
+        : "仅监听本机回环；远程绑定需设置 STUDIOOPS_TOKEN。";
     if ($("runtime-agent"))
       $("runtime-agent").textContent = `${config.host}:${config.port}`;
     if ($("runtime-config"))
       $("runtime-config").textContent = config.usingFallback
-        ? "fallback"
+        ? "未找到"
         : `${config.serviceCount} services`;
   }
   if (system) {
@@ -930,8 +905,6 @@ function switchView(view, { updateHash = true } = {}) {
     );
   const meta = viewMeta[view];
   $("page-title").textContent = meta.title;
-  $("page-subtitle").textContent = meta.subtitle;
-  $("page-eyebrow").textContent = meta.eyebrow;
   document.title = `StudioOps · ${meta.title}`;
   closeDrawer();
   if (updateHash) {

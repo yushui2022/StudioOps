@@ -13,7 +13,7 @@
           <span class="brand-mark">S</span>
           <div>
             <strong>StudioOps</strong>
-            <small>LOCAL OPERATIONS</small>
+            <small id="brand-version">v0.1.0</small>
           </div>
         </div>
 
@@ -88,11 +88,7 @@
       <div class="main">
         <header class="topbar">
           <div class="page-heading">
-            <p class="eyebrow" id="page-eyebrow">LOCAL OPERATIONS CONSOLE</p>
             <h1 id="page-title">总览</h1>
-            <p class="page-subtitle" id="page-subtitle">
-              一眼看清这台 Mac 的服务、进程和资源
-            </p>
           </div>
           <div class="topbar-actions">
             <span class="live-tag"><i></i>LIVE <em>2s</em></span>
@@ -224,7 +220,7 @@
                 >
                   <g class="bars"></g>
                 </svg>
-                <footer id="metric-power-sub">macmon</footer>
+                <footer id="metric-power-sub">整机功耗</footer>
               </article>
               <article class="metric-card">
                 <header><span>温度</span><span class="badge">CPU</span></header>
@@ -258,14 +254,7 @@
                   </div>
                 </section>
 
-                <section class="panel">
-                  <header class="panel-head">
-                    <div>
-                      <h2>最近操作</h2>
-                      <p>服务启停和错误都会写入本地审计库</p>
-                    </div>
-                    <span class="muted" id="overview-event-count"></span>
-                  </header>
+                <section class="panel" data-title="最近操作">
                   <div class="table-wrap">
                     <table class="table">
                       <thead>
@@ -286,7 +275,6 @@
                   <header class="panel-head">
                     <div>
                       <h2>运行时</h2>
-                      <p>当前主机和 Agent 信息</p>
                     </div>
                     <div class="runtime-actions">
                       <button class="link" data-view="logs">日志</button>
@@ -315,7 +303,7 @@
                   <header class="panel-head">
                     <div>
                       <h2>进程占用</h2>
-                      <p>按 CPU 排序的前 8 个进程</p>
+                      <p>TOP 8 · CPU</p>
                     </div>
                     <button class="link" data-view="processes">全部进程</button>
                   </header>
@@ -477,13 +465,7 @@
 
           <section class="view hidden" data-view-panel="logs">
             <div class="logs-layout">
-              <aside class="panel log-services">
-                <header class="panel-head">
-                  <div>
-                    <h2>服务</h2>
-                    <p>选择后查看日志尾部</p>
-                  </div>
-                </header>
+              <aside class="panel log-services" data-title="服务">
                 <div id="log-service-list" class="log-service-list"></div>
               </aside>
 
@@ -512,13 +494,7 @@
 
           <section class="view hidden" data-view-panel="settings">
             <div class="settings-grid">
-              <section class="panel">
-                <header class="panel-head">
-                  <div>
-                    <h2>配置文件</h2>
-                    <p>服务登记和动作白名单</p>
-                  </div>
-                </header>
+              <section class="panel" data-title="配置文件">
                 <dl class="fact-list">
                   <div>
                     <dt>路径</dt>
@@ -538,13 +514,7 @@
                 </button>
               </section>
 
-              <section class="panel">
-                <header class="panel-head">
-                  <div>
-                    <h2>连接与安全</h2>
-                    <p>Agent 监听和鉴权状态</p>
-                  </div>
-                </header>
+              <section class="panel" data-title="连接与安全">
                 <dl class="fact-list">
                   <div>
                     <dt>Agent 地址</dt>
@@ -565,13 +535,7 @@
                 </dl>
               </section>
 
-              <section class="panel">
-                <header class="panel-head">
-                  <div>
-                    <h2>访问 Token</h2>
-                    <p>局域网或远程 Web 访问时保存 Bearer Token</p>
-                  </div>
-                </header>
+              <section class="panel" data-title="访问 Token">
                 <div class="token-form">
                   <input
                     id="token-input"
@@ -584,17 +548,11 @@
                   <button class="btn btn-small" id="token-clear">清除</button>
                 </div>
                 <p class="token-hint" id="token-hint">
-                  只保存在当前浏览器 localStorage；桌面端本机访问不需要。
+                  仅保存在当前浏览器；本机桌面访问不需要。
                 </p>
               </section>
 
-              <section class="panel">
-                <header class="panel-head">
-                  <div>
-                    <h2>运行信息</h2>
-                    <p>当前 Agent 和主机</p>
-                  </div>
-                </header>
+              <section class="panel" data-title="运行信息">
                 <dl class="fact-list">
                   <div>
                     <dt>版本</dt>
@@ -613,39 +571,6 @@
                     <dd id="settings-uptime">—</dd>
                   </div>
                 </dl>
-              </section>
-
-              <section class="panel">
-                <header class="panel-head">
-                  <div>
-                    <h2>复用策略</h2>
-                    <p>按需求接入，不提前堆项目</p>
-                  </div>
-                </header>
-                <ul class="policy-list">
-                  <li>
-                    <strong>mac-dash + launchd</strong
-                    ><span
-                      >已复用：Agent 架构、动作白名单，管理
-                      Ollama、ComfyUI、Node/Python 项目</span
-                    >
-                  </li>
-                  <li>
-                    <strong>macmon</strong
-                    ><span>已复用：Apple Silicon 的 GPU/ANE/功耗/温度</span>
-                  </li>
-                  <li>
-                    <strong>Uptime Kuma</strong
-                    ><span>有公网服务告警需求时再加</span>
-                  </li>
-                  <li>
-                    <strong>Dockge</strong><span>Docker 项目较多时再加</span>
-                  </li>
-                  <li>
-                    <strong>Homepage / OliveTin</strong
-                    ><span>只作为入口页和可选按钮层</span>
-                  </li>
-                </ul>
               </section>
             </div>
           </section>
@@ -674,7 +599,6 @@
     <aside id="service-drawer" class="drawer hidden" aria-label="服务详情">
       <header class="drawer-head">
         <div>
-          <p class="eyebrow">SERVICE DETAIL</p>
           <h2 id="drawer-name">—</h2>
           <p id="drawer-kind">—</p>
         </div>

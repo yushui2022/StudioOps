@@ -66,19 +66,6 @@ select {
   color: var(--muted);
 }
 
-.eyebrow {
-  color: var(--green);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.eyebrow::before {
-  content: "~ ";
-  color: var(--muted);
-}
-
 /* ---------- shell ---------- */
 
 .app-shell {
@@ -129,8 +116,8 @@ select {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.13em;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
 }
 
 .nav {
@@ -274,7 +261,7 @@ select {
 
 .topbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
   padding: 16px 20px 12px;
@@ -284,16 +271,10 @@ select {
 }
 
 .page-heading h1 {
-  margin-top: 3px;
-  font-size: 19px;
+  margin-top: 0;
+  font-size: 20px;
   letter-spacing: -0.02em;
   font-weight: 600;
-}
-
-.page-subtitle {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .topbar-actions {
@@ -1167,7 +1148,7 @@ select {
 .log-service-list {
   display: grid;
   gap: 1px;
-  padding: 0 6px 8px;
+  padding: 10px 6px 8px;
   overflow: auto;
   flex: 1;
   min-height: 0;
@@ -1247,7 +1228,7 @@ select {
 }
 
 .settings-grid .panel {
-  padding-bottom: 11px;
+  padding: 11px 0;
 }
 
 .fact-list {
@@ -1312,34 +1293,6 @@ select {
   color: var(--muted);
   font-size: 9.5px;
   line-height: 1.5;
-}
-
-.policy-list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0 13px;
-  list-style: none;
-}
-
-.policy-list li {
-  display: grid;
-  gap: 1px;
-  font-size: 10.5px;
-}
-
-.policy-list strong {
-  color: var(--text-soft);
-  font-weight: 500;
-}
-
-.policy-list strong::before {
-  content: "» ";
-  color: var(--green);
-}
-
-.policy-list span {
-  color: var(--muted);
 }
 
 /* ---------- drawer ---------- */
