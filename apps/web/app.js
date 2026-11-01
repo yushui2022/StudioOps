@@ -23,6 +23,7 @@ const actionLabels = {
   restart: "重启",
   pause: "暂停",
   resume: "继续",
+  terminate: "终止进程",
 };
 
 const stateLabels = {
@@ -512,6 +513,15 @@ function renderProcesses() {
         <td class="num"><div class="usage-cell"><span class="meter memory"><i style="width:${Math.min(Math.max(process.memoryPercent, 0), 100)}%"></i></span>${fmtPercent(process.memoryPercent)}</div></td>
         <td class="num">${fmtBytes(process.memoryBytes)}</td>
         <td class="num mono">${process.ppid}</td>
+        <td>
+          <div class="row-actions">
+            ${
+              process.killable
+                ? `<button class="danger" data-terminate-pid="${process.pid}" data-terminate-name="${escapeHtml(baseName(process.command))}">终止</button>`
+                : `<span class="muted" title="${escapeHtml(process.protectedReason ?? "")}">—</span>`
+            }
+          </div>
+        </td>
       </tr>`,
     )
     .join("");
@@ -759,6 +769,11 @@ function inlineDetailHtml(service) {
           </section>
           <div class="inline-actions">
             <button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑配置</button>
+            ${
+              service.pid
+                ? `<button class="btn btn-small btn-danger" data-terminate-pid="${service.pid}" data-terminate-name="${escapeHtml(service.name)}">终止进程</button>`
+                : ""
+            }
             ${actions}
           </div>
         </div>
@@ -1193,7 +1208,9 @@ async function refreshAll({ quiet = false } = {}) {
 
 async function loadProcesses() {
   try {
-    const data = await api(`/api/processes?sort=${state.processSort}&limit=50`);
+    const data = await api(
+      `/api/processes?sort=${state.processSort}&limit=200`,
+    );
     state.processes = data.processes;
     state.processTotal = data.total;
     renderProcesses();
@@ -1212,6 +1229,64 @@ async function loadDocker() {
 }
 
 /* ---------- actions ---------- */
+
+async function terminatePid(pid, name) {
+  if (!Number.isInteger(pid) || pid <= 1) {
+    toast("无效的进程 ID", true);
+    return;
+  }
+  if (
+    !confirm(
+      `终止进程 ${name}（PID ${pid}）？\n先发送 SIGTERM，给它正常退出的机会。`,
+    )
+  )
+    return;
+  try {
+    let result = await api(`/api/processes/${pid}/terminate`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: "{}",
+    });
+    if (!result.exited) {
+      if (
+        !confirm(
+          `进程 ${name}（PID ${pid}）仍在运行。\n强制终止会发送 SIGKILL，未保存的数据可能丢失。继续？`,
+        )
+      ) {
+        toast("已发送 SIGTERM，进程仍在运行");
+        await loadProcesses();
+        return;
+      }
+      result = await api(`/api/processes/${pid}/terminate`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-studioops-actor": "web",
+        },
+        body: JSON.stringify({ force: true }),
+      });
+    }
+    toast(
+      result.exited ? `${name} 已终止` : `${name} 未能终止`,
+      !result.exited,
+    );
+    await refreshAll({ quiet: true });
+    await loadProcesses();
+    if (state.expandedServiceId) {
+      loadInlineLog(state.expandedServiceId);
+      const service = state.services.find(
+        (item) => item.id === state.expandedServiceId,
+      );
+      if (service?.kind === "ollama") loadInlineModels(state.expandedServiceId);
+    }
+  } catch (error) {
+    toast(error.message, true);
+    await loadProcesses();
+  }
+}
 
 async function performAction(serviceId, action, button) {
   if (button) button.disabled = true;
@@ -1450,6 +1525,13 @@ document.addEventListener("click", (event) => {
   }
   if (target.dataset.inlineLog) {
     loadInlineLog(target.dataset.inlineLog);
+    return;
+  }
+  if (target.dataset.terminatePid) {
+    terminatePid(
+      Number(target.dataset.terminatePid),
+      target.dataset.terminateName ?? "进程",
+    );
     return;
   }
   if (target.dataset.restoreBackup) {

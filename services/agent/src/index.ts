@@ -19,6 +19,7 @@ import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { EventStore } from "./core/event-store.js";
 import { getOllamaModels } from "./core/ollama.js";
+import { terminateProcess } from "./core/process-control.js";
 import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
@@ -118,6 +119,41 @@ app.get("/api/services", async (c) => json(await registry.list()));
 app.get("/api/processes", async (c) => {
   const sort = c.req.query("sort") === "memory" ? "memory" : "cpu";
   return json(await listProcesses(sort, Number(c.req.query("limit") ?? 50)));
+});
+app.post("/api/processes/:pid/terminate", async (c) => {
+  const pid = Number(c.req.param("pid"));
+  const actor =
+    c.req.header("x-studioops-actor") === "desktop"
+      ? "desktop"
+      : c.req.header("x-studioops-actor") === "web"
+        ? "web"
+        : "local";
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const result = await terminateProcess(pid, body.force === true);
+    eventStore.record({
+      serviceId: `process:${pid}`,
+      action: "terminate",
+      state: result.exited ? "stopped" : "running",
+      success: true,
+      actor,
+      at: new Date().toISOString(),
+    });
+    return json(result);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to terminate process";
+    eventStore.record({
+      serviceId: `process:${pid}`,
+      action: "terminate",
+      state: "error",
+      success: false,
+      actor,
+      error: message,
+      at: new Date().toISOString(),
+    });
+    return c.json({ error: message }, 400);
+  }
 });
 app.get("/api/docker", async (c) => json(await getDockerSnapshot()));
 app.post("/api/docker/containers/:id/:action", async (c) => {

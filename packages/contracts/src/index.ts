@@ -70,7 +70,7 @@ export interface ServiceLog {
 export interface OperationEvent {
   id?: number;
   serviceId: string;
-  action: ServiceAction;
+  action: ServiceAction | "terminate";
   state: ServiceState;
   success: boolean;
   actor: "desktop" | "web" | "local";
@@ -117,6 +117,8 @@ export interface ProcessSnapshot {
   memoryPercent: number;
   memoryBytes: number;
   command: string;
+  killable?: boolean;
+  protectedReason?: string;
 }
 
 export interface ProcessListSnapshot {

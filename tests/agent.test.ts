@@ -18,7 +18,14 @@ import { ConfigStore } from "../services/agent/src/core/config-store.js";
 import { loadConfig } from "../services/agent/src/core/config.js";
 import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
 import { EventStore } from "../services/agent/src/core/event-store.js";
+import { spawn } from "node:child_process";
+import os from "node:os";
 import { withHealth } from "../services/agent/src/core/health.js";
+import { terminateProcess } from "../services/agent/src/core/process-control.js";
+import {
+  evaluateKillability,
+  listAncestorPids,
+} from "../services/agent/src/core/process-list.js";
 import {
   ollamaBaseUrl,
   summarizeOllamaModels,
@@ -222,6 +229,69 @@ test("ollama base URL derives from the health endpoint", () => {
     health: { type: "http", endpoint: "http://127.0.0.1:11434/api/tags" },
   };
   assert.equal(ollamaBaseUrl(definition), "http://127.0.0.1:11434");
+});
+
+test("process kill guard rejects system and other users", () => {
+  const user = os.userInfo().username;
+  const base = {
+    pid: 5000,
+    ppid: 1,
+    user,
+    cpuPercent: 0,
+    memoryPercent: 0,
+    memoryBytes: 0,
+    command: "/usr/bin/sleep",
+  };
+  assert.equal(evaluateKillability(base, user, []).killable, true);
+  assert.equal(
+    evaluateKillability({ ...base, pid: process.pid }, user, []).killable,
+    false,
+  );
+  assert.equal(
+    evaluateKillability({ ...base, user: "root" }, user, []).protectedReason,
+    "非当前用户进程",
+  );
+  assert.equal(
+    evaluateKillability({ ...base, command: "WindowServer" }, user, [])
+      .protectedReason,
+    "系统关键进程",
+  );
+});
+
+test("ancestor chain is protected from termination", async () => {
+  const ancestors = await listAncestorPids(process.pid);
+  assert.ok(ancestors.includes(process.pid));
+  assert.ok(ancestors.length >= 2);
+  const grandParent = ancestors.find(
+    (pid) => pid !== process.pid && pid !== process.ppid,
+  );
+  if (grandParent) {
+    const guard = evaluateKillability(
+      {
+        pid: grandParent,
+        ppid: 1,
+        user: os.userInfo().username,
+        cpuPercent: 0,
+        memoryPercent: 0,
+        memoryBytes: 0,
+        command: "zsh",
+      },
+      os.userInfo().username,
+      ancestors,
+    );
+    assert.equal(guard.killable, false);
+    assert.equal(guard.protectedReason, "StudioOps 进程链");
+  }
+});
+
+test("terminateProcess stops an owned child process", async () => {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
+  assert.ok(child.pid);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const result = await terminateProcess(child.pid);
+  assert.equal(result.exited, true);
+  assert.equal(result.signal, "SIGTERM");
+  child.kill("SIGKILL");
 });
 
 test("config store validates, backs up, saves and reloads services", () => {
