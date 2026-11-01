@@ -1,8 +1,11 @@
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { promisify } from "node:util";
+import { resolve } from "node:path";
 import type {
   ServiceAction,
   ServiceDefinition,
+  ServiceLog,
   ServiceSnapshot,
 } from "../../../../packages/contracts/src/index.js";
 import type { ServiceAdapter } from "./adapter.js";
@@ -63,5 +66,27 @@ export class LaunchdAdapter implements ServiceAdapter {
         : ["SIGTERM", definition.target];
     await execFileAsync("launchctl", args);
     return this.inspect(definition);
+  }
+
+  async logs(definition: ServiceDefinition, tail: number): Promise<ServiceLog> {
+    if (!definition.logFile || !existsSync(resolve(definition.logFile))) {
+      return {
+        serviceId: definition.id,
+        lines: ["No logFile configured for this launchd service."],
+        source: definition.logFile ?? "none",
+        truncated: false,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
+    const lines = readFileSync(resolve(definition.logFile), "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean);
+    return {
+      serviceId: definition.id,
+      lines: lines.slice(-tail),
+      source: resolve(definition.logFile),
+      truncated: lines.length > tail,
+      fetchedAt: new Date().toISOString(),
+    };
   }
 }

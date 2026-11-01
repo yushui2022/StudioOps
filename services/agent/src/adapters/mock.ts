@@ -1,6 +1,7 @@
 import type {
   ServiceAction,
   ServiceDefinition,
+  ServiceLog,
   ServiceSnapshot,
   ServiceState,
 } from "../../../../packages/contracts/src/index.js";
@@ -44,5 +45,18 @@ export class MockAdapter implements ServiceAdapter {
     const value = { state: nextState, updatedAt: new Date().toISOString() };
     this.states.set(definition.id, value);
     return { ...definition, ...value };
+  }
+
+  async logs(
+    definition: ServiceDefinition,
+    _tail: number,
+  ): Promise<ServiceLog> {
+    return {
+      serviceId: definition.id,
+      lines: ["Mock adapter has no process log stream."],
+      source: "mock",
+      truncated: false,
+      fetchedAt: new Date().toISOString(),
+    };
   }
 }

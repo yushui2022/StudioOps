@@ -6,12 +6,23 @@
 
 ## 运行
 
+要求 Node.js 22.5+（使用内置 `node:sqlite` 保存操作历史）。
+
 ```bash
 npm install
 npm run dev
 ```
 
 打开 <http://127.0.0.1:7227>。
+
+复制 `config/services.example.yaml` 为 `config/services.yaml`，再按实际项目填写。`command`、`cwd`、`composeFile`、launchd label 和健康检查都来自这份受控配置；网页不能临时提交 shell 命令。
+
+当前已接入的真实边界：
+
+- `process`：启动、停止、重启、暂停、恢复、日志和 PID/健康检查。
+- `launchd`：`launchctl print`、`kickstart`、`kill` 和配置日志。
+- `docker-compose`：项目级 `up -d`、`down`、`restart`、`ps` 和 `logs`。
+- `EventStore`：操作历史保存到 `data/studioops.sqlite`，面板可直接查看最近操作。
 
 ```bash
 npm test
@@ -26,11 +37,14 @@ npm install
 npm run build
 ```
 
+以后也可以在仓库根目录执行 `npm run desktop:dev` 或 `npm run desktop:build`。
+
 ## 目录
 
 - `services/agent`：本机控制层，HTTP API、WebSocket、适配器和服务注册表。
 - `packages/contracts`：桌面端、Web、Agent 共用的 TypeScript 契约。
-- `apps/web`：第一版控制台；后续由 Tauri 2 桌面壳复用。
+- `apps/web`：控制台页面；由浏览器和 Tauri 2 桌面壳共同复用。
+- `apps/desktop/src-tauri`：桌面壳和 Agent resource 启动逻辑。
 - `docs/architecture.md`：技术架构和分阶段路线。
 - `docs/research/mac-dash.md`：基于 mac-dash 实际源码的复用与取舍记录。
 - `docs/research/adjacent-projects.md`：Dockge、Uptime Kuma、Netdata、OliveTin 等项目的复用边界。

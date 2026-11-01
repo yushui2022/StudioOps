@@ -109,6 +109,11 @@ small {
   margin-top: 14px;
   padding: 24px;
 }
+.activity,
+.logs {
+  margin-top: 14px;
+  padding: 24px;
+}
 .section-heading {
   margin-bottom: 18px;
 }
@@ -160,6 +165,23 @@ button:disabled {
   background: #493a19;
   color: #f2c66d;
 }
+.health {
+  min-width: 70px;
+  text-align: center;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  background: #293142;
+  color: #bac4d8;
+}
+.health-healthy {
+  background: #173d31;
+  color: #73e1aa;
+}
+.health-unhealthy {
+  background: #49211f;
+  color: #ff9e93;
+}
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -169,6 +191,50 @@ button:disabled {
 .actions button {
   padding: 6px 9px;
   font-size: 12px;
+}
+.event-list {
+  display: grid;
+  gap: 8px;
+}
+.event-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 100px 170px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #252d3b;
+  border-radius: 10px;
+  background: #151a23;
+  font-size: 13px;
+}
+.event-result {
+  font-size: 11px;
+}
+.event-result.success {
+  color: #73e1aa;
+}
+.event-result.failure {
+  color: #ff9e93;
+}
+.logs pre {
+  min-height: 160px;
+  max-height: 420px;
+  overflow: auto;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #252d3b;
+  border-radius: 10px;
+  background: #0b0e13;
+  color: #c8d0df;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+}
+.hidden {
+  display: none;
 }
 .error {
   color: #ff8d81;
@@ -187,5 +253,11 @@ button:disabled {
   }
   .actions {
     justify-content: flex-start;
+  }
+  .event-row {
+    grid-template-columns: 48px 1fr 80px;
+  }
+  .event-row small {
+    grid-column: 2 / -1;
   }
 }

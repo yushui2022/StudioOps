@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -12,15 +11,22 @@ import type {
   Topic,
 } from "../../../packages/contracts/src/index.js";
 import { LaunchdAdapter } from "./adapters/launchd.js";
+import { DockerComposeAdapter } from "./adapters/docker-compose.js";
 import { MockAdapter } from "./adapters/mock.js";
+import { ProcessAdapter } from "./adapters/process.js";
+import { loadConfig } from "./core/config.js";
+import { EventStore } from "./core/event-store.js";
 import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
 
-const rootDir = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
-const webDir = join(rootDir, "apps/web");
+const rootDir = resolve(process.env.STUDIOOPS_ROOT ?? process.cwd());
+const webDir = resolve(
+  process.env.STUDIOOPS_WEB_DIR ?? join(rootDir, "apps/web"),
+);
 const host = process.env.STUDIOOPS_HOST ?? "127.0.0.1";
 const port = Number(process.env.STUDIOOPS_PORT ?? 7227);
 const configuredToken = process.env.STUDIOOPS_TOKEN ?? "";
+const dataDir = process.env.STUDIOOPS_DATA_DIR ?? join(rootDir, "data");
 
 if (host !== "127.0.0.1" && host !== "localhost" && !configuredToken) {
   throw new Error("STUDIOOPS_TOKEN is required when binding outside loopback");
@@ -29,18 +35,25 @@ if (host !== "127.0.0.1" && host !== "localhost" && !configuredToken) {
 const registry = new ServiceRegistry();
 registry.registerAdapter(new MockAdapter());
 registry.registerAdapter(new LaunchdAdapter());
-registry.register({
-  id: "demo-web",
-  name: "Demo Web Project",
-  kind: "process",
-  description:
-    "Placeholder service showing the control contract before real adapters are enabled.",
-  group: "Projects",
-  adapter: "mock",
-  target: "demo-web",
-  allowedActions: ["start", "stop", "restart", "pause", "resume"],
-  health: { type: "none" },
-});
+registry.registerAdapter(new ProcessAdapter());
+registry.registerAdapter(new DockerComposeAdapter());
+const loadedConfig = loadConfig(rootDir);
+if (loadedConfig.services.length > 0) {
+  for (const service of loadedConfig.services) registry.register(service);
+} else {
+  registry.register({
+    id: "demo-web",
+    name: "Demo Web Project",
+    kind: "process",
+    description: "Fallback service used until config/services.yaml is created.",
+    group: "Projects",
+    adapter: "mock",
+    target: "demo-web",
+    allowedActions: ["start", "stop", "restart", "pause", "resume"],
+    health: { type: "none" },
+  });
+}
+const eventStore = new EventStore(dataDir);
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
@@ -72,11 +85,50 @@ app.get("/api/health", (c) =>
 );
 app.get("/api/system", (c) => json(getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
+app.get("/api/config", (c) =>
+  json({
+    filePath: loadedConfig.filePath,
+    serviceCount: loadedConfig.services.length,
+    usingFallback: loadedConfig.services.length === 0,
+  }),
+);
+app.get("/api/events", (c) =>
+  json(eventStore.recent(Number(c.req.query("limit") ?? 50))),
+);
+app.get("/api/services/:id/logs", async (c) => {
+  try {
+    return json(
+      await registry.logs(
+        c.req.param("id"),
+        Number(c.req.query("tail") ?? 200),
+      ),
+    );
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : "Unable to read logs" },
+      400,
+    );
+  }
+});
 app.post("/api/services/:id/:action", async (c) => {
   const id = c.req.param("id");
   const action = c.req.param("action") as ServiceAction;
+  const actor =
+    c.req.header("x-studioops-actor") === "desktop"
+      ? "desktop"
+      : c.req.header("x-studioops-actor") === "web"
+        ? "web"
+        : "local";
   try {
     const snapshot = await registry.execute(id, action);
+    const event = eventStore.record({
+      serviceId: id,
+      action,
+      state: snapshot.state,
+      success: true,
+      actor,
+      at: new Date().toISOString(),
+    });
     broadcast(
       { type: "snapshot", topic: "services", data: await registry.list() },
       "services",
@@ -89,13 +141,22 @@ app.post("/api/services/:id/:action", async (c) => {
           action,
           serviceId: id,
           state: snapshot.state,
-          at: new Date().toISOString(),
+          at: event.at,
         },
       },
       "events",
     );
     return json(snapshot);
   } catch (error) {
+    eventStore.record({
+      serviceId: id,
+      action,
+      state: "error",
+      success: false,
+      actor,
+      error: error instanceof Error ? error.message : "Action failed",
+      at: new Date().toISOString(),
+    });
     return c.json(
       { error: error instanceof Error ? error.message : "Action failed" },
       400,
@@ -180,3 +241,5 @@ setInterval(async () => {
       "services",
     );
 }, 5000).unref();
+
+process.on("exit", () => eventStore.close());

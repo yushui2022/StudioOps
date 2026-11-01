@@ -16,6 +16,8 @@ export type ServiceState =
   | "paused"
   | "error";
 
+export type HealthState = "unknown" | "healthy" | "unhealthy";
+
 export type ServiceAction = "start" | "stop" | "restart" | "pause" | "resume";
 
 export interface ServiceDefinition {
@@ -27,6 +29,15 @@ export interface ServiceDefinition {
   adapter: string;
   target: string;
   allowedActions: ServiceAction[];
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  pidFile?: string;
+  composeFile?: string;
+  projectName?: string;
+  logFile?: string;
+  port?: number;
   health?: {
     type: "http" | "tcp" | "process" | "none";
     endpoint?: string;
@@ -38,7 +49,29 @@ export interface ServiceSnapshot extends ServiceDefinition {
   pid?: number;
   uptimeSeconds?: number;
   lastError?: string;
+  healthState?: HealthState;
+  healthMessage?: string;
+  details?: Record<string, unknown>;
   updatedAt: string;
+}
+
+export interface ServiceLog {
+  serviceId: string;
+  lines: string[];
+  source: string;
+  truncated: boolean;
+  fetchedAt: string;
+}
+
+export interface OperationEvent {
+  id?: number;
+  serviceId: string;
+  action: ServiceAction;
+  state: ServiceState;
+  success: boolean;
+  actor: "desktop" | "web" | "local";
+  error?: string;
+  at: string;
 }
 
 export interface SystemSnapshot {

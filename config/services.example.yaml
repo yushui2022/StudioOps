@@ -7,6 +7,10 @@ services:
     kind: process
     adapter: process
     target: /Users/orlando/Projects/my-node-project
+    command: npm
+    args: [run, dev]
+    cwd: /Users/orlando/Projects/my-node-project
+    logFile: data/logs/my-node-project.log
     allowedActions: [start, stop, restart, pause, resume]
     health:
       type: http
@@ -15,9 +19,32 @@ services:
   - id: ollama
     name: Ollama
     kind: ollama
-    adapter: ollama
+    adapter: process
     target: http://127.0.0.1:11434
+    command: /Applications/Ollama.app/Contents/Resources/ollama
+    args: [serve]
+    port: 11434
     allowedActions: [start, stop, restart]
     health:
       type: http
       endpoint: http://127.0.0.1:11434/api/tags
+
+  - id: my-compose-stack
+    name: My Compose Stack
+    kind: docker-compose
+    adapter: docker-compose
+    target: /Users/orlando/Projects/my-compose-stack/compose.yaml
+    composeFile: /Users/orlando/Projects/my-compose-stack/compose.yaml
+    projectName: my-compose-stack
+    allowedActions: [start, stop, restart]
+    health:
+      type: tcp
+      endpoint: tcp://127.0.0.1:8080
+
+  - id: my-launchd-service
+    name: My LaunchAgent
+    kind: launchd
+    adapter: launchd
+    target: gui/501/com.example.my-service
+    allowedActions: [start, stop, restart]
+    logFile: data/logs/my-launchd-service.log

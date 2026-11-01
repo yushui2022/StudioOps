@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-compose.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
+import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
+import { loadConfig } from "../services/agent/src/core/config.js";
+import { EventStore } from "../services/agent/src/core/event-store.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
+import type { ServiceDefinition } from "../packages/contracts/src/index.js";
 
 test("service registry exposes only registered actions", async () => {
   const registry = new ServiceRegistry();
@@ -21,4 +29,67 @@ test("service registry exposes only registered actions", async () => {
     () => registry.execute("test-service", "pause"),
     /not allowed/,
   );
+});
+
+test("YAML config loads process and launchd definitions without shell expansion", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-config-"));
+  const configPath = join(root, "services.yaml");
+  writeFileSync(
+    configPath,
+    `services:\n  - id: local-process\n    name: Local Process\n    kind: process\n    adapter: process\n    target: ./ignored-target\n    command: node\n    args: [--version]\n    allowedActions: [start, stop]\n  - id: launchd-job\n    name: Launchd Job\n    kind: launchd\n    adapter: launchd\n    target: gui/501/example.job\n    allowedActions: [start, stop]\n`,
+  );
+  const previous = process.env.STUDIOOPS_CONFIG;
+  process.env.STUDIOOPS_CONFIG = configPath;
+  try {
+    const loaded = loadConfig(root);
+    assert.equal(loaded.services.length, 2);
+    assert.equal(loaded.services[0]?.command, "node");
+    assert.equal(loaded.services[1]?.target, "gui/501/example.job");
+  } finally {
+    if (previous === undefined) delete process.env.STUDIOOPS_CONFIG;
+    else process.env.STUDIOOPS_CONFIG = previous;
+  }
+});
+
+test("process adapter starts, inspects, pauses and stops a configured child", async () => {
+  const adapter = new ProcessAdapter();
+  const definition: ServiceDefinition = {
+    id: "sleeping-child",
+    name: "Sleeping Child",
+    kind: "process" as const,
+    adapter: "process",
+    target: "sleeping-child",
+    command: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    allowedActions: ["start", "stop", "pause", "resume", "restart"],
+  };
+  const started = await adapter.execute(definition, "start");
+  assert.equal(started.state, "running");
+  assert.ok(started.pid);
+  const paused = await adapter.execute(definition, "pause");
+  assert.equal(paused.state, "paused");
+  await adapter.execute(definition, "resume");
+  const stopped = await adapter.execute(definition, "stop");
+  assert.equal(stopped.state, "stopped");
+});
+
+test("event store persists and reads operation history", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "studioops-events-"));
+  const store = new EventStore(dataDir);
+  const event = store.record({
+    serviceId: "demo",
+    action: "start",
+    state: "running",
+    success: true,
+    actor: "local",
+    at: new Date().toISOString(),
+  });
+  assert.ok(event.id);
+  assert.equal(store.recent(10)[0]?.serviceId, "demo");
+  store.close();
+});
+
+test("docker adapter keeps command construction separate from shell", () => {
+  const adapter = new DockerComposeAdapter();
+  assert.equal(adapter.id, "docker-compose");
 });

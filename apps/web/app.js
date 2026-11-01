@@ -12,6 +12,19 @@ const fmtUptime = (seconds) => {
   return `${hours}h ${minutes}m`;
 };
 
+const escapeHtml = (value) =>
+  String(value ?? "").replace(
+    /[&<>'"]/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "'": "&#39;",
+        '"': "&quot;",
+      })[character],
+  );
+
 function renderSystem(system) {
   $("hostname").textContent = system.hostname;
   $("platform").textContent = `${system.platform} · ${system.arch}`;
@@ -23,15 +36,22 @@ function renderSystem(system) {
 
 function renderServices(services) {
   $("service-list").innerHTML = services
-    .map(
-      (service) => `
+    .map((service) => {
+      const detail =
+        service.kind === "ollama" && service.details?.modelCount !== undefined
+          ? `${service.details.modelCount} 个模型`
+          : service.kind === "comfyui" && service.details?.devices?.length
+            ? `GPU: ${service.details.devices.join(", ")}`
+            : service.healthMessage || "";
+      return `
     <article class="service-row">
-      <div><strong>${service.name}</strong><small>${service.kind} · ${service.description || service.target}</small></div>
-      <span class="state state-${service.state}">${service.state}</span>
-      <div class="actions">${service.allowedActions.map((action) => `<button data-service="${service.id}" data-action="${action}">${action}</button>`).join("")}</div>
+      <div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.kind)} · ${escapeHtml(service.description || service.target)}</small><small>${escapeHtml(detail)}</small></div>
+      <span class="state state-${escapeHtml(service.state)}">${escapeHtml(service.state)}</span>
+      <span class="health health-${escapeHtml(service.healthState || "unknown")}">${escapeHtml(service.healthState || "unknown")}</span>
+      <div class="actions"><button data-log-service="${escapeHtml(service.id)}">日志</button>${service.allowedActions.map((action) => `<button data-service="${escapeHtml(service.id)}" data-action="${escapeHtml(action)}">${escapeHtml(action)}</button>`).join("")}</div>
     </article>
-  `,
-    )
+  `;
+    })
     .join("");
   document.querySelectorAll("[data-action]").forEach((button) =>
     button.addEventListener("click", async () => {
@@ -39,7 +59,7 @@ function renderServices(services) {
       try {
         await api(
           `/api/services/${button.dataset.service}/${button.dataset.action}`,
-          { method: "POST" },
+          { method: "POST", headers: { "x-studioops-actor": "web" } },
         );
         await refresh();
       } catch (error) {
@@ -49,11 +69,54 @@ function renderServices(services) {
       }
     }),
   );
+  document
+    .querySelectorAll("[data-log-service]")
+    .forEach((button) =>
+      button.addEventListener("click", () =>
+        openLogs(button.dataset.logService),
+      ),
+    );
+}
+
+function renderEvents(events) {
+  $("event-list").innerHTML = events.length
+    ? events
+        .slice(0, 8)
+        .map(
+          (event) =>
+            `<div class="event-row"><span class="event-result ${event.success ? "success" : "failure"}">${event.success ? "成功" : "失败"}</span><strong>${escapeHtml(event.serviceId)}</strong><span>${escapeHtml(event.action)}</span><small>${new Date(event.at).toLocaleString()}</small></div>`,
+        )
+        .join("")
+    : '<p class="muted">暂无操作记录</p>';
+}
+
+async function openLogs(serviceId) {
+  $("log-card").classList.remove("hidden");
+  $("log-title").textContent = `${serviceId} 日志`;
+  $("log-output").textContent = "加载中…";
+  try {
+    const log = await api(
+      `/api/services/${encodeURIComponent(serviceId)}/logs?tail=200`,
+    );
+    $("log-output").textContent = log.lines.join("\n") || "暂无日志";
+  } catch (error) {
+    $("log-output").textContent = error.message;
+  }
 }
 
 async function refresh() {
-  renderSystem(await api("/api/system"));
-  renderServices(await api("/api/services"));
+  const [system, services, events, config] = await Promise.all([
+    api("/api/system"),
+    api("/api/services"),
+    api("/api/events?limit=8"),
+    api("/api/config"),
+  ]);
+  renderSystem(system);
+  renderServices(services);
+  renderEvents(events);
+  $("config-source").textContent = config.usingFallback
+    ? "使用内置示例服务"
+    : `${config.serviceCount} 个已配置服务`;
 }
 
 function connect() {
@@ -80,6 +143,9 @@ function connect() {
 }
 
 $("refresh").addEventListener("click", refresh);
+$("close-logs").addEventListener("click", () =>
+  $("log-card").classList.add("hidden"),
+);
 refresh().catch((error) => {
   $("service-list").innerHTML = `<p class="error">${error.message}</p>`;
 });

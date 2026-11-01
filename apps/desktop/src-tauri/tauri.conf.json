@@ -5,6 +5,7 @@
   "identifier": "com.studioops.desktop",
   "build": {
     "beforeDevCommand": "npm --prefix ../.. run start",
+    "beforeBuildCommand": "npm --prefix ../.. run build:agent",
     "devUrl": "http://127.0.0.1:7227",
     "frontendDist": "../../web"
   },
@@ -24,6 +25,7 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": false,
+    "resources": ["../../../dist/agent.cjs", "../../web"]
   }
 }

@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "tsx watch services/agent/src/index.ts",
     "start": "tsx services/agent/src/index.ts",
+    "build:agent": "esbuild services/agent/src/index.ts --bundle --platform=node --format=cjs --outfile=dist/agent.cjs --external:node:*",
+    "desktop:dev": "npm --prefix apps/desktop run dev",
+    "desktop:build": "npm --prefix apps/desktop run build",
     "test": "node --import tsx --test",
     "typecheck": "tsc --noEmit",
     "format:check": "prettier --check ."
@@ -14,11 +17,13 @@
   "dependencies": {
     "@hono/node-server": "^1.19.3",
     "hono": "^4.9.8",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
     "prettier": "^3.6.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

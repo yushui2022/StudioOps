@@ -48,6 +48,30 @@
           <p class="muted">加载中…</p>
         </div>
       </section>
+
+      <section class="card activity">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">AUDIT TRAIL</p>
+            <h2>最近操作</h2>
+          </div>
+          <span id="config-source" class="muted"></span>
+        </div>
+        <div id="event-list" class="event-list">
+          <p class="muted">暂无操作记录</p>
+        </div>
+      </section>
+
+      <section id="log-card" class="card logs hidden">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SERVICE LOG</p>
+            <h2 id="log-title">日志</h2>
+          </div>
+          <button id="close-logs">关闭</button>
+        </div>
+        <pre id="log-output">加载中…</pre>
+      </section>
     </main>
     <script type="module" src="/app.js"></script>
   </body>

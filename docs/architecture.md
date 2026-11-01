@@ -36,19 +36,22 @@ StudioOps 是一台 Mac 的本地运维控制台：桌面端是主入口，Web �
 
 ## 版本路线
 
-### 0.1 可运行骨架（当前）
+### 0.1 可运行骨架（已完成）
 
 - Agent 健康检查、主机指标、服务列表、动作白名单。
 - Mock adapter 验证桌面/Web 共用控制契约。
 - launchd adapter 的安全边界和命令映射。
 - 一个不依赖构建工具的 Web 控制台。
 
-### 0.2 真实服务接入
+### 0.2 真实服务接入（进行中）
 
 - YAML 配置加载与 schema 校验。
 - launchd：`print/kickstart/kill`、日志、崩溃状态。
 - Docker Compose：项目级 up/down/restart/logs，禁止裸 Docker socket 暴露到浏览器。
 - 进程与端口健康检查。
+- SQLite 操作审计、服务日志入口和最近操作面板。
+
+当前本机配置已验证 Ollama（11434）和 ComfyUI（8188）的真实状态；Docker Compose 适配器已完成，但 Docker daemon 当前未运行。
 
 ### 0.3 AI 与穿透
 

@@ -1,6 +1,7 @@
 import type {
   ServiceAction,
   ServiceDefinition,
+  ServiceLog,
   ServiceSnapshot,
 } from "../../../../packages/contracts/src/index.js";
 
@@ -12,4 +13,5 @@ export interface ServiceAdapter {
     definition: ServiceDefinition,
     action: ServiceAction,
   ): Promise<ServiceSnapshot>;
+  logs?(definition: ServiceDefinition, tail: number): Promise<ServiceLog>;
 }
