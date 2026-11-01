@@ -99,7 +99,7 @@ app.use(
       "http://tauri.localhost",
       "https://tauri.localhost",
     ],
-    allowHeaders: ["Authorization", "Content-Type"],
+    allowHeaders: ["Authorization", "Content-Type", "x-studioops-actor"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   }),
 );

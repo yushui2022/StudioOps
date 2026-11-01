@@ -88,6 +88,7 @@
 9. 设置页可看到每次保存前的备份并恢复；恢复后注册表立即回到备份内容。非法 YAML reload 返回 400，上一份可用配置保持不变。
 10. 把进程服务写坏后通过 `POST /api/config/reload` 验证：返回 400，旧服务列表继续可用。
 11. 用真实 Ollama LaunchAgent 验证停止/启动：`bootout` 后状态 stopped、11434 关闭；`bootstrap + kickstart` 后恢复 running/healthy。停止状态不再显示 unhealthy，而是 unknown。
+12. 桌面端按钮曾提示“Agent 未启动或端口 7227 不可达”：根因是 Tauri 内嵌页面跨域请求带 `x-studioops-actor`，而 CORS 预检没允许该头。已加入 allowHeaders，并用 OPTIONS 验证返回 204 和完整 allow-headers。以后新增自定义请求头必须同步更新 CORS。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
