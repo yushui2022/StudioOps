@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 import type {
@@ -14,11 +15,36 @@ import { readProcessMetrics } from "../core/process-metrics.js";
 const execFileAsync = promisify(execFile);
 
 /**
+ * Map a StudioOps action to explicit launchctl arguments. Kept separate from
+ * execute() so the command shape is unit-testable.
+ */
+export function launchctlArgsFor(
+  action: ServiceAction,
+  target: string,
+): string[] | null {
+  if (action === "start" || action === "restart")
+    return ["kickstart", "-k", target];
+  if (action === "stop") return ["bootout", target];
+  return null;
+}
+
+function domainOf(target: string): string {
+  const separator = target.lastIndexOf("/");
+  return separator > 0 ? target.slice(0, separator) : "gui/501";
+}
+
+function labelOf(target: string): string {
+  const separator = target.lastIndexOf("/");
+  return separator >= 0 ? target.slice(separator + 1) : target;
+}
+
+/**
  * launchd adapter boundary. The target is a configured label, never a client supplied path
  * or shell fragment. The command mapping mirrors mac-dash's explicit action whitelist.
  */
 export class LaunchdAdapter implements ServiceAdapter {
   readonly id = "launchd";
+  private readonly plistPaths = new Map<string, string>();
 
   canHandle(definition: ServiceDefinition): boolean {
     return definition.adapter === this.id;
@@ -31,6 +57,8 @@ export class LaunchdAdapter implements ServiceAdapter {
         ["print", definition.target],
         { timeout: 3000, maxBuffer: 1024 * 1024 },
       );
+      const pathMatch = result.stdout.match(/^\s*path = (.+)$/m);
+      if (pathMatch?.[1]) this.plistPaths.set(definition.target, pathMatch[1]);
       const pidMatch = result.stdout.match(/^\s*pid\s*=\s*(\d+)/m);
       const pid = pidMatch ? Number(pidMatch[1]) : undefined;
       return {
@@ -57,24 +85,55 @@ export class LaunchdAdapter implements ServiceAdapter {
       throw new Error(`Action ${action} is not allowed for ${definition.id}`);
     }
 
-    const command =
-      action === "start" || action === "restart"
-        ? "kickstart"
-        : action === "stop"
-          ? "kill"
-          : null;
-    if (!command) {
+    const args = launchctlArgsFor(action, definition.target);
+    if (!args) {
       throw new Error(
         `launchd does not support ${action} in the first adapter version`,
       );
     }
 
-    const args =
-      command === "kickstart"
-        ? ["-k", definition.target]
-        : ["SIGTERM", definition.target];
-    await execFileAsync("launchctl", args);
+    if (action === "stop") {
+      try {
+        await execFileAsync("launchctl", args);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/could not find service|no such process/i.test(message))
+          throw error;
+      }
+      return this.inspect(definition);
+    }
+
+    try {
+      await execFileAsync("launchctl", args);
+    } catch (error) {
+      // A booted-out job cannot be kickstarted; bootstrap its plist first.
+      const plistFile = this.resolvePlistFile(definition);
+      if (!plistFile)
+        throw new Error(
+          `Cannot start ${definition.id}: launchctl kickstart failed and no plist file is configured`,
+        );
+      await execFileAsync("launchctl", [
+        "bootstrap",
+        domainOf(definition.target),
+        plistFile,
+      ]);
+      await execFileAsync("launchctl", args);
+    }
     return this.inspect(definition);
+  }
+
+  private resolvePlistFile(definition: ServiceDefinition): string | undefined {
+    if (definition.plistFile && existsSync(definition.plistFile))
+      return definition.plistFile;
+    const cached = this.plistPaths.get(definition.target);
+    if (cached && existsSync(cached)) return cached;
+    const label = labelOf(definition.target);
+    const candidates = [
+      resolve(homedir(), "Library/LaunchAgents", `${label}.plist`),
+      `/Library/LaunchAgents/${label}.plist`,
+      `/Library/LaunchDaemons/${label}.plist`,
+    ];
+    return candidates.find((candidate) => existsSync(candidate));
   }
 
   async logs(definition: ServiceDefinition, tail: number): Promise<ServiceLog> {

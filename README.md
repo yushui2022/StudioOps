@@ -21,7 +21,7 @@ npm run dev
 
 - `process`：启动、停止、重启、暂停、恢复、日志和 PID/健康检查。
 - 进程快照：通过 PID/端口读取 CPU、RSS 内存和内存占比，并实时显示在服务卡片。
-- `launchd`：`launchctl print`、`kickstart`、`kill` 和配置日志。
+- `launchd`：`launchctl print`、`kickstart`、`bootout`/`bootstrap`、可选 `plistFile` 和配置日志。
 - 本机现有 LaunchAgent：Ollama、ComfyUI 和 Ollama Tunnel 均通过真实 `gui/501/...` label 管理。
 - `docker-compose`：项目级 `up -d`、`down`、`restart`、`ps` 和 `logs`。
 - `EventStore`：操作历史保存到 `data/studioops.sqlite`，面板可直接查看最近操作。

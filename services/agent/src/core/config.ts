@@ -130,6 +130,7 @@ function validateService(
     cwd: optionalPath(record, "cwd", rootDirFrom(filePath)),
     env: optionalStringRecord(record, "env"),
     pidFile: optionalPath(record, "pidFile", rootDirFrom(filePath)),
+    plistFile: optionalPath(record, "plistFile", rootDirFrom(filePath)),
     composeFile: optionalPath(record, "composeFile", rootDirFrom(filePath)),
     projectName: optionalString(record, "projectName"),
     logFile: optionalPath(record, "logFile", rootDirFrom(filePath)),

@@ -34,6 +34,7 @@ export interface ServiceDefinition {
   cwd?: string;
   env?: Record<string, string>;
   pidFile?: string;
+  plistFile?: string;
   composeFile?: string;
   projectName?: string;
   logFile?: string;

@@ -9,6 +9,12 @@ export async function withHealth(
   definition: ServiceDefinition,
   snapshot: ServiceSnapshot,
 ): Promise<ServiceSnapshot> {
+  if (snapshot.state !== "running")
+    return {
+      ...snapshot,
+      healthState: "unknown",
+      healthMessage: "not running",
+    };
   if (!definition.health || definition.health.type === "none")
     return { ...snapshot, healthState: "unknown" };
   if (definition.health.type === "process")

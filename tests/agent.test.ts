@@ -11,12 +11,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-compose.js";
+import { launchctlArgsFor } from "../services/agent/src/adapters/launchd.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
 import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
 import { ConfigStore } from "../services/agent/src/core/config-store.js";
 import { loadConfig } from "../services/agent/src/core/config.js";
 import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
 import { EventStore } from "../services/agent/src/core/event-store.js";
+import { withHealth } from "../services/agent/src/core/health.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
 import { getSystemSnapshot } from "../services/agent/src/core/system.js";
@@ -131,6 +133,43 @@ test("event store persists and reads operation history", () => {
 test("docker adapter keeps command construction separate from shell", () => {
   const adapter = new DockerComposeAdapter();
   assert.equal(adapter.id, "docker-compose");
+});
+
+test("launchd stop boots the job out and start kickstarts it", () => {
+  assert.deepEqual(launchctlArgsFor("stop", "gui/501/ai.local.ollama"), [
+    "bootout",
+    "gui/501/ai.local.ollama",
+  ]);
+  assert.deepEqual(launchctlArgsFor("start", "gui/501/ai.local.ollama"), [
+    "kickstart",
+    "-k",
+    "gui/501/ai.local.ollama",
+  ]);
+  assert.deepEqual(launchctlArgsFor("restart", "gui/501/ai.local.ollama"), [
+    "kickstart",
+    "-k",
+    "gui/501/ai.local.ollama",
+  ]);
+  assert.equal(launchctlArgsFor("pause", "gui/501/ai.local.ollama"), null);
+});
+
+test("stopped services report unknown health instead of unhealthy", async () => {
+  const definition: ServiceDefinition = {
+    id: "stopped-service",
+    name: "Stopped Service",
+    kind: "process",
+    adapter: "process",
+    target: "stopped-service",
+    allowedActions: ["start"],
+    health: { type: "http", endpoint: "http://127.0.0.1:1/health" },
+  };
+  const result = await withHealth(definition, {
+    ...definition,
+    state: "stopped",
+    updatedAt: new Date().toISOString(),
+  });
+  assert.equal(result.healthState, "unknown");
+  assert.equal(result.healthMessage, "not running");
 });
 
 test("config store validates, backs up, saves and reloads services", () => {

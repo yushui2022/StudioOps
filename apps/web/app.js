@@ -759,6 +759,7 @@ function updateFormVisibility() {
   const adapter = $("form-adapter").value;
   $("fields-process").classList.toggle("hidden", adapter !== "process");
   $("fields-compose").classList.toggle("hidden", adapter !== "docker-compose");
+  $("fields-launchd").classList.toggle("hidden", adapter !== "launchd");
 }
 
 function setFormError(message) {
@@ -778,6 +779,7 @@ function resetServiceForm() {
     "form-args",
     "form-cwd",
     "form-log-file",
+    "form-plist-file",
     "form-env",
     "form-pid-file",
     "form-port",
@@ -821,6 +823,7 @@ function openServiceForm(service) {
       .map(([key, value]) => `${key}=${value}`)
       .join("\n");
     $("form-pid-file").value = service.pidFile ?? "";
+    $("form-plist-file").value = service.plistFile ?? "";
     $("form-port").value = service.port ?? "";
     $("form-compose-file").value = service.composeFile ?? "";
     $("form-project-name").value = service.projectName ?? "";
@@ -900,6 +903,8 @@ function collectServiceForm() {
       }
     }
   }
+  if (adapter === "launchd" && $("form-plist-file").value.trim())
+    service.plistFile = $("form-plist-file").value.trim();
   if (adapter === "docker-compose") {
     service.composeFile = $("form-compose-file").value.trim();
     if (!service.composeFile) throw new Error("Compose 服务需要 composeFile");
