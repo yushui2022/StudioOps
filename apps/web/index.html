@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StudioOps</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LOCAL OPERATIONS CONSOLE</p>
+          <h1>StudioOps</h1>
+          <p class="muted">桌面端优先的 Mac 服务控制面板</p>
+        </div>
+        <div class="connection">
+          <span id="connection-dot"></span
+          ><span id="connection-text">连接中</span>
+        </div>
+      </header>
+
+      <section class="grid metrics">
+        <article class="card metric">
+          <span>主机</span><strong id="hostname">—</strong
+          ><small id="platform">—</small>
+        </article>
+        <article class="card metric">
+          <span>运行时间</span><strong id="uptime">—</strong><small>系统</small>
+        </article>
+        <article class="card metric">
+          <span>负载</span><strong id="load">—</strong><small>1 分钟</small>
+        </article>
+        <article class="card metric">
+          <span>内存</span><strong id="memory">—</strong><small>已用比例</small>
+        </article>
+      </section>
+
+      <section class="card services">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">CONTROL PLANE</p>
+            <h2>服务</h2>
+          </div>
+          <button id="refresh">刷新</button>
+        </div>
+        <div id="service-list" class="service-list">
+          <p class="muted">加载中…</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

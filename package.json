@@ -1,0 +1,26 @@
+{
+  "name": "studioops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop-first local operations console for macOS development and AI services",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch services/agent/src/index.ts",
+    "start": "tsx services/agent/src/index.ts",
+    "test": "node --import tsx --test",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.3",
+    "hono": "^4.9.8",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/ws": "^8.18.1",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

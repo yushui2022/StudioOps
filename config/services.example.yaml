@@ -1,0 +1,23 @@
+# 服务清单会在 0.2 接入 schema 校验和 SQLite 状态库。
+# target 是受控标识：launchd 用 job label，Docker 用 compose project，
+# Ollama/ComfyUI 用固定 API 地址。客户端不能临时提交 target。
+services:
+  - id: my-node-project
+    name: My Node Project
+    kind: process
+    adapter: process
+    target: /Users/orlando/Projects/my-node-project
+    allowedActions: [start, stop, restart, pause, resume]
+    health:
+      type: http
+      endpoint: http://127.0.0.1:3000/health
+
+  - id: ollama
+    name: Ollama
+    kind: ollama
+    adapter: ollama
+    target: http://127.0.0.1:11434
+    allowedActions: [start, stop, restart]
+    health:
+      type: http
+      endpoint: http://127.0.0.1:11434/api/tags
