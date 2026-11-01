@@ -43,7 +43,7 @@
 | 远程 Token 鉴权         | 已完成                 | `services/agent/src/index.ts`、`apps/web/app.js`、设置页               | HTTP Bearer + WebSocket query token；本机回环无需 Token               |
 | 操作审计                | 已完成第一版           | `services/agent/src/core/event-store.ts`                               | SQLite 保存启停动作和错误                                             |
 | 配置备份                | 已完成第一版           | `services/agent/src/index.ts`、`apps/web/app.js`                       | 面板按钮复制 YAML 到 `data/backups/`                                  |
-| Web 面板                | 已完成终端风格 v2      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`        | 六视图、实时图、服务抽屉、进程/容器/日志/设置                         |
+| Web 面板                | 已完成终端风格 v3      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`        | 边框标题、分块柱状图、状态栏快捷键、六视图、抽屉、日志/设置           |
 | Tauri 桌面壳            | 已完成可编译版         | `apps/desktop/src-tauri/`                                              | 复用同一 Web；Agent 作为 release 资源启动                             |
 | 菜单栏入口              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                   | “打开 StudioOps/退出 StudioOps”；窗口关闭后隐藏                       |
 | macOS App 打包          | 已生成 `StudioOps.app` | `apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app`     | 构建通过；尚未完成签名、DMG 和安装升级流程                            |
@@ -76,8 +76,8 @@
 
 2026-11-01 第二轮终端风格验收：
 
-1. 总览页显示 2 秒实时采样：P-CPU、S-CPU、GPU、ANE、风扇、采样时间、六张带面积图的指标卡。
-2. 服务、进程、容器、日志、设置五个视图均可切换；服务操作按当前状态只显示有意义的按钮。
+1. 总览页显示 2 秒实时采样：P-CPU、S-CPU、GPU、ANE、风扇、采样时间、六张带分块柱状历史的指标卡；面板标题嵌在边框上。
+2. 服务、进程、容器、日志、设置五个视图均可切换；服务操作按当前状态只显示有意义的按钮；`1-6`、`r`、`/`、`Esc` 快捷键可用。
 3. 进程页显示 top 50（总进程数、CPU/内存条）；Docker 页显示 daemon 版本和容器，已用 `node:22-bookworm-slim` 测试容器验证启动/停止/重启后删除。
 4. 日志页支持 100/300/1000 行、自动刷新和 error/warn 高亮；设置页显示配置路径、绑地址、Token 状态和数据目录。
 5. WebSocket 修复后，`SAMPLE`、指标值和面积图每 2 秒更新；此前订阅消息会因服务端首帧未挂监听而丢失。
@@ -137,7 +137,7 @@
 1. 先读取本文件、`docs/architecture.md`、`docs/research/mac-dash.md` 和 `docs/adr/0001-agent-first.md`。
 2. 执行 `git status --short`，保留当前未提交改动；先完成 P0，不要重写架构。
 3. 执行 `npm run typecheck && npm test && npm run format:check`；改 Rust 时再跑 `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`。
-4. 前端已经重做为终端风格：总览、服务、进程、容器、日志、设置。继续改 UI 时保持等宽字体、细线和实时采样，不要退回圆角卡片堆叠的 demo 风格。
+4. 前端已经重做为终端风格：总览、服务、进程、容器、日志、设置。继续改 UI 时保持等宽字体、细线边框、边框式标题、分块柱状图和 2 秒采样；新增面板要么带 `.panel-head h2`，要么直接写 `data-title`，否则边框标题不显示。
 5. 下一步优先做 P0：端口/重复启动/YAML 错误提示、token 设置页和完整鉴权。
 6. 再做服务配置编辑器、配置热加载、launchd 发现、cloudflared tunnel 和 Compose 实测。
 7. 最后做模型服务控制、指标历史、通知、开机启动和发布流程。

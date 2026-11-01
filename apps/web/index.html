@@ -153,8 +153,7 @@
                   viewBox="0 0 100 30"
                   preserveAspectRatio="none"
                 >
-                  <polygon />
-                  <polyline />
+                  <g class="bars"></g>
                 </svg>
                 <footer id="metric-cpu-sub">系统负载 —</footer>
               </article>
@@ -171,8 +170,7 @@
                   viewBox="0 0 100 30"
                   preserveAspectRatio="none"
                 >
-                  <polygon />
-                  <polyline />
+                  <g class="bars"></g>
                 </svg>
                 <footer id="metric-gpu-sub">ANE —</footer>
               </article>
@@ -190,8 +188,7 @@
                   viewBox="0 0 100 30"
                   preserveAspectRatio="none"
                 >
-                  <polygon />
-                  <polyline />
+                  <g class="bars"></g>
                 </svg>
                 <footer id="metric-memory-sub">已用 —</footer>
               </article>
@@ -208,8 +205,7 @@
                   viewBox="0 0 100 30"
                   preserveAspectRatio="none"
                 >
-                  <polygon />
-                  <polyline />
+                  <g class="bars"></g>
                 </svg>
                 <footer id="metric-disk-sub">可用 —</footer>
               </article>
@@ -226,8 +222,7 @@
                   viewBox="0 0 100 30"
                   preserveAspectRatio="none"
                 >
-                  <polygon />
-                  <polyline />
+                  <g class="bars"></g>
                 </svg>
                 <footer id="metric-power-sub">macmon</footer>
               </article>
@@ -242,8 +237,7 @@
                   viewBox="0 0 100 30"
                   preserveAspectRatio="none"
                 >
-                  <polygon />
-                  <polyline />
+                  <g class="bars"></g>
                 </svg>
                 <footer id="metric-temp-sub">GPU —</footer>
               </article>
@@ -366,7 +360,7 @@
               <span class="toolbar-note" id="service-count">—</span>
             </div>
 
-            <section class="panel table-panel">
+            <section class="panel table-panel" data-title="服务列表">
               <div class="table-wrap">
                 <table class="table services-table">
                   <thead>
@@ -413,7 +407,7 @@
               <span class="toolbar-note" id="process-count">—</span>
             </div>
 
-            <section class="panel table-panel">
+            <section class="panel table-panel" data-title="进程列表">
               <div class="table-wrap">
                 <table class="table">
                   <thead>
@@ -656,6 +650,23 @@
             </div>
           </section>
         </main>
+
+        <footer class="statusbar">
+          <div class="status-left">
+            <span><b>1-6</b> 视图</span>
+            <span><b>r</b> 刷新</span>
+            <span><b>/</b> 搜索</span>
+            <span><b>esc</b> 关闭</span>
+            <span><b>?</b> 快捷键</span>
+          </div>
+          <div class="status-right">
+            <span id="status-agent">127.0.0.1:7227</span>
+            <span class="status-sep">|</span>
+            <span id="status-state">waiting</span>
+            <span class="status-sep">|</span>
+            <span>2s sample</span>
+          </div>
+        </footer>
       </div>
     </div>
 

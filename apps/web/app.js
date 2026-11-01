@@ -196,31 +196,58 @@ function pushHistory(system) {
 }
 
 function renderSparklines() {
+  const slots = 48;
+  const svgNs = "http://www.w3.org/2000/svg";
   for (const [key, values] of Object.entries(state.history)) {
-    const polyline = document.querySelector(`#spark-${key} polyline`);
-    const polygon = document.querySelector(`#spark-${key} polygon`);
-    if (!polyline) continue;
-    if (values.length === 0) {
-      polyline.setAttribute("points", "");
-      polygon?.setAttribute("points", "");
-      continue;
-    }
-    if (values.length === 1) {
-      polyline.setAttribute("points", "0,15 100,15");
-      polygon?.setAttribute("points", "0,15 100,15 100,30 0,30");
-      continue;
-    }
-    const max = Math.max(...values, 1) * 1.12;
-    const points = values
-      .map((value, index) => {
-        const x = (index / (values.length - 1)) * 100;
-        const y = 29 - Math.min(Math.max(value / max, 0), 1) * 27;
-        return `${x.toFixed(2)},${y.toFixed(2)}`;
-      })
-      .join(" ");
-    polyline.setAttribute("points", points);
-    polygon?.setAttribute("points", `0,30 ${points} 100,30`);
+    const group = document.querySelector(`#spark-${key} .bars`);
+    if (!group) continue;
+    while (group.firstChild) group.removeChild(group.firstChild);
+    const baseline = document.createElementNS(svgNs, "rect");
+    baseline.setAttribute("class", "base");
+    baseline.setAttribute("x", "0");
+    baseline.setAttribute("y", "29.2");
+    baseline.setAttribute("width", "100");
+    baseline.setAttribute("height", "0.8");
+    group.appendChild(baseline);
+    if (!values.length) continue;
+    const scaleCaps = { cpu: 100, gpu: 100, memory: 100, disk: 100, temp: 100 };
+    const max = scaleCaps[key] ?? Math.max(...values, 1) * 1.1;
+    const slot = 100 / slots;
+    values.forEach((value, index) => {
+      const height = Math.max(Math.min(value / max, 1) * 28, 0.6);
+      const rect = document.createElementNS(svgNs, "rect");
+      rect.setAttribute("class", "bar");
+      rect.setAttribute("x", (index * slot + slot * 0.12).toFixed(2));
+      rect.setAttribute("y", (30 - height).toFixed(2));
+      rect.setAttribute("width", (slot * 0.7).toFixed(2));
+      rect.setAttribute("height", height.toFixed(2));
+      group.appendChild(rect);
+    });
   }
+}
+
+function applyMetricTone(element, value, warn, critical) {
+  const card = element?.closest(".metric-card");
+  if (!card) return;
+  card.style.setProperty(
+    "--metric-color",
+    !Number.isFinite(value)
+      ? "var(--muted)"
+      : value >= critical
+        ? "var(--red)"
+        : value >= warn
+          ? "var(--amber)"
+          : "var(--green)",
+  );
+}
+
+function decoratePanels() {
+  document.querySelectorAll(".panel").forEach((panel) => {
+    const title = panel.querySelector(":scope > .panel-head h2");
+    if (!title) return;
+    if (title.id === "log-title") panel.dataset.title = "日志";
+    else panel.dataset.title = title.textContent.trim();
+  });
 }
 
 /* ---------- system ---------- */
@@ -291,6 +318,13 @@ function renderSystem(system) {
     ? `GPU ${gpuTemp.toFixed(0)}°C`
     : "GPU —";
 
+  applyMetricTone($("metric-cpu"), cpu, 70, 90);
+  applyMetricTone($("metric-gpu"), gpu, 80, 95);
+  applyMetricTone($("metric-memory"), memoryPct, 75, 90);
+  applyMetricTone($("metric-disk"), diskPct, 80, 92);
+  applyMetricTone($("metric-power"), power, 60, 90);
+  applyMetricTone($("metric-temp"), temp, 70, 85);
+
   const silicon = system.silicon;
   const setChip = (valueId, barId, value, scale = 100) => {
     const valueElement = $(valueId);
@@ -313,6 +347,8 @@ function renderSystem(system) {
     ? `${silicon.fanRpm.toFixed(0)} rpm`
     : "—";
   $("val-sample").textContent = fmtClock(system.updatedAt);
+  if ($("status-state"))
+    $("status-state").textContent = `live · ${fmtClock(system.updatedAt)}`;
 
   renderSparklines();
   renderSettingsFacts();
@@ -452,6 +488,16 @@ function renderServices() {
         </button>`,
       )
       .join("");
+
+  if (
+    state.view === "logs" &&
+    services.length &&
+    (!state.logServiceId ||
+      !services.some((item) => item.id === state.logServiceId))
+  ) {
+    state.logServiceId = services[0].id;
+    loadLogs();
+  }
 
   if (state.selectedServiceId) {
     const service = services.find(
@@ -736,7 +782,10 @@ async function loadLogs(serviceId = state.logServiceId) {
   if (!serviceId) return;
   state.logServiceId = serviceId;
   const service = state.services.find((item) => item.id === serviceId);
-  $("log-title").textContent = service ? `${service.name} 日志` : serviceId;
+  const logTitle = service ? `${service.name} 日志` : serviceId;
+  $("log-title").textContent = logTitle;
+  const logPanel = $("log-title").closest(".panel");
+  if (logPanel) logPanel.dataset.title = logTitle;
   $("log-output").textContent = "加载中…";
   document
     .querySelectorAll(".log-service-item")
@@ -921,6 +970,7 @@ function connect() {
     state.connected = true;
     $("connection-dot").className = "dot online";
     $("connection-text").textContent = "已连接";
+    if ($("status-state")) $("status-state").textContent = "live";
     hideError();
     activeSocket.send(
       JSON.stringify({
@@ -934,6 +984,7 @@ function connect() {
     state.connected = false;
     $("connection-dot").className = "dot offline";
     $("connection-text").textContent = "连接断开，重试中…";
+    if ($("status-state")) $("status-state").textContent = "reconnecting";
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, 2000);
   });
@@ -1083,7 +1134,51 @@ document.addEventListener("click", (event) => {
 $("drawer-backdrop").addEventListener("click", closeDrawer);
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawer();
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  const active = document.activeElement;
+  const isTyping =
+    active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+
+  if (event.key === "Escape") {
+    if (isTyping) active.blur();
+    closeDrawer();
+    return;
+  }
+  if (isTyping) return;
+
+  const viewKeys = {
+    1: "overview",
+    2: "services",
+    3: "processes",
+    4: "containers",
+    5: "logs",
+    6: "settings",
+  };
+  if (viewKeys[event.key]) {
+    switchView(viewKeys[event.key]);
+    return;
+  }
+  if (event.key === "r") {
+    refreshAll();
+    loadProcesses();
+    if (state.view === "containers") loadDocker();
+    return;
+  }
+  if (event.key === "/") {
+    const input = document.querySelector(
+      `[data-view-panel="${state.view}"] input[type="search"]`,
+    );
+    if (input) {
+      event.preventDefault();
+      input.focus();
+    } else {
+      toast("当前视图没有搜索框");
+    }
+    return;
+  }
+  if (event.key === "?") {
+    toast("1-6 切换视图 · r 刷新 · / 搜索 · Esc 关闭抽屉");
+  }
 });
 
 $("service-search").addEventListener("input", (event) => {
@@ -1128,6 +1223,8 @@ async function backupConfig() {
 /* ---------- bootstrap ---------- */
 
 const initialView = location.hash.replace("#", "") || "overview";
+decoratePanels();
+$("status-agent").textContent = new URL(agentOrigin).host;
 switchView(initialView, { updateHash: false });
 refreshAll({ quiet: true }).catch(() => {});
 loadProcesses();
