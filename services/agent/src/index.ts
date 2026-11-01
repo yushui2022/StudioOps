@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, normalize, resolve } from "node:path";
+import { join, normalize, resolve, sep } from "node:path";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
@@ -60,10 +60,51 @@ const iconStore = new ProcessIconStore(dataDir);
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
+let systemPollBusy = false;
+let servicesPollBusy = false;
 
 function isAuthorized(request: Request): boolean {
   if (!configuredToken) return true;
   return request.headers.get("authorization") === `Bearer ${configuredToken}`;
+}
+
+function actorFor(c: Context): "desktop" | "web" | "local" {
+  const header = c.req.header("x-studioops-actor");
+  return header === "desktop" ? "desktop" : header === "web" ? "web" : "local";
+}
+
+function recordConfigEvent(
+  c: Context,
+  id: string,
+  success: boolean,
+  error?: string,
+): void {
+  eventStore.record({
+    serviceId: `config:${id}`,
+    action: "config",
+    state: "unknown",
+    success,
+    actor: actorFor(c),
+    error,
+    at: new Date().toISOString(),
+  });
+}
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  // A configured token is the authentication boundary for remote access.
+  if (configuredToken) return true;
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "tauri:" && url.hostname === "localhost") return true;
+    if (url.hostname === "tauri.localhost") return true;
+    const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(
+      url.hostname,
+    );
+    return loopback && url.port === String(port);
+  } catch {
+    return false;
+  }
 }
 
 function json<T>(data: T, requestId = randomUUID()): Response {
@@ -111,6 +152,14 @@ app.use(
 
 app.use("/api/*", async (c, next) => {
   if (!isAuthorized(c.req.raw)) return c.json({ error: "Unauthorized" }, 401);
+  const origin = c.req.header("origin");
+  if (origin && !isAllowedOrigin(origin))
+    return c.json({ error: "Origin not allowed" }, 403);
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(c.req.method)) {
+    const length = Number(c.req.header("content-length") ?? 0);
+    if (Number.isFinite(length) && length > 1024 * 1024)
+      return c.json({ error: "Request body too large" }, 413);
+  }
   await next();
 });
 
@@ -228,63 +277,72 @@ app.post("/api/config/services", async (c) => {
   try {
     const body = await readJsonObject(c.req.raw);
     const services = configStore.add(body);
+    recordConfigEvent(c, typeof body.id === "string" ? body.id : "add", true);
     await applyServices(services);
     return json({ services });
   } catch (error) {
-    return c.json(
-      {
-        error: error instanceof Error ? error.message : "Unable to add service",
-      },
-      400,
-    );
+    const message =
+      error instanceof Error ? error.message : "Unable to add service";
+    recordConfigEvent(c, "add", false, message);
+    return c.json({ error: message }, 400);
   }
 });
 app.put("/api/config/services/:id", async (c) => {
+  const id = c.req.param("id");
   try {
     const body = await readJsonObject(c.req.raw);
-    const services = configStore.update(c.req.param("id"), body);
+    const services = configStore.update(id, body);
+    recordConfigEvent(c, id, true);
     await applyServices(services);
     return json({ services });
   } catch (error) {
-    return c.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Unable to update service",
-      },
-      400,
-    );
+    const message =
+      error instanceof Error ? error.message : "Unable to update service";
+    recordConfigEvent(c, id, false, message);
+    return c.json({ error: message }, 400);
   }
 });
 app.delete("/api/config/services/:id", async (c) => {
+  const id = c.req.param("id");
   try {
-    const services = configStore.remove(c.req.param("id"));
+    const definition = registry.definition(id);
+    const snapshot = await registry.inspect(id);
+    if (snapshot.state === "running" || snapshot.state === "paused")
+      throw new Error(
+        `Stop ${definition.name} before deleting it from the configuration`,
+      );
+    const services = configStore.remove(id);
+    recordConfigEvent(c, id, true);
     await applyServices(services);
     return json({ services });
   } catch (error) {
-    return c.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Unable to delete service",
-      },
-      400,
-    );
+    const message =
+      error instanceof Error ? error.message : "Unable to delete service";
+    recordConfigEvent(c, id, false, message);
+    return c.json({ error: message }, 400);
   }
 });
 app.post("/api/config/reload", async (c) => {
   try {
     const services = configStore.reload();
+    recordConfigEvent(c, "reload", true);
     await applyServices(services);
     return json({ services });
   } catch (error) {
     configError =
       error instanceof Error ? error.message : "Unable to reload config";
+    recordConfigEvent(c, "reload", false, configError);
     return c.json({ error: configError }, 400);
   }
 });
 app.get("/api/config/backups", (c) => json(configStore.listBackups()));
 app.post("/api/config/backup", (c) => {
   const backup = configStore.backup();
-  if (!backup) return c.json({ error: "No services.yaml is configured" }, 400);
+  if (!backup) {
+    recordConfigEvent(c, "backup", false, "No services.yaml is configured");
+    return c.json({ error: "No services.yaml is configured" }, 400);
+  }
+  recordConfigEvent(c, "backup", true);
   return json(backup);
 });
 app.post("/api/config/restore", async (c) => {
@@ -293,16 +351,14 @@ app.post("/api/config/restore", async (c) => {
     if (typeof body.name !== "string" || !body.name.trim())
       throw new Error("Backup name is required");
     const services = configStore.restore(body.name.trim());
+    recordConfigEvent(c, "restore", true);
     await applyServices(services);
     return json({ services });
   } catch (error) {
-    return c.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Unable to restore backup",
-      },
-      400,
-    );
+    const message =
+      error instanceof Error ? error.message : "Unable to restore backup";
+    recordConfigEvent(c, "restore", false, message);
+    return c.json({ error: message }, 400);
   }
 });
 app.get("/api/events", (c) =>
@@ -413,8 +469,9 @@ app.get("/icons/:file", async (c) => {
 app.get("/*", (c) => {
   const requested = c.req.path === "/" ? "/index.html" : c.req.path;
   const filePath = normalize(join(webDir, requested));
+  const webRoot = webDir.endsWith(sep) ? webDir : `${webDir}${sep}`;
   if (
-    !filePath.startsWith(webDir) ||
+    (filePath !== webDir && !filePath.startsWith(webRoot)) ||
     !existsSync(filePath) ||
     !statSync(filePath).isFile()
   )
@@ -444,6 +501,10 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
 
 const wss = new WebSocketServer({ server: server as never, path: "/ws" });
 wss.on("connection", async (client, request) => {
+  if (!configuredToken && !isAllowedOrigin(request.headers.origin)) {
+    client.close(1008, "Origin not allowed");
+    return;
+  }
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const queryToken = requestUrl.searchParams.get("token") ?? "";
   if (
@@ -491,7 +552,9 @@ wss.on("connection", async (client, request) => {
 });
 
 setInterval(async () => {
+  if (systemPollBusy) return;
   if (![...clients.values()].some((topics) => topics.has("system"))) return;
+  systemPollBusy = true;
   try {
     broadcast(
       { type: "snapshot", topic: "system", data: await getSystemSnapshot() },
@@ -499,11 +562,15 @@ setInterval(async () => {
     );
   } catch (error) {
     console.error("system snapshot failed", error);
+  } finally {
+    systemPollBusy = false;
   }
 }, 2000).unref();
 
 setInterval(async () => {
+  if (servicesPollBusy) return;
   if (![...clients.values()].some((topics) => topics.has("services"))) return;
+  servicesPollBusy = true;
   try {
     broadcast(
       { type: "snapshot", topic: "services", data: await registry.list() },
@@ -511,6 +578,8 @@ setInterval(async () => {
     );
   } catch (error) {
     console.error("service snapshot failed", error);
+  } finally {
+    servicesPollBusy = false;
   }
 }, 5000).unref();
 

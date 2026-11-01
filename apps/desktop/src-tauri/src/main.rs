@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::fs::{create_dir_all, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -53,11 +55,22 @@ fn main() {
                     append_agent_log(&data_dir, &format!("config setup failed: {error}"));
                 }
 
-                let child = match spawn_agent(&resource_dir, &data_dir, &config_path) {
-                    Ok(child) => Some(child),
-                    Err(error) => {
-                        append_agent_log(&data_dir, &format!("agent failed to start: {error}"));
-                        None
+                let child = if studioops_agent_running() {
+                    append_agent_log(&data_dir, "reusing the agent already listening on 7227");
+                    None
+                } else if port_open() {
+                    append_agent_log(
+                        &data_dir,
+                        "port 7227 is already in use by another process; not starting a second agent",
+                    );
+                    None
+                } else {
+                    match spawn_agent(&resource_dir, &data_dir, &config_path) {
+                        Ok(child) => Some(child),
+                        Err(error) => {
+                            append_agent_log(&data_dir, &format!("agent failed to start: {error}"));
+                            None
+                        }
                     }
                 };
                 app.manage(AgentProcess(Mutex::new(child)));
@@ -161,6 +174,35 @@ fn newest_nvm_node(home: &Path) -> Option<PathBuf> {
         .rev()
         .map(|version| version.join("bin/node"))
         .find(|node| node.is_file())
+}
+
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn port_open() -> bool {
+    TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], 7227)),
+        Duration::from_millis(300),
+    )
+    .is_ok()
+}
+
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn studioops_agent_running() -> bool {
+    let Ok(mut stream) = TcpStream::connect_timeout(
+        &SocketAddr::from(([127, 0, 0, 1], 7227)),
+        Duration::from_millis(300),
+    ) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(800)));
+    if stream
+        .write_all(b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut response = String::new();
+    stream.read_to_string(&mut response).is_ok() && response.contains("studioops-agent")
 }
 
 #[cfg_attr(debug_assertions, allow(dead_code))]

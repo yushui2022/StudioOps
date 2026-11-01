@@ -10,6 +10,7 @@ import { withHealth } from "./health.js";
 export class ServiceRegistry {
   private readonly definitions = new Map<string, ServiceDefinition>();
   private readonly adapters = new Map<string, ServiceAdapter>();
+  private readonly queues = new Map<string, Promise<unknown>>();
 
   registerAdapter(adapter: ServiceAdapter): void {
     this.adapters.set(adapter.id, adapter);
@@ -56,12 +57,24 @@ export class ServiceRegistry {
   }
 
   async execute(id: string, action: ServiceAction): Promise<ServiceSnapshot> {
-    const definition = this.getDefinition(id);
-    const snapshot = await this.getAdapter(definition).execute(
-      definition,
-      action,
-    );
-    return withHealth(definition, snapshot);
+    // Serialize actions per service. Double-clicking stop or firing start and
+    // restart together must not race two spawn/bootout operations.
+    const run = async (): Promise<ServiceSnapshot> => {
+      const definition = this.getDefinition(id);
+      const snapshot = await this.getAdapter(definition).execute(
+        definition,
+        action,
+      );
+      return withHealth(definition, snapshot);
+    };
+    const previous = this.queues.get(id) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(run);
+    this.queues.set(id, next);
+    try {
+      return await next;
+    } finally {
+      if (this.queues.get(id) === next) this.queues.delete(id);
+    }
   }
 
   async logs(id: string, tail = 200): Promise<ServiceLog> {

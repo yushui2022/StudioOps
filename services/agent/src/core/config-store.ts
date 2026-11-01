@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -38,6 +39,7 @@ export class ConfigStore {
   private readonly backupsDir: string;
   private readonly adapterIds: Set<string>;
   private current: ServiceDefinition[] = [];
+  private loadError: string | undefined;
 
   constructor(options: ConfigStoreOptions) {
     this.filePath = options.filePath ?? resolveConfigPath(options.rootDir);
@@ -52,18 +54,27 @@ export class ConfigStore {
   load(): ServiceDefinition[] {
     if (!existsSync(this.filePath)) {
       this.current = [];
+      this.loadError = undefined;
       return this.current;
     }
-    const services = parseServices(
-      readFileSync(this.filePath, "utf8"),
-      this.filePath,
-    );
-    this.assertReady(services);
-    this.current = services;
-    return this.current;
+    try {
+      const services = parseServices(
+        readFileSync(this.filePath, "utf8"),
+        this.filePath,
+      );
+      this.assertReady(services);
+      this.current = services;
+      this.loadError = undefined;
+      return this.current;
+    } catch (error) {
+      this.loadError =
+        error instanceof Error ? error.message : "Invalid services.yaml";
+      throw error;
+    }
   }
 
   add(input: Record<string, unknown>): ServiceDefinition[] {
+    this.assertWritable();
     const service = parseServices(
       { services: [input] },
       this.filePath,
@@ -76,6 +87,7 @@ export class ConfigStore {
   }
 
   update(id: string, input: Record<string, unknown>): ServiceDefinition[] {
+    this.assertWritable();
     if (!this.current.some((item) => item.id === id))
       throw new Error(`Unknown service: ${id}`);
     if (typeof input.id === "string" && input.id !== id)
@@ -90,6 +102,7 @@ export class ConfigStore {
   }
 
   remove(id: string): ServiceDefinition[] {
+    this.assertWritable();
     if (!this.current.some((item) => item.id === id))
       throw new Error(`Unknown service: ${id}`);
     const next = this.current.filter((item) => item.id !== id);
@@ -151,22 +164,33 @@ export class ConfigStore {
     if (existsSync(this.filePath)) this.backupCurrent();
     const temporary = `${this.filePath}.tmp-${process.pid}`;
     try {
-      writeFileSync(temporary, body, "utf8");
+      writeFileSync(temporary, body, { encoding: "utf8", mode: 0o600 });
       renameSync(temporary, this.filePath);
+      chmodSync(this.filePath, 0o600);
     } catch (error) {
       rmSync(temporary, { force: true });
       throw error;
     }
     this.current = services;
+    this.loadError = undefined;
+  }
+
+  private assertWritable(): void {
+    if (this.loadError)
+      throw new Error(
+        `services.yaml is invalid; restore a backup or fix the file before editing: ${this.loadError}`,
+      );
   }
 
   private backupCurrent(): void {
-    mkdirSync(this.backupsDir, { recursive: true });
+    mkdirSync(this.backupsDir, { recursive: true, mode: 0o700 });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    copyFileSync(
-      this.filePath,
-      join(this.backupsDir, `${stamp}-${basename(this.filePath)}`),
+    const backupPath = join(
+      this.backupsDir,
+      `${stamp}-${basename(this.filePath)}`,
     );
+    copyFileSync(this.filePath, backupPath);
+    chmodSync(backupPath, 0o600);
     this.pruneBackups();
   }
 

@@ -70,7 +70,7 @@ export interface ServiceLog {
 export interface OperationEvent {
   id?: number;
   serviceId: string;
-  action: ServiceAction | "terminate";
+  action: ServiceAction | "terminate" | "config";
   state: ServiceState;
   success: boolean;
   actor: "desktop" | "web" | "local";

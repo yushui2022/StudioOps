@@ -24,6 +24,7 @@ const actionLabels = {
   pause: "暂停",
   resume: "继续",
   terminate: "终止进程",
+  config: "配置变更",
 };
 
 const stateLabels = {

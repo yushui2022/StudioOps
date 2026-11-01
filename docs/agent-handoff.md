@@ -25,38 +25,39 @@
 
 ## 当前已经完成
 
-| 能力                    | 当前状态               | 主要代码位置                                                                  | 验证情况                                                                |
-| ----------------------- | ---------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Agent 控制层            | 已完成第一版           | `services/agent/src/index.ts`                                                 | Hono HTTP API、WebSocket、静态 Web 页面可启动                           |
-| 统一服务注册表          | 已完成第一版           | `services/agent/src/core/service-registry.ts`                                 | 只允许已注册服务和已声明动作                                            |
-| 配置加载                | 已完成第一版           | `services/agent/src/core/config.ts`                                           | YAML、服务字段、动作白名单、路径解析和端口校验                          |
-| process 适配器          | 已完成第一版           | `services/agent/src/adapters/process.ts`                                      | 启停、重启、暂停、恢复、日志、PID、端口发现                             |
-| launchd 适配器          | 已完成第二版           | `services/agent/src/adapters/launchd.ts`                                      | print/kickstart/bootout/bootstrap；支持 plistFile；停止后健康为 unknown |
-| Docker Compose 适配器   | 已完成第一版           | `services/agent/src/adapters/docker-compose.ts`                               | `up/down/restart/ps/logs` 命令构造不经过 shell                          |
-| HTTP/TCP/进程健康检查   | 已完成第一版           | `services/agent/src/core/health.ts`                                           | Ollama、ComfyUI 返回健康状态                                            |
-| Ollama/ComfyUI 健康摘要 | 已完成轻量版           | `services/agent/src/core/health.ts`                                           | Ollama 模型数量；ComfyUI 设备和版本                                     |
-| macOS 主机指标          | 已完成第三版           | `services/agent/src/core/system.ts`                                           | 芯片/P/S/GPU 核心数、内存、活跃核心；P/S 占用、频率、风扇、功耗、温度   |
-| 进程指标                | 已完成第一版           | `services/agent/src/core/process-metrics.ts`                                  | `ps` 读取 CPU、RSS、内存占比                                            |
-| Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`               | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态         |
-| 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                 | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                     |
-| 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`   | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作       |
-| 进程终止                | 已完成                 | `services/agent/src/core/process-control.ts`、`/api/processes/:pid/terminate` | 仅当前用户；保护祖先进程链；SIGTERM 失败后可 SIGKILL；写入审计          |
-| 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`                   | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                 |
-| Docker 状态和动作       | 已完成                 | `services/agent/src/core/docker-status.ts`、`/api/docker`                     | daemon 状态、容器列表、启动/停止/重启；已用真实容器验证                 |
-| 实时推送                | 已修复                 | `services/agent/src/index.ts`                                                 | 订阅先于首帧挂载；系统 2 秒、服务 5 秒推送                              |
-| 远程 Token 鉴权         | 已完成                 | `services/agent/src/index.ts`、`apps/web/app.js`、设置页                      | HTTP Bearer + WebSocket query token；本机回环无需 Token                 |
-| 操作审计                | 已完成第一版           | `services/agent/src/core/event-store.ts`                                      | SQLite 保存启停动作和错误                                               |
-| 配置备份                | 已完成                 | `services/agent/src/core/config-store.ts`、`apps/web/app.js`                  | 自动/手动备份、列表、恢复；保留最近 30 份                               |
-| 配置写入和热加载        | 已完成                 | `services/agent/src/core/config-store.ts`、`/api/config/services`             | 增删改、校验、原子写入、备份、立即刷新注册表                            |
-| Web 面板                | 已完成终端风格 v5      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`               | 六视图、服务行内展开、编辑表单、备份恢复、边框标题、分块柱状图          |
-| Tauri 桌面壳            | 已完成可编译版         | `apps/desktop/src-tauri/`                                                     | 复用同一 Web；Agent 作为 release 资源启动                               |
-| 菜单栏入口              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                          | “打开 StudioOps/退出 StudioOps”；窗口关闭后隐藏                         |
-| macOS App 打包          | 已生成 `StudioOps.app` | `apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app`            | 构建通过；尚未完成签名、DMG 和安装升级流程                              |
-| Release 首次配置        | 已完成并本机验收       | `config/services.first-run.yaml`、`apps/desktop/src-tauri/src/main.rs`        | 首次启动写入 App 数据目录；已有配置不覆盖；含 Rust 与 TS 测试           |
-| Release Node 查找       | 已完成并本机验收       | `apps/desktop/src-tauri/src/main.rs`                                          | 支持 `STUDIOOPS_NODE`、Homebrew、Volta、nvm；Agent 日志写 `agent.log`   |
-| Release 资源打包        | 已修复                 | `apps/desktop/src-tauri/tauri.conf.json`                                      | 显式映射 `agent.cjs` 和 `web`，不再落到 `Resources/_up_/...`            |
-| Release 前后端连接      | 已修复                 | `apps/web/app.js`、`services/agent/src/index.ts`                              | 内嵌页面固定请求 7227；仅对 Tauri origin 开放 CORS                      |
-| 本机真实服务            | 已接入本机配置         | `config/services.yaml`                                                        | Ollama、ComfyUI、Ollama Tunnel 的 LaunchAgent 状态可看                  |
+| 能力                    | 当前状态               | 主要代码位置                                                                                                       | 验证情况                                                                                         |
+| ----------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Agent 控制层            | 已完成第一版           | `services/agent/src/index.ts`                                                                                      | Hono HTTP API、WebSocket、静态 Web 页面可启动                                                    |
+| 统一服务注册表          | 已完成第一版           | `services/agent/src/core/service-registry.ts`                                                                      | 只允许已注册服务和已声明动作                                                                     |
+| 配置加载                | 已完成第一版           | `services/agent/src/core/config.ts`                                                                                | YAML、服务字段、动作白名单、路径解析和端口校验                                                   |
+| process 适配器          | 已完成第一版           | `services/agent/src/adapters/process.ts`                                                                           | 启停、重启、暂停、恢复、日志、PID、端口发现                                                      |
+| launchd 适配器          | 已完成第二版           | `services/agent/src/adapters/launchd.ts`                                                                           | print/kickstart/bootout/bootstrap；支持 plistFile；停止后健康为 unknown                          |
+| Docker Compose 适配器   | 已完成第一版           | `services/agent/src/adapters/docker-compose.ts`                                                                    | `up/down/restart/ps/logs` 命令构造不经过 shell                                                   |
+| HTTP/TCP/进程健康检查   | 已完成第一版           | `services/agent/src/core/health.ts`                                                                                | Ollama、ComfyUI 返回健康状态                                                                     |
+| Ollama/ComfyUI 健康摘要 | 已完成轻量版           | `services/agent/src/core/health.ts`                                                                                | Ollama 模型数量；ComfyUI 设备和版本                                                              |
+| macOS 主机指标          | 已完成第三版           | `services/agent/src/core/system.ts`                                                                                | 芯片/P/S/GPU 核心数、内存、活跃核心；P/S 占用、频率、风扇、功耗、温度                            |
+| 进程指标                | 已完成第一版           | `services/agent/src/core/process-metrics.ts`                                                                       | `ps` 读取 CPU、RSS、内存占比                                                                     |
+| Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`                                                    | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态                                  |
+| 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                                                      | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                                              |
+| 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs` | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent |
+| 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
+| 进程终止                | 已完成                 | `services/agent/src/core/process-control.ts`、`/api/processes/:pid/terminate`                                      | 仅当前用户；保护祖先进程链；SIGTERM 失败后可 SIGKILL；写入审计                                   |
+| 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`                                                        | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                                          |
+| Docker 状态和动作       | 已完成                 | `services/agent/src/core/docker-status.ts`、`/api/docker`                                                          | daemon 状态、容器列表、启动/停止/重启；已用真实容器验证                                          |
+| 实时推送                | 已修复                 | `services/agent/src/index.ts`                                                                                      | 订阅先于首帧挂载；系统 2 秒、服务 5 秒推送                                                       |
+| 远程 Token 鉴权         | 已完成                 | `services/agent/src/index.ts`、`apps/web/app.js`、设置页                                                           | HTTP Bearer + WebSocket query token；本机回环无需 Token                                          |
+| 操作审计                | 已完成第一版           | `services/agent/src/core/event-store.ts`                                                                           | SQLite 保存启停动作和错误                                                                        |
+| 配置备份                | 已完成                 | `services/agent/src/core/config-store.ts`、`apps/web/app.js`                                                       | 自动/手动备份、列表、恢复；保留最近 30 份                                                        |
+| 配置写入和热加载        | 已完成                 | `services/agent/src/core/config-store.ts`、`/api/config/services`                                                  | 增删改、校验、原子写入、备份、立即刷新注册表                                                     |
+| Web 面板                | 已完成终端风格 v5      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`                                                    | 六视图、服务行内展开、编辑表单、备份恢复、边框标题、分块柱状图                                   |
+| Tauri 桌面壳            | 已完成可编译版         | `apps/desktop/src-tauri/`                                                                                          | 复用同一 Web；Agent 作为 release 资源启动                                                        |
+| 菜单栏入口              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                                                               | “打开 StudioOps/退出 StudioOps”；窗口关闭后隐藏                                                  |
+| macOS App 打包          | 已生成 `StudioOps.app` | `apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app`                                                 | 构建通过；尚未完成签名、DMG 和安装升级流程                                                       |
+| Release 首次配置        | 已完成并本机验收       | `config/services.first-run.yaml`、`apps/desktop/src-tauri/src/main.rs`                                             | 首次启动写入 App 数据目录；已有配置不覆盖；含 Rust 与 TS 测试                                    |
+| Release Node 查找       | 已完成并本机验收       | `apps/desktop/src-tauri/src/main.rs`                                                                               | 支持 `STUDIOOPS_NODE`、Homebrew、Volta、nvm；Agent 日志写 `agent.log`                            |
+| Release 资源打包        | 已修复                 | `apps/desktop/src-tauri/tauri.conf.json`                                                                           | 显式映射 `agent.cjs` 和 `web`，不再落到 `Resources/_up_/...`                                     |
+| Release 前后端连接      | 已修复                 | `apps/web/app.js`、`services/agent/src/index.ts`                                                                   | 内嵌页面固定请求 7227；仅对 Tauri origin 开放 CORS                                               |
+| 本机真实服务            | 已接入本机配置         | `config/services.yaml`                                                                                             | Ollama、ComfyUI、Ollama Tunnel 的 LaunchAgent 状态可看                                           |
 
 ## 本机真实服务状态
 
@@ -98,6 +99,7 @@
 15. 进程页显示真实应用图标：Chrome、WeChat、StudioOps、Ollama 等取到 `.app` 图标，WindowServer 等系统进程使用首字母占位；图标缓存在 `data/icons/`。
 16. 总览顶部硬件摘要显示 Apple M5 Max、12P + 6S + 40GPU、64 GB，以及活跃核心数（总计 18，P/S 分列）；P-CPU/S-CPU 百分比之和与整体 CPU 一致。
 17. 推理进程面板实际显示 ComfyUI 主进程 2.28 GB、Ollama 40 MB、ComfyUI worker/bridge；主进程显示“停止服务”，子进程显示“终止”，压力徽标为正常。
+18. 后端加固验收：同一服务并发动作串行（单测）；系统/服务轮询有 busy guard；配置 YAML 损坏后 add 返回 400、restore 可恢复；配置变更写入审计；恶意 Origin 的 HTTP 返回 403、WebSocket 返回 1008；`/../etc/passwd` 返回 404；桌面端检测到 7227 已有 Agent 时不再启动第二个。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

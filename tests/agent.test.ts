@@ -35,7 +35,49 @@ import {
 import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
 import { getSystemSnapshot } from "../services/agent/src/core/system.js";
+import type { ServiceAdapter } from "../services/agent/src/adapters/adapter.js";
 import type { ServiceDefinition } from "../packages/contracts/src/index.js";
+
+test("service registry serializes concurrent actions per service", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const slow: ServiceAdapter = {
+    id: "slow",
+    canHandle: () => true,
+    inspect: async (definition) => ({
+      ...definition,
+      state: "running",
+      updatedAt: new Date().toISOString(),
+    }),
+    execute: async (definition) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      active -= 1;
+      return {
+        ...definition,
+        state: "running",
+        updatedAt: new Date().toISOString(),
+      };
+    },
+  };
+  const registry = new ServiceRegistry();
+  registry.registerAdapter(slow);
+  registry.register({
+    id: "slow-service",
+    name: "Slow Service",
+    kind: "process",
+    adapter: "slow",
+    target: "slow-service",
+    allowedActions: ["start", "stop", "restart"],
+  });
+  await Promise.all([
+    registry.execute("slow-service", "start"),
+    registry.execute("slow-service", "restart"),
+    registry.execute("slow-service", "stop"),
+  ]);
+  assert.equal(maxActive, 1);
+});
 
 test("service registry exposes only registered actions", async () => {
   const registry = new ServiceRegistry();
@@ -396,6 +438,13 @@ test("config store validates, backs up, saves and reloads services", () => {
     1,
     "a failed reload must keep the last good registry",
   );
+  assert.throws(
+    () => store.add(nodeService),
+    /restore a backup or fix the file/,
+  );
+  const recovered = store.restore(backups[0]!.name);
+  assert.ok(recovered.length >= 1);
+  assert.ok(store.listBackups().length >= 1);
 });
 
 test("process list is sorted and exposes numeric usage fields", async () => {

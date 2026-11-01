@@ -1,9 +1,13 @@
 import {
   appendFileSync,
+  closeSync,
   createWriteStream,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -90,16 +94,26 @@ export class ProcessAdapter implements ServiceAdapter {
         fetchedAt: new Date().toISOString(),
       };
     }
-    const lines = readFileSync(resolve(logFile), "utf8")
-      .split(/\r?\n/)
-      .filter(Boolean);
-    return {
-      serviceId: definition.id,
-      lines: lines.slice(-tail),
-      source: resolve(logFile),
-      truncated: lines.length > tail,
-      fetchedAt: new Date().toISOString(),
-    };
+    try {
+      const { lines, truncated } = readLogTail(resolve(logFile), tail);
+      return {
+        serviceId: definition.id,
+        lines,
+        source: resolve(logFile),
+        truncated,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        serviceId: definition.id,
+        lines: [
+          error instanceof Error ? error.message : "Unable to read log file",
+        ],
+        source: resolve(logFile),
+        truncated: false,
+        fetchedAt: new Date().toISOString(),
+      };
+    }
   }
 
   private async start(definition: ServiceDefinition): Promise<ServiceSnapshot> {
@@ -152,6 +166,10 @@ export class ProcessAdapter implements ServiceAdapter {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
       }
+      if (!(await waitForExit(current.pid, 3000)))
+        throw new Error(
+          `Process ${current.pid} did not exit after SIGTERM; use the process panel to force terminate it`,
+        );
     }
     this.children.delete(definition.id);
     if (definition.logFile && existsSync(resolve(definition.logFile)))
@@ -169,4 +187,43 @@ export class ProcessAdapter implements ServiceAdapter {
     const pid = Number(readFileSync(resolve(pidFile), "utf8").trim());
     return Number.isInteger(pid) && pid > 0 ? pid : undefined;
   }
+}
+
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
+
+function readLogTail(
+  filePath: string,
+  tail: number,
+): { lines: string[]; truncated: boolean } {
+  const stats = statSync(filePath);
+  const start = Math.max(0, stats.size - MAX_LOG_BYTES);
+  const length = stats.size - start;
+  if (length <= 0) return { lines: [], truncated: false };
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(filePath, "r");
+  let bytesRead = 0;
+  try {
+    bytesRead = readSync(fd, buffer, 0, length, start);
+  } finally {
+    closeSync(fd);
+  }
+  let text = buffer.subarray(0, bytesRead).toString("utf8");
+  if (start > 0) {
+    const newline = text.indexOf("\n");
+    if (newline >= 0) text = text.slice(newline + 1);
+  }
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  return {
+    lines: lines.slice(-tail),
+    truncated: start > 0 || lines.length > tail,
+  };
+}
+
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!isProcessAlive(pid)) return true;
+  }
+  return !isProcessAlive(pid);
 }
