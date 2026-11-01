@@ -22,7 +22,9 @@ import { DockerComposeAdapter } from "./adapters/docker-compose.js";
 import { MockAdapter } from "./adapters/mock.js";
 import { ProcessAdapter } from "./adapters/process.js";
 import { loadConfig } from "./core/config.js";
+import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { EventStore } from "./core/event-store.js";
+import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
 
@@ -105,11 +107,60 @@ app.get("/api/health", (c) =>
 );
 app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
+app.get("/api/processes", async (c) => {
+  const sort = c.req.query("sort") === "memory" ? "memory" : "cpu";
+  return json(await listProcesses(sort, Number(c.req.query("limit") ?? 50)));
+});
+app.get("/api/docker", async (c) => json(await getDockerSnapshot()));
+app.post("/api/docker/containers/:id/:action", async (c) => {
+  const id = c.req.param("id");
+  const action = c.req.param("action");
+  const actor =
+    c.req.header("x-studioops-actor") === "desktop"
+      ? "desktop"
+      : c.req.header("x-studioops-actor") === "web"
+        ? "web"
+        : "local";
+  try {
+    const result = await runContainerAction(id, action);
+    eventStore.record({
+      serviceId: `docker:${id}`,
+      action: action as ServiceAction,
+      state: action === "stop" ? "stopped" : "running",
+      success: true,
+      actor,
+      at: new Date().toISOString(),
+    });
+    return json({ ...result, snapshot: await getDockerSnapshot() });
+  } catch (error) {
+    eventStore.record({
+      serviceId: `docker:${id}`,
+      action: action as ServiceAction,
+      state: "error",
+      success: false,
+      actor,
+      error: error instanceof Error ? error.message : "Container action failed",
+      at: new Date().toISOString(),
+    });
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Container action failed",
+      },
+      400,
+    );
+  }
+});
 app.get("/api/config", (c) =>
   json({
     filePath: loadedConfig.filePath,
     serviceCount: loadedConfig.services.length,
     usingFallback: loadedConfig.services.length === 0,
+    host,
+    port,
+    tokenRequired: Boolean(configuredToken),
+    dataDir,
+    version: "0.1.0",
   }),
 );
 app.post("/api/config/backup", (c) => {
@@ -209,7 +260,10 @@ app.get("/*", (c) => {
   )
     return c.notFound();
   return new Response(readFileSync(filePath), {
-    headers: { "content-type": contentType(filePath) },
+    headers: {
+      "content-type": contentType(filePath),
+      "cache-control": "no-store",
+    },
   });
 });
 
@@ -228,22 +282,20 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
 
 const wss = new WebSocketServer({ server: server as never, path: "/ws" });
 wss.on("connection", async (client, request) => {
+  const requestUrl = new URL(request.url ?? "/", "http://localhost");
+  const queryToken = requestUrl.searchParams.get("token") ?? "";
   if (
     configuredToken &&
-    request.headers.authorization !== `Bearer ${configuredToken}`
+    request.headers.authorization !== `Bearer ${configuredToken}` &&
+    queryToken !== configuredToken
   ) {
     client.close(1008, "Unauthorized");
     return;
   }
   const topics = new Set<Topic>(["services"]);
   clients.set(client, topics);
-  client.send(
-    JSON.stringify({
-      type: "snapshot",
-      topic: "services",
-      data: await registry.list(),
-    }),
-  );
+  // Attach the listener before awaiting the first snapshot. Otherwise a client
+  // that sends "subscribe" immediately after connecting loses the message.
   client.on("message", async (raw) => {
     try {
       const message = JSON.parse(raw.toString()) as ClientMessage;
@@ -260,19 +312,44 @@ wss.on("connection", async (client, request) => {
     }
   });
   client.on("close", () => clients.delete(client));
+
+  registry
+    .list()
+    .then((services) => {
+      if (client.readyState === client.OPEN)
+        client.send(
+          JSON.stringify({
+            type: "snapshot",
+            topic: "services",
+            data: services,
+          }),
+        );
+    })
+    .catch(() => {});
 });
 
 setInterval(async () => {
-  if ([...clients.values()].some((topics) => topics.has("system")))
+  if (![...clients.values()].some((topics) => topics.has("system"))) return;
+  try {
     broadcast(
       { type: "snapshot", topic: "system", data: await getSystemSnapshot() },
       "system",
     );
-  if ([...clients.values()].some((topics) => topics.has("services")))
+  } catch (error) {
+    console.error("system snapshot failed", error);
+  }
+}, 2000).unref();
+
+setInterval(async () => {
+  if (![...clients.values()].some((topics) => topics.has("services"))) return;
+  try {
     broadcast(
       { type: "snapshot", topic: "services", data: await registry.list() },
       "services",
     );
+  } catch (error) {
+    console.error("service snapshot failed", error);
+  }
 }, 5000).unref();
 
 process.on("exit", () => eventStore.close());

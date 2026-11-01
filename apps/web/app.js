@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+
 // Release builds load the web assets from Tauri (tauri://localhost), so a
 // relative /api request would never reach the agent. Point every request at the
 // agent explicitly when the page is not served by the agent itself.
@@ -6,30 +7,94 @@ const agentOrigin =
   location.protocol === "http:" || location.protocol === "https:"
     ? location.origin
     : "http://127.0.0.1:7227";
-const api = async (path, options) => {
-  const response = await fetch(`${agentOrigin}${path}`, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "请求失败");
-  return body.data;
+
+const viewMeta = {
+  overview: {
+    title: "总览",
+    subtitle: "一眼看清这台 Mac 的服务、进程和资源",
+    eyebrow: "LOCAL OPERATIONS CONSOLE",
+  },
+  services: {
+    title: "服务",
+    subtitle: "启停前先确认状态、健康检查和动作白名单",
+    eyebrow: "CONTROL PLANE",
+  },
+  processes: {
+    title: "进程",
+    subtitle: "按 CPU 或内存查看当前占用最高的进程",
+    eyebrow: "PROCESS EXPLORER",
+  },
+  containers: {
+    title: "容器",
+    subtitle: "Docker daemon 状态和容器启停",
+    eyebrow: "CONTAINER RUNTIME",
+  },
+  logs: {
+    title: "日志",
+    subtitle: "查看服务日志尾部，必要时自动刷新",
+    eyebrow: "SERVICE LOGS",
+  },
+  settings: {
+    title: "设置",
+    subtitle: "配置、连接、安全状态和复用策略",
+    eyebrow: "SETTINGS",
+  },
 };
 
-const fmtUptime = (seconds) => {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return `${hours}h ${minutes}m`;
+const actionLabels = {
+  start: "启动",
+  stop: "停止",
+  restart: "重启",
+  pause: "暂停",
+  resume: "继续",
 };
 
-const fmtBytes = (bytes) => {
-  if (!Number.isFinite(bytes)) return "—";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+const stateLabels = {
+  running: "running",
+  stopped: "stopped",
+  starting: "starting",
+  stopping: "stopping",
+  paused: "paused",
+  error: "error",
+  unknown: "unknown",
 };
+
+const healthLabels = {
+  healthy: "healthy",
+  unhealthy: "unhealthy",
+  unknown: "unknown",
+};
+
+const state = {
+  view: "overview",
+  system: null,
+  services: [],
+  events: [],
+  processes: [],
+  processTotal: 0,
+  processSort: "cpu",
+  docker: null,
+  config: null,
+  serviceSearch: "",
+  serviceFilter: "all",
+  processSearch: "",
+  selectedServiceId: null,
+  logServiceId: null,
+  logLines: [],
+  logAuto: false,
+  lastUpdated: null,
+  connected: false,
+  history: {
+    cpu: [],
+    gpu: [],
+    memory: [],
+    disk: [],
+    power: [],
+    temp: [],
+  },
+};
+
+/* ---------- helpers ---------- */
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(
@@ -44,151 +109,1035 @@ const escapeHtml = (value) =>
       })[character],
   );
 
-function renderSystem(system) {
-  $("hostname").textContent = system.hostname;
-  $("platform").textContent = `${system.platform} · ${system.arch}`;
-  $("uptime").textContent = fmtUptime(system.uptimeSeconds);
-  $("load").textContent = system.load[0].toFixed(2);
-  const used = 1 - system.memory.freeBytes / system.memory.totalBytes;
-  $("memory").textContent = `${Math.round(used * 100)}%`;
-  if (system.silicon?.gpuPercent !== undefined)
-    $("load").textContent =
-      `${system.load[0].toFixed(2)} · ${system.silicon.gpuPercent.toFixed(0)}%`;
-  if (system.disk) {
-    $("platform").textContent =
-      `${system.platform} · ${system.arch} · 磁盘余量 ${fmtBytes(system.disk.freeBytes)}`;
+const fmtBytes = (bytes) => {
+  if (!Number.isFinite(bytes)) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit >= 3 ? 2 : unit ? 1 : 0)} ${units[unit]}`;
+};
+
+const fmtPercent = (value, digits = 1) =>
+  Number.isFinite(value) ? `${value.toFixed(digits)}%` : "—";
+
+const fmtUptime = (seconds) => {
+  if (!Number.isFinite(seconds)) return "—";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return days ? `${days} 天 ${hours} 小时` : `${hours} 小时 ${minutes} 分钟`;
+};
+
+const fmtClock = (iso) =>
+  iso ? new Date(iso).toLocaleTimeString("zh-CN", { hour12: false }) : "—";
+
+const fmtDateTime = (iso) =>
+  iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "—";
+
+const baseName = (command) => {
+  const trimmed = String(command ?? "").trim();
+  if (!trimmed) return "—";
+  const parts = trimmed.split("/");
+  return parts[parts.length - 1] || trimmed;
+};
+
+/* ---------- api ---------- */
+
+async function api(path, options = {}) {
+  const headers = new Headers(options.headers);
+  const token = localStorage.getItem("studioops.token");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  let response;
+  try {
+    response = await fetch(`${agentOrigin}${path}`, { ...options, headers });
+  } catch {
+    throw new Error("Agent 未启动或端口 7227 不可达");
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok)
+    throw new Error(body.error || `请求失败 (${response.status})`);
+  return body.data;
+}
+
+/* ---------- history / sparklines ---------- */
+
+function pushHistory(system) {
+  const memoryUsed = system.memory.usedBytes ?? 0;
+  const memoryPct = system.memory.totalBytes
+    ? (memoryUsed / system.memory.totalBytes) * 100
+    : 0;
+  const diskPct = system.disk?.totalBytes
+    ? ((system.disk.totalBytes - system.disk.freeBytes) /
+        system.disk.totalBytes) *
+      100
+    : 0;
+  const cpuFallback = system.cpuCount
+    ? ((system.load?.[0] ?? 0) / system.cpuCount) * 100
+    : undefined;
+  const values = {
+    cpu: system.silicon?.cpuPercent ?? cpuFallback,
+    gpu: system.silicon?.gpuPercent,
+    memory: memoryPct,
+    disk: diskPct,
+    power: system.silicon?.powerWatts,
+    temp: system.silicon?.cpuTemperatureC,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    if (!Number.isFinite(value)) {
+      if (state.history[key].length)
+        state.history[key].push(state.history[key].at(-1));
+    } else state.history[key].push(value);
+    if (state.history[key].length > 48) state.history[key].shift();
   }
 }
 
-function renderServices(services) {
-  $("service-list").innerHTML = services
-    .map((service) => {
-      const detail =
-        service.kind === "ollama" && service.details?.modelCount !== undefined
-          ? `${service.details.modelCount} 个模型`
-          : service.kind === "comfyui" && service.details?.devices?.length
-            ? `GPU: ${service.details.devices.join(", ")}`
-            : service.healthMessage || "";
-      const usage =
-        service.cpuPercent !== undefined || service.memoryBytes !== undefined
-          ? `${service.cpuPercent?.toFixed(1) ?? "—"}% CPU · ${fmtBytes(service.memoryBytes)}`
-          : "";
-      return `
-    <article class="service-row">
-      <div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.kind)} · ${escapeHtml(service.description || service.target)}</small><small>${escapeHtml(detail)}${detail && usage ? " · " : ""}${escapeHtml(usage)}</small></div>
-      <span class="state state-${escapeHtml(service.state)}">${escapeHtml(service.state)}</span>
-      <span class="health health-${escapeHtml(service.healthState || "unknown")}">${escapeHtml(service.healthState || "unknown")}</span>
-      <div class="actions"><button data-log-service="${escapeHtml(service.id)}">日志</button>${service.allowedActions.map((action) => `<button data-service="${escapeHtml(service.id)}" data-action="${escapeHtml(action)}">${escapeHtml(action)}</button>`).join("")}</div>
-    </article>
-  `;
-    })
-    .join("");
-  document.querySelectorAll("[data-action]").forEach((button) =>
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try {
-        await api(
-          `/api/services/${button.dataset.service}/${button.dataset.action}`,
-          { method: "POST", headers: { "x-studioops-actor": "web" } },
-        );
-        await refresh();
-      } catch (error) {
-        alert(error.message);
-      } finally {
-        button.disabled = false;
-      }
-    }),
-  );
-  document
-    .querySelectorAll("[data-log-service]")
-    .forEach((button) =>
-      button.addEventListener("click", () =>
-        openLogs(button.dataset.logService),
-      ),
-    );
+function renderSparklines() {
+  for (const [key, values] of Object.entries(state.history)) {
+    const polyline = document.querySelector(`#spark-${key} polyline`);
+    const polygon = document.querySelector(`#spark-${key} polygon`);
+    if (!polyline) continue;
+    if (values.length === 0) {
+      polyline.setAttribute("points", "");
+      polygon?.setAttribute("points", "");
+      continue;
+    }
+    if (values.length === 1) {
+      polyline.setAttribute("points", "0,15 100,15");
+      polygon?.setAttribute("points", "0,15 100,15 100,30 0,30");
+      continue;
+    }
+    const max = Math.max(...values, 1) * 1.12;
+    const points = values
+      .map((value, index) => {
+        const x = (index / (values.length - 1)) * 100;
+        const y = 29 - Math.min(Math.max(value / max, 0), 1) * 27;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+    polyline.setAttribute("points", points);
+    polygon?.setAttribute("points", `0,30 ${points} 100,30`);
+  }
 }
 
-function renderEvents(events) {
-  $("event-list").innerHTML = events.length
-    ? events
-        .slice(0, 8)
+/* ---------- system ---------- */
+
+function renderSystem(system) {
+  if (!system) return;
+  state.system = system;
+  state.lastUpdated = new Date();
+  pushHistory(system);
+
+  $("side-host").textContent = system.hostname;
+  $("side-platform").textContent = `${system.platform} · ${system.arch}`;
+  if ($("runtime-host")) {
+    $("runtime-host").textContent = system.hostname;
+    $("runtime-uptime").textContent = fmtUptime(system.uptimeSeconds);
+  }
+  $("last-updated").textContent = state.lastUpdated.toLocaleTimeString(
+    "zh-CN",
+    { hour12: false },
+  );
+
+  const cpu = system.silicon?.cpuPercent;
+  $("metric-cpu").textContent = Number.isFinite(cpu) ? cpu.toFixed(0) : "—";
+  $("cpu-cores").textContent = system.cpuCount ? `${system.cpuCount} 核` : "—";
+  $("metric-cpu-sub").textContent =
+    `负载 ${(system.load?.[0] ?? 0).toFixed(2)} · ${(system.load?.[1] ?? 0).toFixed(2)} · ${(system.load?.[2] ?? 0).toFixed(2)}`;
+
+  const gpu = system.silicon?.gpuPercent;
+  $("metric-gpu").textContent = Number.isFinite(gpu) ? gpu.toFixed(0) : "—";
+  const ane = system.silicon?.anePercent;
+  $("metric-gpu-sub").textContent = Number.isFinite(ane)
+    ? `ANE ${ane.toFixed(1)}%`
+    : system.silicon
+      ? "ANE —"
+      : "未检测到 macmon";
+
+  const memoryPct = system.memory.totalBytes
+    ? (system.memory.usedBytes ?? 0)
+      ? ((system.memory.usedBytes ?? 0) / system.memory.totalBytes) * 100
+      : (1 - system.memory.freeBytes / system.memory.totalBytes) * 100
+    : 0;
+  $("metric-memory").textContent = memoryPct.toFixed(0);
+  $("memory-total").textContent = fmtBytes(system.memory.totalBytes);
+  $("metric-memory-sub").textContent =
+    `已用 ${fmtBytes(system.memory.usedBytes ?? system.memory.totalBytes - system.memory.freeBytes)}`;
+
+  const diskPct = system.disk?.totalBytes
+    ? ((system.disk.totalBytes - system.disk.freeBytes) /
+        system.disk.totalBytes) *
+      100
+    : undefined;
+  $("metric-disk").textContent = Number.isFinite(diskPct)
+    ? diskPct.toFixed(0)
+    : "—";
+  $("metric-disk-sub").textContent = system.disk
+    ? `可用 ${fmtBytes(system.disk.freeBytes)} / ${fmtBytes(system.disk.totalBytes)}`
+    : "磁盘信息不可用";
+
+  const power = system.silicon?.powerWatts;
+  $("metric-power").textContent = Number.isFinite(power)
+    ? power.toFixed(1)
+    : "—";
+
+  const temp = system.silicon?.cpuTemperatureC;
+  $("metric-temp").textContent = Number.isFinite(temp) ? temp.toFixed(0) : "—";
+  const gpuTemp = system.silicon?.gpuTemperatureC;
+  $("metric-temp-sub").textContent = Number.isFinite(gpuTemp)
+    ? `GPU ${gpuTemp.toFixed(0)}°C`
+    : "GPU —";
+
+  const silicon = system.silicon;
+  const setChip = (valueId, barId, value, scale = 100) => {
+    const valueElement = $(valueId);
+    const barElement = $(barId);
+    if (!valueElement || !barElement) return;
+    if (Number.isFinite(value)) {
+      valueElement.textContent = value.toFixed(0);
+      barElement.style.width = `${Math.min(Math.max(value / scale, 0), 1) * 100}%`;
+    } else {
+      valueElement.textContent = "—";
+      barElement.style.width = "0";
+    }
+  };
+  setChip("val-pcpu", "bar-pcpu", silicon?.pcpuPercent);
+  setChip("val-ecpu", "bar-ecpu", silicon?.ecpuPercent);
+  setChip("val-gpu", "bar-gpu", silicon?.gpuPercent);
+  setChip("val-ane", "bar-ane", silicon?.anePercent);
+  setChip("val-fan", "bar-fan", silicon?.fanRpm, 4000);
+  $("val-fan").textContent = Number.isFinite(silicon?.fanRpm)
+    ? `${silicon.fanRpm.toFixed(0)} rpm`
+    : "—";
+  $("val-sample").textContent = fmtClock(system.updatedAt);
+
+  renderSparklines();
+  renderSettingsFacts();
+}
+
+/* ---------- services ---------- */
+
+function filteredServices() {
+  const search = state.serviceSearch.trim().toLowerCase();
+  return state.services.filter((service) => {
+    if (state.serviceFilter === "running" && service.state !== "running")
+      return false;
+    if (
+      state.serviceFilter === "stopped" &&
+      !["stopped", "unknown"].includes(service.state)
+    )
+      return false;
+    if (
+      state.serviceFilter === "unhealthy" &&
+      service.healthState !== "unhealthy"
+    )
+      return false;
+    if (!search) return true;
+    return [
+      service.name,
+      service.id,
+      service.kind,
+      service.group,
+      service.target,
+      service.description,
+      service.port,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(search);
+  });
+}
+
+function serviceDetailLine(service) {
+  if (service.kind === "ollama" && service.details?.modelCount !== undefined)
+    return `${service.details.modelCount} 个模型`;
+  if (service.kind === "comfyui" && service.details?.devices?.length)
+    return `设备 ${service.details.devices.join(", ")}`;
+  return service.description || service.target;
+}
+
+// Only offer actions that make sense for the current state. The agent still
+// enforces the configured allow list; this just avoids dead buttons.
+function visibleActions(service) {
+  return service.allowedActions.filter((action) => {
+    if (service.state === "running")
+      return ["stop", "restart", "pause"].includes(action);
+    if (service.state === "paused") return ["stop", "resume"].includes(action);
+    if (["stopped", "error", "unknown"].includes(service.state))
+      return action === "start";
+    return false;
+  });
+}
+
+function renderServices() {
+  const services = state.services;
+  $("nav-service-count").textContent = String(services.length);
+  const running = services.filter((service) => service.state === "running");
+  const unhealthy = services.filter(
+    (service) => service.healthState === "unhealthy",
+  );
+  $("overview-service-summary").textContent =
+    `${running.length} / ${services.length} 运行中${unhealthy.length ? ` · ${unhealthy.length} 个健康异常` : " · 没有健康异常"}`;
+
+  $("overview-service-list").innerHTML = services.length
+    ? services
+        .slice(0, 6)
         .map(
-          (event) =>
-            `<div class="event-row"><span class="event-result ${event.success ? "success" : "failure"}">${event.success ? "成功" : "失败"}</span><strong>${escapeHtml(event.serviceId)}</strong><span>${escapeHtml(event.action)}</span><small>${new Date(event.at).toLocaleString()}</small></div>`,
+          (service) => `
+          <div class="compact-service" data-service="${escapeHtml(service.id)}">
+            <span class="state-dot ${escapeHtml(service.state)}"></span>
+            <div>
+              <strong>${escapeHtml(service.name)}</strong>
+              <small>${escapeHtml(service.kind)} · ${escapeHtml(serviceDetailLine(service))}</small>
+            </div>
+            <span class="state-pill ${escapeHtml(service.state)}">${escapeHtml(stateLabels[service.state] ?? service.state)}</span>
+          </div>`,
         )
         .join("")
-    : '<p class="muted">暂无操作记录</p>';
+    : '<p class="muted" style="padding: 12px">还没有登记服务</p>';
+
+  const filtered = filteredServices();
+  $("service-count").textContent =
+    `${filtered.length} / ${services.length} 个服务`;
+  $("services-empty").classList.toggle("hidden", filtered.length > 0);
+  $("services-body").innerHTML = filtered
+    .map((service) => {
+      const actions = visibleActions(service)
+        .map(
+          (action) => `
+          <button class="${action === "stop" ? "danger" : ""}" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}" title="${escapeHtml(actionLabels[action] ?? action)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
+        )
+        .join("");
+      const health = service.healthState ?? "unknown";
+      return `
+      <tr>
+        <td>
+          <div class="service-name" data-service="${escapeHtml(service.id)}">
+            <span class="state-dot ${escapeHtml(service.state)}"></span>
+            <div>
+              <strong>${escapeHtml(service.name)}</strong>
+              <span class="cell-sub">${escapeHtml(serviceDetailLine(service))}</span>
+            </div>
+          </div>
+        </td>
+        <td><span class="kind-tag">${escapeHtml(service.kind)}</span></td>
+        <td><span class="state-pill ${escapeHtml(service.state)}">${escapeHtml(stateLabels[service.state] ?? service.state)}</span></td>
+        <td><span class="health-text ${escapeHtml(health)}" title="${escapeHtml(service.healthMessage ?? "")}">${escapeHtml(healthLabels[health] ?? health)}</span><span class="health-message">${escapeHtml(service.healthMessage ?? "")}</span></td>
+        <td class="num mono">${service.pid ?? "—"}</td>
+        <td class="num mono">${service.port ?? "—"}</td>
+        <td class="num">${fmtPercent(service.cpuPercent)}</td>
+        <td class="num">${fmtBytes(service.memoryBytes)}</td>
+        <td>
+          <div class="row-actions">
+            <button data-log-service="${escapeHtml(service.id)}">日志</button>
+            ${actions}
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  const logList = $("log-service-list");
+  if (logList)
+    logList.innerHTML = services
+      .map(
+        (service) => `
+        <button class="log-service-item ${state.logServiceId === service.id ? "active" : ""}" data-log-service="${escapeHtml(service.id)}">
+          <span class="state-dot ${escapeHtml(service.state)}"></span>
+          <span>${escapeHtml(service.name)}</span>
+        </button>`,
+      )
+      .join("");
+
+  if (state.selectedServiceId) {
+    const service = services.find(
+      (item) => item.id === state.selectedServiceId,
+    );
+    if (service) renderDrawer(service, true);
+    else closeDrawer();
+  }
 }
 
-async function openLogs(serviceId) {
-  $("log-card").classList.remove("hidden");
-  $("log-title").textContent = `${serviceId} 日志`;
-  $("log-output").textContent = "加载中…";
+/* ---------- processes ---------- */
+
+function renderProcesses() {
+  const search = state.processSearch.trim().toLowerCase();
+  const processes = state.processes.filter((process) => {
+    if (!search) return true;
+    return `${process.command} ${process.pid} ${process.user}`
+      .toLowerCase()
+      .includes(search);
+  });
+  $("process-count").textContent =
+    `top ${processes.length} / ${state.processTotal} 个进程 · ${state.processSort === "memory" ? "按内存" : "按 CPU"}`;
+  $("processes-empty").classList.toggle("hidden", processes.length > 0);
+  $("processes-body").innerHTML = processes
+    .map(
+      (process) => `
+      <tr>
+        <td class="num mono">${process.pid}</td>
+        <td><span class="strong mono" title="${escapeHtml(process.command)}">${escapeHtml(baseName(process.command))}</span><span class="cell-sub">${escapeHtml(process.command)}</span></td>
+        <td>${escapeHtml(process.user)}</td>
+        <td class="num"><div class="usage-cell"><span class="meter"><i style="width:${Math.min(Math.max(process.cpuPercent, 0), 100)}%"></i></span>${fmtPercent(process.cpuPercent)}</div></td>
+        <td class="num"><div class="usage-cell"><span class="meter memory"><i style="width:${Math.min(Math.max(process.memoryPercent, 0), 100)}%"></i></span>${fmtPercent(process.memoryPercent)}</div></td>
+        <td class="num">${fmtBytes(process.memoryBytes)}</td>
+        <td class="num mono">${process.ppid}</td>
+      </tr>`,
+    )
+    .join("");
+
+  $("overview-process-body").innerHTML = state.processes
+    .slice(0, 8)
+    .map(
+      (process) => `
+      <tr>
+        <td class="num mono">${process.pid}</td>
+        <td><span class="strong mono" title="${escapeHtml(process.command)}">${escapeHtml(baseName(process.command))}</span><span class="cell-sub">${escapeHtml(process.user)}</span></td>
+        <td class="num"><div class="usage-cell"><span class="meter"><i style="width:${Math.min(Math.max(process.cpuPercent, 0), 100)}%"></i></span>${fmtPercent(process.cpuPercent)}</div></td>
+        <td class="num">${fmtBytes(process.memoryBytes)}</td>
+      </tr>`,
+    )
+    .join("");
+}
+
+/* ---------- events ---------- */
+
+function renderEvents() {
+  const events = state.events.slice(0, 12);
+  $("overview-event-count").textContent = events.length
+    ? `最近 ${events.length} 条`
+    : "";
+  $("overview-event-body").innerHTML = events.length
+    ? events
+        .map(
+          (event) => `
+        <tr>
+          <td class="mono">${escapeHtml(fmtClock(event.at))}</td>
+          <td><span class="strong">${escapeHtml(event.serviceId)}</span></td>
+          <td>${escapeHtml(actionLabels[event.action] ?? event.action)}</td>
+          <td><span class="health-text ${event.success ? "healthy" : "unhealthy"}">${event.success ? "ok" : "fail"}</span></td>
+          <td>${escapeHtml(event.actor ?? "local")}</td>
+        </tr>`,
+        )
+        .join("")
+    : '<tr><td colspan="5" class="muted">暂无操作记录</td></tr>';
+}
+
+/* ---------- docker ---------- */
+
+function renderDocker() {
+  const docker = state.docker;
+  if (!docker) return;
+  const dot = $("docker-dot");
+  dot.className = `status-dot ${docker.available ? "online" : "offline"}`;
+  $("docker-version").textContent = docker.serverVersion
+    ? `v${docker.serverVersion}`
+    : docker.cliInstalled
+      ? "CLI 已安装"
+      : "未安装";
+
+  if (!docker.cliInstalled) {
+    $("docker-title").textContent = "未安装 Docker CLI";
+    $("docker-detail").textContent =
+      "安装 Docker Desktop 或 colima 后，这里会显示容器。";
+  } else if (!docker.available) {
+    $("docker-title").textContent = "Docker CLI 已安装，daemon 未运行";
+    $("docker-detail").textContent =
+      docker.error || "启动 Docker Desktop 或 colima 后重新检查。";
+  } else {
+    $("docker-title").textContent = "Docker daemon 运行中";
+    $("docker-detail").textContent = docker.error
+      ? docker.error
+      : `共 ${docker.containers.length} 个容器`;
+  }
+
+  $("container-summary").textContent = docker.available
+    ? `${docker.containers.filter((item) => item.state === "running").length} 个运行中 · 共 ${docker.containers.length} 个`
+    : "Docker daemon 可用后显示容器列表";
+
+  const hasContainers = docker.containers.length > 0;
+  $("containers-body").innerHTML = docker.containers
+    .map((container) => {
+      const running = container.state === "running";
+      return `
+      <tr>
+        <td><span class="strong">${escapeHtml(container.name)}</span><span class="cell-sub">${escapeHtml(container.status)}</span></td>
+        <td class="mono">${escapeHtml(container.image)}</td>
+        <td><span class="state-pill ${running ? "running" : "stopped"}">${escapeHtml(container.state)}</span></td>
+        <td class="mono">${escapeHtml(container.ports || "—")}</td>
+        <td>
+          <div class="row-actions">
+            ${running ? "" : `<button data-container-action="start" data-container-id="${escapeHtml(container.id)}">启动</button>`}
+            ${running ? `<button data-container-action="stop" data-container-id="${escapeHtml(container.id)}">停止</button>` : ""}
+            <button data-container-action="restart" data-container-id="${escapeHtml(container.id)}">重启</button>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+  const empty = $("containers-empty");
+  empty.classList.toggle("hidden", hasContainers);
+  const dockerError = docker.available && docker.error;
+  empty.querySelector("strong").textContent = dockerError
+    ? "无法读取容器列表"
+    : docker.available
+      ? "还没有容器"
+      : docker.cliInstalled
+        ? "Docker daemon 未运行"
+        : "未安装 Docker CLI";
+  $("containers-empty-text").textContent = dockerError
+    ? docker.error
+    : docker.available
+      ? "运行 docker run 或 compose up 后，容器会出现在这里。"
+      : docker.cliInstalled
+        ? "启动 Docker Desktop 或 colima，然后点击“重新检查”。"
+        : "安装 Docker Desktop 或 colima 后，这里会显示容器并可启停。";
+}
+
+/* ---------- settings ---------- */
+
+function renderSettingsFacts() {
+  const config = state.config;
+  const system = state.system;
+  if (config) {
+    $("settings-config-path").textContent = config.filePath ?? "未找到";
+    $("settings-service-count").textContent = String(config.serviceCount);
+    $("settings-config-source").textContent = config.usingFallback
+      ? "内置示例（未找到 services.yaml）"
+      : "用户配置";
+    $("settings-origin").textContent = agentOrigin;
+    $("settings-bind").textContent = `${config.host}:${config.port}`;
+    $("settings-token").textContent = config.tokenRequired
+      ? "已启用 Bearer Token"
+      : "未启用（仅本机回环）";
+    $("settings-data-dir").textContent = config.dataDir ?? "—";
+    $("settings-version").textContent = `v${config.version}`;
+    const hint = $("token-hint");
+    if (hint)
+      hint.textContent = config.tokenRequired
+        ? "Agent 已启用 Token；保存后 HTTP 请求和 WebSocket 都会携带它。"
+        : "Agent 当前仅监听本机回环；远程绑定需要在启动时设置 STUDIOOPS_TOKEN。";
+    if ($("runtime-agent"))
+      $("runtime-agent").textContent = `${config.host}:${config.port}`;
+    if ($("runtime-config"))
+      $("runtime-config").textContent = config.usingFallback
+        ? "fallback"
+        : `${config.serviceCount} services`;
+  }
+  if (system) {
+    $("settings-host").textContent = system.hostname;
+    $("settings-platform").textContent =
+      `${system.platform} · ${system.arch} · ${system.cpuCount ?? "—"} 核`;
+    $("settings-uptime").textContent = fmtUptime(system.uptimeSeconds);
+  }
+}
+
+function loadTokenField() {
+  const input = $("token-input");
+  if (input) input.value = localStorage.getItem("studioops.token") ?? "";
+}
+
+/* ---------- drawer ---------- */
+
+function renderDrawer(service, keepLog = false) {
+  const previousLog = keepLog
+    ? ($("drawer-log")?.textContent ?? "加载中…")
+    : "加载中…";
+  state.selectedServiceId = service.id;
+  $("drawer-name").textContent = service.name;
+  $("drawer-kind").textContent =
+    `${service.kind} · ${service.adapter}${service.group ? ` · ${service.group}` : ""}`;
+  const health = service.healthState ?? "unknown";
+  const details = service.details ?? {};
+  const detailRows = Object.entries(details)
+    .map(([key, value]) => {
+      const rendered = Array.isArray(value)
+        ? value.join(", ")
+        : typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value);
+      return `<div class="drawer-fact"><span>${escapeHtml(key)}</span><strong>${escapeHtml(rendered)}</strong></div>`;
+    })
+    .join("");
+  $("drawer-body").innerHTML = `
+    <section class="drawer-section">
+      <h3>状态</h3>
+      <div class="drawer-facts">
+        <div class="drawer-fact"><span>运行状态</span><strong>${escapeHtml(stateLabels[service.state] ?? service.state)}</strong></div>
+        <div class="drawer-fact"><span>健康检查</span><strong>${escapeHtml(healthLabels[health] ?? health)}</strong></div>
+        <div class="drawer-fact"><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
+        <div class="drawer-fact"><span>端口</span><strong>${service.port ?? "—"}</strong></div>
+        <div class="drawer-fact"><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
+        <div class="drawer-fact"><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
+      </div>
+      ${service.healthMessage ? `<p class="muted" style="margin-top: 8px; font-size: 11px">${escapeHtml(service.healthMessage)}</p>` : ""}
+    </section>
+    <section class="drawer-section">
+      <h3>配置</h3>
+      <div class="drawer-facts">
+        <div class="drawer-fact mono"><span>目标</span><strong>${escapeHtml(service.target)}</strong></div>
+        <div class="drawer-fact"><span>适配器</span><strong>${escapeHtml(service.adapter)}</strong></div>
+        <div class="drawer-fact"><span>允许动作</span><strong>${escapeHtml(service.allowedActions.join(" · "))}</strong></div>
+        <div class="drawer-fact"><span>更新时间</span><strong>${escapeHtml(fmtClock(service.updatedAt))}</strong></div>
+        ${service.command ? `<div class="drawer-fact mono"><span>命令</span><strong>${escapeHtml(service.command)} ${escapeHtml((service.args ?? []).join(" "))}</strong></div>` : ""}
+      </div>
+    </section>
+    ${detailRows ? `<section class="drawer-section"><h3>服务详情</h3><div class="drawer-facts">${detailRows}</div></section>` : ""}
+    <section class="drawer-section">
+      <h3>最近日志</h3>
+      <pre class="drawer-log" id="drawer-log">${escapeHtml(previousLog)}</pre>
+    </section>`;
+
+  $("drawer-actions").innerHTML = visibleActions(service)
+    .map(
+      (action) =>
+        `<button class="btn btn-small ${action === "stop" ? "" : ""}" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
+    )
+    .join("");
+
+  $("service-drawer").classList.remove("hidden");
+  $("drawer-backdrop").classList.remove("hidden");
+  if (!keepLog) loadDrawerLog(service.id);
+}
+
+function closeDrawer() {
+  state.selectedServiceId = null;
+  $("service-drawer").classList.add("hidden");
+  $("drawer-backdrop").classList.add("hidden");
+}
+
+async function loadDrawerLog(serviceId) {
+  const target = $("drawer-log");
+  if (!target) return;
   try {
     const log = await api(
-      `/api/services/${encodeURIComponent(serviceId)}/logs?tail=200`,
+      `/api/services/${encodeURIComponent(serviceId)}/logs?tail=80`,
     );
-    $("log-output").textContent = log.lines.join("\n") || "暂无日志";
+    target.textContent = log.lines.join("\n") || "暂无日志";
   } catch (error) {
+    target.textContent = error.message;
+  }
+}
+
+/* ---------- logs view ---------- */
+
+function renderLogMeta(log) {
+  if (!log) return;
+  const truncated = log.truncated ? " · 已截断" : "";
+  $("log-meta").textContent =
+    `${log.lines.length} 行 · ${log.source}${truncated} · ${fmtDateTime(log.fetchedAt)}`;
+}
+
+async function loadLogs(serviceId = state.logServiceId) {
+  if (!serviceId) return;
+  state.logServiceId = serviceId;
+  const service = state.services.find((item) => item.id === serviceId);
+  $("log-title").textContent = service ? `${service.name} 日志` : serviceId;
+  $("log-output").textContent = "加载中…";
+  document
+    .querySelectorAll(".log-service-item")
+    .forEach((item) =>
+      item.classList.toggle("active", item.dataset.logService === serviceId),
+    );
+  try {
+    const tail = Number($("log-tail").value);
+    const log = await api(
+      `/api/services/${encodeURIComponent(serviceId)}/logs?tail=${tail}`,
+    );
+    state.logLines = log.lines;
+    renderLogMeta(log);
+    $("log-output").innerHTML = log.lines.length
+      ? log.lines
+          .map((line) => {
+            const severity = /\b(error|failed|fatal|exception)\b/i.test(line)
+              ? "log-error"
+              : /\b(warn|warning)\b/i.test(line)
+                ? "log-warn"
+                : "";
+            return `<span class="log-line ${severity}">${escapeHtml(line)}</span>`;
+          })
+          .join("\n")
+      : '<span class="muted">暂无日志</span>';
+    $("log-output").scrollTop = $("log-output").scrollHeight;
+  } catch (error) {
+    $("log-meta").textContent = "";
     $("log-output").textContent = error.message;
   }
 }
 
-async function refresh() {
-  const [system, services, events, config] = await Promise.all([
+/* ---------- data loading ---------- */
+
+async function refreshAll({ quiet = false } = {}) {
+  const results = await Promise.allSettled([
     api("/api/system"),
     api("/api/services"),
-    api("/api/events?limit=8"),
+    api("/api/events?limit=20"),
     api("/api/config"),
   ]);
-  renderSystem(system);
-  renderServices(services);
-  renderEvents(events);
-  $("config-source").textContent = config.usingFallback
-    ? "使用内置示例服务"
-    : `${config.serviceCount} 个已配置服务`;
+  const [system, services, events, config] = results;
+  if (system.status === "fulfilled") renderSystem(system.value);
+  if (services.status === "fulfilled") {
+    state.services = services.value;
+    renderServices();
+  }
+  if (events.status === "fulfilled") {
+    state.events = events.value;
+    renderEvents();
+  }
+  if (config.status === "fulfilled") {
+    state.config = config.value;
+    renderSettingsFacts();
+  }
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") {
+    showError(failed.reason?.message ?? "无法读取 Agent 数据");
+  } else {
+    hideError();
+    state.connected = true;
+    $("connection-dot").className = "dot online";
+    $("connection-text").textContent = "已连接";
+    if (!quiet) toast("数据已刷新");
+  }
+  if (state.view === "logs" && state.logAuto && state.logServiceId)
+    loadLogs().catch(() => {});
 }
+
+async function loadProcesses() {
+  try {
+    const data = await api(`/api/processes?sort=${state.processSort}&limit=50`);
+    state.processes = data.processes;
+    state.processTotal = data.total;
+    renderProcesses();
+  } catch {
+    // The overview keeps the previous process list on transient failures.
+  }
+}
+
+async function loadDocker() {
+  try {
+    state.docker = await api("/api/docker");
+    renderDocker();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+/* ---------- actions ---------- */
+
+async function performAction(serviceId, action, button) {
+  if (button) button.disabled = true;
+  try {
+    await api(`/api/services/${encodeURIComponent(serviceId)}/${action}`, {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    const service = state.services.find((item) => item.id === serviceId);
+    toast(
+      `${service?.name ?? serviceId}：${actionLabels[action] ?? action}完成`,
+    );
+    await refreshAll({ quiet: true });
+    if (state.selectedServiceId === serviceId) await loadDrawerLog(serviceId);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function performContainerAction(id, action, button) {
+  if (button) button.disabled = true;
+  try {
+    await api(`/api/docker/containers/${encodeURIComponent(id)}/${action}`, {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    toast(`容器 ${id}：${actionLabels[action] ?? action}完成`);
+    await loadDocker();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/* ---------- views ---------- */
+
+function switchView(view, { updateHash = true } = {}) {
+  if (!viewMeta[view]) view = "overview";
+  state.view = view;
+  document
+    .querySelectorAll(".nav-item")
+    .forEach((item) =>
+      item.classList.toggle("active", item.dataset.view === view),
+    );
+  document
+    .querySelectorAll("[data-view-panel]")
+    .forEach((panel) =>
+      panel.classList.toggle("hidden", panel.dataset.viewPanel !== view),
+    );
+  const meta = viewMeta[view];
+  $("page-title").textContent = meta.title;
+  $("page-subtitle").textContent = meta.subtitle;
+  $("page-eyebrow").textContent = meta.eyebrow;
+  document.title = `StudioOps · ${meta.title}`;
+  closeDrawer();
+  if (updateHash) {
+    const hash = view === "overview" ? "" : `#${view}`;
+    history.replaceState(null, "", `${location.pathname}${hash}`);
+  }
+
+  if (view === "processes") loadProcesses();
+  if (view === "containers") loadDocker();
+  if (view === "settings") {
+    renderSettingsFacts();
+    loadTokenField();
+  }
+  if (view === "logs") {
+    if (!state.logServiceId && state.services[0])
+      state.logServiceId = state.services[0].id;
+    if (state.logServiceId) loadLogs();
+    else $("log-output").textContent = "还没有可查看日志的服务。";
+  }
+}
+
+/* ---------- connection ---------- */
+
+let socket;
+let reconnectTimer;
 
 function connect() {
   const socketUrl = new URL(agentOrigin);
   socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
   socketUrl.pathname = "/ws";
-  const socket = new WebSocket(socketUrl.toString());
-  socket.addEventListener("open", () => {
-    $("connection-dot").className = "online";
+  const token = localStorage.getItem("studioops.token");
+  if (token) socketUrl.searchParams.set("token", token);
+  const activeSocket = new WebSocket(socketUrl.toString());
+  socket = activeSocket;
+  activeSocket.addEventListener("open", () => {
+    state.connected = true;
+    $("connection-dot").className = "dot online";
     $("connection-text").textContent = "已连接";
-    socket.send(
-      JSON.stringify({ type: "subscribe", topics: ["system", "services"] }),
+    hideError();
+    activeSocket.send(
+      JSON.stringify({
+        type: "subscribe",
+        topics: ["system", "services", "events"],
+      }),
     );
   });
-  socket.addEventListener("close", () => {
-    $("connection-dot").className = "offline";
-    $("connection-text").textContent = "已断开";
-    setTimeout(connect, 2000);
+  activeSocket.addEventListener("close", () => {
+    if (socket !== activeSocket) return;
+    state.connected = false;
+    $("connection-dot").className = "dot offline";
+    $("connection-text").textContent = "连接断开，重试中…";
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 2000);
   });
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
-    if (message.topic === "system") renderSystem(message.data);
-    if (message.topic === "services") renderServices(message.data);
+  activeSocket.addEventListener("message", (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      if (message.topic === "system") renderSystem(message.data);
+      if (message.topic === "services") {
+        state.services = message.data;
+        renderServices();
+      }
+      if (message.topic === "events") refreshEvents();
+    } catch {
+      // Ignore malformed frames.
+    }
   });
 }
 
-$("refresh").addEventListener("click", refresh);
-$("backup-config").addEventListener("click", async () => {
+function reconnectSocket() {
+  clearTimeout(reconnectTimer);
+  if (socket) {
+    const previous = socket;
+    socket = null;
+    previous.close();
+  }
+  connect();
+}
+
+async function refreshEvents() {
+  try {
+    state.events = await api("/api/events?limit=20");
+    renderEvents();
+  } catch {
+    // Keep the previous audit rows.
+  }
+}
+
+/* ---------- feedback ---------- */
+
+let toastTimer;
+function toast(message, isError = false) {
+  const element = $("toast");
+  element.textContent = message;
+  element.classList.toggle("error", isError);
+  element.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => element.classList.add("hidden"), 3600);
+}
+
+function showError(message) {
+  $("error-banner-text").textContent = message;
+  $("error-banner").classList.remove("hidden");
+  $("connection-dot").className = "dot offline";
+  $("connection-text").textContent = "未连接";
+}
+
+function hideError() {
+  $("error-banner").classList.add("hidden");
+}
+
+/* ---------- events ---------- */
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("button, [data-service]");
+  if (!target) return;
+
+  if (target.dataset.view) {
+    switchView(target.dataset.view);
+    return;
+  }
+  if (target.id === "refresh") {
+    refreshAll();
+    loadProcesses();
+    if (state.view === "containers") loadDocker();
+    return;
+  }
+  if (target.id === "error-retry") {
+    refreshAll();
+    return;
+  }
+  if (target.id === "drawer-close") {
+    closeDrawer();
+    return;
+  }
+  if (target.id === "drawer-backdrop") {
+    closeDrawer();
+    return;
+  }
+  if (target.id === "log-refresh") {
+    loadLogs();
+    return;
+  }
+  if (target.id === "docker-refresh") {
+    loadDocker();
+    return;
+  }
+  if (target.id === "backup-config") {
+    backupConfig();
+    return;
+  }
+  if (target.id === "token-save") {
+    const value = $("token-input").value.trim();
+    if (value) localStorage.setItem("studioops.token", value);
+    else localStorage.removeItem("studioops.token");
+    toast(value ? "Token 已保存，正在重新连接" : "Token 已清除");
+    reconnectSocket();
+    refreshAll({ quiet: true });
+    return;
+  }
+  if (target.id === "token-clear") {
+    localStorage.removeItem("studioops.token");
+    $("token-input").value = "";
+    toast("Token 已清除");
+    reconnectSocket();
+    refreshAll({ quiet: true });
+    return;
+  }
+  if (target.dataset.logService) {
+    if (state.view !== "logs") {
+      state.logServiceId = target.dataset.logService;
+      switchView("logs");
+    } else {
+      loadLogs(target.dataset.logService);
+    }
+    return;
+  }
+  if (target.dataset.action && target.dataset.serviceId) {
+    performAction(target.dataset.serviceId, target.dataset.action, target);
+    return;
+  }
+  if (target.dataset.containerAction && target.dataset.containerId) {
+    performContainerAction(
+      target.dataset.containerId,
+      target.dataset.containerAction,
+      target,
+    );
+    return;
+  }
+  if (target.dataset.service) {
+    const service = state.services.find(
+      (item) => item.id === target.dataset.service,
+    );
+    if (service) renderDrawer(service);
+  }
+});
+
+$("drawer-backdrop").addEventListener("click", closeDrawer);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeDrawer();
+});
+
+$("service-search").addEventListener("input", (event) => {
+  state.serviceSearch = event.target.value;
+  renderServices();
+});
+
+$("service-filter").addEventListener("change", (event) => {
+  state.serviceFilter = event.target.value;
+  renderServices();
+});
+
+$("process-search").addEventListener("input", (event) => {
+  state.processSearch = event.target.value;
+  renderProcesses();
+});
+
+$("process-sort").addEventListener("change", async (event) => {
+  state.processSort = event.target.value;
+  await loadProcesses();
+});
+
+$("log-tail").addEventListener("change", () => loadLogs());
+
+$("log-auto").addEventListener("change", (event) => {
+  state.logAuto = event.target.checked;
+  if (state.logAuto) loadLogs();
+});
+
+async function backupConfig() {
   try {
     const result = await api("/api/config/backup", {
       method: "POST",
       headers: { "x-studioops-actor": "web" },
     });
-    alert(`配置已备份到\n${result.path}`);
+    toast(`配置已备份到 ${result.path}`);
   } catch (error) {
-    alert(error.message);
+    toast(error.message, true);
   }
-});
-$("close-logs").addEventListener("click", () =>
-  $("log-card").classList.add("hidden"),
-);
-refresh().catch((error) => {
-  $("service-list").innerHTML = `<p class="error">${error.message}</p>`;
-});
+}
+
+/* ---------- bootstrap ---------- */
+
+const initialView = location.hash.replace("#", "") || "overview";
+switchView(initialView, { updateHash: false });
+refreshAll({ quiet: true }).catch(() => {});
+loadProcesses();
 connect();
+setInterval(() => {
+  if (!document.hidden) loadProcesses();
+}, 4000);
+setInterval(() => {
+  if (!document.hidden) refreshEvents();
+}, 15000);
+setInterval(() => {
+  if (!document.hidden && state.logAuto && state.logServiceId) loadLogs();
+}, 4000);

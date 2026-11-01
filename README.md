@@ -27,7 +27,11 @@ npm run dev
 - `EventStore`：操作历史保存到 `data/studioops.sqlite`，面板可直接查看最近操作。
 - 配置备份：面板“备份配置”会把 `services.yaml` 复制到 `data/backups/`。
 - 桌面端：Tauri 2 窗口随 Agent 启动，关闭窗口后保留在菜单栏，可从菜单栏重新打开或退出。
-- 主机监控：系统负载、内存、磁盘余量，以及 `macmon` 提供的 Apple Silicon GPU/功耗/温度。
+- 主机监控：系统负载、内存、磁盘余量，以及 `macmon` 提供的 Apple Silicon GPU/ANE/功耗/温度；内存占用与 macmon 使用同一口径。
+- 实时推送：WebSocket 每 2 秒推送主机指标，每 5 秒推送服务状态；订阅在连接建立前不会丢失。
+- 进程浏览：`/api/processes` 返回按 CPU 或内存排序的进程表，面板支持搜索、排序和占用条。
+- Docker：`/api/docker` 显示 daemon 状态和容器列表；daemon 可用时可对容器执行启动、停止、重启。
+- 终端风格面板：总览、服务、进程、容器、日志、设置六个视图，服务详情抽屉、日志错误高亮和自动刷新。
 
 ```bash
 npm test
@@ -65,4 +69,4 @@ StudioOps 不把所有能力重新实现一遍，也不提前安装一堆后台�
 
 ## 安全边界
 
-Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。
+Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`。远程浏览器在“设置 → 访问 Token”保存后，HTTP 请求和 WebSocket 都会携带它。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。

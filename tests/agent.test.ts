@@ -7,8 +7,11 @@ import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-comp
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
 import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
 import { loadConfig } from "../services/agent/src/core/config.js";
+import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
 import { EventStore } from "../services/agent/src/core/event-store.js";
+import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
+import { getSystemSnapshot } from "../services/agent/src/core/system.js";
 import type { ServiceDefinition } from "../packages/contracts/src/index.js";
 
 test("service registry exposes only registered actions", async () => {
@@ -120,4 +123,41 @@ test("event store persists and reads operation history", () => {
 test("docker adapter keeps command construction separate from shell", () => {
   const adapter = new DockerComposeAdapter();
   assert.equal(adapter.id, "docker-compose");
+});
+
+test("process list is sorted and exposes numeric usage fields", async () => {
+  const list = await listProcesses("cpu", 5);
+  assert.equal(list.sort, "cpu");
+  assert.ok(list.total >= list.processes.length);
+  assert.ok(list.processes.length > 0);
+  assert.equal(list.processes.length, Math.min(5, list.total));
+  for (const process of list.processes) {
+    assert.ok(process.pid > 0);
+    assert.ok(Number.isFinite(process.cpuPercent));
+    assert.ok(Number.isFinite(process.memoryBytes));
+  }
+  for (let index = 1; index < list.processes.length; index += 1)
+    assert.ok(
+      list.processes[index - 1]!.cpuPercent >=
+        list.processes[index]!.cpuPercent,
+    );
+});
+
+test("docker status always returns a stable, safe shape", async () => {
+  const docker = await getDockerSnapshot();
+  assert.equal(typeof docker.cliInstalled, "boolean");
+  assert.equal(typeof docker.available, "boolean");
+  assert.ok(Array.isArray(docker.containers));
+  for (const container of docker.containers) {
+    assert.ok(container.id);
+    assert.ok(container.name);
+  }
+});
+
+test("system snapshot reports used memory and CPU count", async () => {
+  const system = await getSystemSnapshot();
+  assert.ok(system.memory.totalBytes > 0);
+  assert.ok((system.memory.usedBytes ?? 0) > 0);
+  assert.ok((system.cpuCount ?? 0) > 0);
+  assert.ok(system.disk);
 });

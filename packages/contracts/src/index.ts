@@ -86,20 +86,61 @@ export interface SystemSnapshot {
   memory: {
     totalBytes: number;
     freeBytes: number;
+    usedBytes?: number;
   };
+  cpuCount?: number;
   disk?: {
     totalBytes: number;
     freeBytes: number;
   };
   silicon?: {
     cpuPercent?: number;
+    pcpuPercent?: number;
+    ecpuPercent?: number;
     gpuPercent?: number;
+    gpuFrequencyMhz?: number;
     anePercent?: number;
     powerWatts?: number;
+    fanRpm?: number;
     cpuTemperatureC?: number;
     gpuTemperatureC?: number;
   };
   updatedAt: string;
+}
+
+export interface ProcessSnapshot {
+  pid: number;
+  ppid: number;
+  user: string;
+  cpuPercent: number;
+  memoryPercent: number;
+  memoryBytes: number;
+  command: string;
+}
+
+export interface ProcessListSnapshot {
+  processes: ProcessSnapshot[];
+  total: number;
+  sort: "cpu" | "memory";
+  capturedAt: string;
+}
+
+export interface DockerContainer {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  ports: string;
+}
+
+export interface DockerSnapshot {
+  cliInstalled: boolean;
+  available: boolean;
+  serverVersion?: string;
+  error?: string;
+  containers: DockerContainer[];
+  capturedAt: string;
 }
 
 export type Topic = "system" | "services" | "logs" | "events";

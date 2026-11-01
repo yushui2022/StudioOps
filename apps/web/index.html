@@ -7,74 +7,673 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">S</span>
+          <div>
+            <strong>StudioOps</strong>
+            <small>LOCAL OPERATIONS</small>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-item active" data-view="overview">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"
+              />
+            </svg>
+            <span class="nav-label">总览</span>
+          </button>
+          <button class="nav-item" data-view="services">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 5h16v5H4V5Zm0 9h16v5H4v-5Zm2 2v1h3v-1H6Zm0-9v1h3V7H6Z"
+              />
+            </svg>
+            <span class="nav-label">服务</span>
+            <span class="nav-count" id="nav-service-count">0</span>
+          </button>
+          <button class="nav-item" data-view="processes">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 18h4V9H4v9Zm6 0h4V4h-4v14Zm6 0h4v-6h-4v6Z" />
+            </svg>
+            <span class="nav-label">进程</span>
+          </button>
+          <button class="nav-item" data-view="containers">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16v3H4V7Zm0 5h16v3H4v-3Zm0 5h10v2H4v-2Z" />
+            </svg>
+            <span class="nav-label">容器</span>
+          </button>
+          <button class="nav-item" data-view="logs">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5 4h14v2H5V4Zm0 4h14v2H5V8Zm0 4h9v2H5v-2Zm0 4h14v2H5v-2Z"
+              />
+            </svg>
+            <span class="nav-label">日志</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+
+        <nav class="nav nav-bottom" aria-label="设置">
+          <button class="nav-item" data-view="settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm9 4-2.1 1.2.2 2.5-2.4 1.4-2-1.4-2 1.4-2.4-1.4.2-2.5L8.4 12l2.1-1.2-.2-2.5 2.4-1.4 2 1.4 2-1.4 2.4 1.4-.2 2.5L21 12Z"
+              />
+            </svg>
+            <span class="nav-label">设置</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <div class="host-card">
+            <span id="connection-dot" class="dot"></span>
+            <div>
+              <strong id="side-host">—</strong>
+              <small id="side-platform">等待 Agent</small>
+            </div>
+          </div>
+          <div class="connection-row">
+            <span id="connection-text">连接中…</span>
+            <span id="last-updated"></span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="page-heading">
+            <p class="eyebrow" id="page-eyebrow">LOCAL OPERATIONS CONSOLE</p>
+            <h1 id="page-title">总览</h1>
+            <p class="page-subtitle" id="page-subtitle">
+              一眼看清这台 Mac 的服务、进程和资源
+            </p>
+          </div>
+          <div class="topbar-actions">
+            <span class="live-tag"><i></i>LIVE <em>2s</em></span>
+            <button class="btn" id="refresh">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5V2L8 6l4 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7Z" />
+              </svg>
+              刷新
+            </button>
+          </div>
+        </header>
+
+        <div id="error-banner" class="banner hidden">
+          <strong>无法连接 Agent</strong>
+          <span id="error-banner-text"></span>
+          <button class="btn btn-small" id="error-retry">重试</button>
+        </div>
+
+        <main class="content">
+          <section class="view" data-view-panel="overview">
+            <div class="chip-strip">
+              <div class="chip">
+                <span>P-CPU</span><strong id="val-pcpu">—</strong>
+                <div class="bar"><i id="bar-pcpu"></i></div>
+              </div>
+              <div class="chip">
+                <span>S-CPU</span><strong id="val-ecpu">—</strong>
+                <div class="bar"><i id="bar-ecpu"></i></div>
+              </div>
+              <div class="chip">
+                <span>GPU</span><strong id="val-gpu">—</strong>
+                <div class="bar"><i id="bar-gpu"></i></div>
+              </div>
+              <div class="chip">
+                <span>ANE</span><strong id="val-ane">—</strong>
+                <div class="bar"><i id="bar-ane"></i></div>
+              </div>
+              <div class="chip">
+                <span>FAN</span><strong id="val-fan">—</strong>
+                <div class="bar"><i id="bar-fan"></i></div>
+              </div>
+              <div class="chip chip-time">
+                <span>SAMPLE</span><strong id="val-sample">—</strong>
+              </div>
+            </div>
+
+            <div class="metric-grid">
+              <article class="metric-card">
+                <header>
+                  <span>CPU</span><span class="badge" id="cpu-cores">—</span>
+                </header>
+                <div class="metric-value">
+                  <strong id="metric-cpu">—</strong><span>%</span>
+                </div>
+                <svg
+                  class="sparkline"
+                  id="spark-cpu"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                >
+                  <polygon />
+                  <polyline />
+                </svg>
+                <footer id="metric-cpu-sub">系统负载 —</footer>
+              </article>
+              <article class="metric-card">
+                <header>
+                  <span>GPU</span><span class="badge">Apple Silicon</span>
+                </header>
+                <div class="metric-value">
+                  <strong id="metric-gpu">—</strong><span>%</span>
+                </div>
+                <svg
+                  class="sparkline"
+                  id="spark-gpu"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                >
+                  <polygon />
+                  <polyline />
+                </svg>
+                <footer id="metric-gpu-sub">ANE —</footer>
+              </article>
+              <article class="metric-card">
+                <header>
+                  <span>内存</span
+                  ><span class="badge" id="memory-total">—</span>
+                </header>
+                <div class="metric-value">
+                  <strong id="metric-memory">—</strong><span>%</span>
+                </div>
+                <svg
+                  class="sparkline"
+                  id="spark-memory"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                >
+                  <polygon />
+                  <polyline />
+                </svg>
+                <footer id="metric-memory-sub">已用 —</footer>
+              </article>
+              <article class="metric-card">
+                <header>
+                  <span>磁盘</span><span class="badge">系统盘</span>
+                </header>
+                <div class="metric-value">
+                  <strong id="metric-disk">—</strong><span>%</span>
+                </div>
+                <svg
+                  class="sparkline"
+                  id="spark-disk"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                >
+                  <polygon />
+                  <polyline />
+                </svg>
+                <footer id="metric-disk-sub">可用 —</footer>
+              </article>
+              <article class="metric-card">
+                <header>
+                  <span>功耗</span><span class="badge">整机</span>
+                </header>
+                <div class="metric-value">
+                  <strong id="metric-power">—</strong><span>W</span>
+                </div>
+                <svg
+                  class="sparkline"
+                  id="spark-power"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                >
+                  <polygon />
+                  <polyline />
+                </svg>
+                <footer id="metric-power-sub">macmon</footer>
+              </article>
+              <article class="metric-card">
+                <header><span>温度</span><span class="badge">CPU</span></header>
+                <div class="metric-value">
+                  <strong id="metric-temp">—</strong><span>°C</span>
+                </div>
+                <svg
+                  class="sparkline"
+                  id="spark-temp"
+                  viewBox="0 0 100 30"
+                  preserveAspectRatio="none"
+                >
+                  <polygon />
+                  <polyline />
+                </svg>
+                <footer id="metric-temp-sub">GPU —</footer>
+              </article>
+            </div>
+
+            <div class="overview-grid">
+              <div class="overview-column">
+                <section class="panel">
+                  <header class="panel-head">
+                    <div>
+                      <h2>服务状态</h2>
+                      <p id="overview-service-summary">正在读取服务…</p>
+                    </div>
+                    <button class="link" data-view="services">查看全部</button>
+                  </header>
+                  <div id="overview-service-list" class="compact-list">
+                    <p class="muted">加载中…</p>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <header class="panel-head">
+                    <div>
+                      <h2>最近操作</h2>
+                      <p>服务启停和错误都会写入本地审计库</p>
+                    </div>
+                    <span class="muted" id="overview-event-count"></span>
+                  </header>
+                  <div class="table-wrap">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>时间</th>
+                          <th>服务</th>
+                          <th>动作</th>
+                          <th>结果</th>
+                          <th>执行者</th>
+                        </tr>
+                      </thead>
+                      <tbody id="overview-event-body"></tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section class="panel">
+                  <header class="panel-head">
+                    <div>
+                      <h2>运行时</h2>
+                      <p>当前主机和 Agent 信息</p>
+                    </div>
+                    <div class="runtime-actions">
+                      <button class="link" data-view="logs">日志</button>
+                      <button class="link" data-view="settings">设置</button>
+                    </div>
+                  </header>
+                  <div class="runtime-grid">
+                    <div>
+                      <span>HOST</span><strong id="runtime-host">—</strong>
+                    </div>
+                    <div>
+                      <span>UPTIME</span><strong id="runtime-uptime">—</strong>
+                    </div>
+                    <div>
+                      <span>AGENT</span><strong id="runtime-agent">—</strong>
+                    </div>
+                    <div>
+                      <span>CONFIG</span><strong id="runtime-config">—</strong>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="overview-column">
+                <section class="panel">
+                  <header class="panel-head">
+                    <div>
+                      <h2>进程占用</h2>
+                      <p>按 CPU 排序的前 8 个进程</p>
+                    </div>
+                    <button class="link" data-view="processes">全部进程</button>
+                  </header>
+                  <div class="table-wrap compact-table">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>PID</th>
+                          <th>进程</th>
+                          <th class="num">CPU</th>
+                          <th class="num">内存</th>
+                        </tr>
+                      </thead>
+                      <tbody id="overview-process-body"></tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section class="view hidden" data-view-panel="services">
+            <div class="toolbar">
+              <label class="search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M10 4a6 6 0 1 0 3.8 10.7L19 20l1-1-5.3-5.2A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"
+                  />
+                </svg>
+                <input
+                  id="service-search"
+                  type="search"
+                  placeholder="搜索服务、类型、端口或目标"
+                />
+              </label>
+              <select id="service-filter" class="select">
+                <option value="all">全部状态</option>
+                <option value="running">运行中</option>
+                <option value="stopped">已停止</option>
+                <option value="unhealthy">健康异常</option>
+              </select>
+              <span class="toolbar-note" id="service-count">—</span>
+            </div>
+
+            <section class="panel table-panel">
+              <div class="table-wrap">
+                <table class="table services-table">
+                  <thead>
+                    <tr>
+                      <th>服务</th>
+                      <th>类型</th>
+                      <th>状态</th>
+                      <th>健康</th>
+                      <th class="num">PID</th>
+                      <th class="num">端口</th>
+                      <th class="num">CPU</th>
+                      <th class="num">内存</th>
+                      <th class="actions-col">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="services-body"></tbody>
+                </table>
+              </div>
+              <div id="services-empty" class="empty hidden">
+                <strong>没有匹配的服务</strong>
+                <span>换一个搜索词，或检查 services.yaml。</span>
+              </div>
+            </section>
+          </section>
+
+          <section class="view hidden" data-view-panel="processes">
+            <div class="toolbar">
+              <label class="search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M10 4a6 6 0 1 0 3.8 10.7L19 20l1-1-5.3-5.2A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"
+                  />
+                </svg>
+                <input
+                  id="process-search"
+                  type="search"
+                  placeholder="搜索进程名、PID 或用户"
+                />
+              </label>
+              <select id="process-sort" class="select">
+                <option value="cpu">按 CPU 排序</option>
+                <option value="memory">按内存排序</option>
+              </select>
+              <span class="toolbar-note" id="process-count">—</span>
+            </div>
+
+            <section class="panel table-panel">
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th class="num">PID</th>
+                      <th>进程</th>
+                      <th>用户</th>
+                      <th class="num">CPU</th>
+                      <th class="num">内存占比</th>
+                      <th class="num">驻留内存</th>
+                      <th class="num">父进程</th>
+                    </tr>
+                  </thead>
+                  <tbody id="processes-body"></tbody>
+                </table>
+              </div>
+              <div id="processes-empty" class="empty hidden">
+                <strong>没有匹配的进程</strong>
+                <span>换一个搜索词试试。</span>
+              </div>
+            </section>
+          </section>
+
+          <section class="view hidden" data-view-panel="containers">
+            <div id="docker-banner" class="docker-status">
+              <div>
+                <span class="status-dot" id="docker-dot"></span>
+                <strong id="docker-title">正在检查 Docker…</strong>
+                <p id="docker-detail"></p>
+              </div>
+              <span class="badge" id="docker-version">—</span>
+            </div>
+
+            <section class="panel table-panel">
+              <header class="panel-head">
+                <div>
+                  <h2>容器</h2>
+                  <p id="container-summary">Docker daemon 可用后显示容器列表</p>
+                </div>
+                <button class="btn btn-small" id="docker-refresh">
+                  重新检查
+                </button>
+              </header>
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th>镜像</th>
+                      <th>状态</th>
+                      <th>端口</th>
+                      <th class="actions-col">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="containers-body"></tbody>
+                </table>
+              </div>
+              <div id="containers-empty" class="empty">
+                <strong>Docker daemon 未运行</strong>
+                <span id="containers-empty-text"
+                  >安装并启动 Docker Desktop 或 colima
+                  后，这里会显示容器并可启停。</span
+                >
+              </div>
+            </section>
+          </section>
+
+          <section class="view hidden" data-view-panel="logs">
+            <div class="logs-layout">
+              <aside class="panel log-services">
+                <header class="panel-head">
+                  <div>
+                    <h2>服务</h2>
+                    <p>选择后查看日志尾部</p>
+                  </div>
+                </header>
+                <div id="log-service-list" class="log-service-list"></div>
+              </aside>
+
+              <section class="panel log-viewer">
+                <header class="panel-head">
+                  <div>
+                    <h2 id="log-title">选择服务</h2>
+                    <p id="log-meta">从左侧选择要查看日志的服务</p>
+                  </div>
+                  <div class="toolbar-inline">
+                    <select id="log-tail" class="select">
+                      <option value="100">100 行</option>
+                      <option value="300" selected>300 行</option>
+                      <option value="1000">1000 行</option>
+                    </select>
+                    <label class="switch"
+                      ><input type="checkbox" id="log-auto" /> 自动刷新</label
+                    >
+                    <button class="btn btn-small" id="log-refresh">刷新</button>
+                  </div>
+                </header>
+                <pre id="log-output" class="log-output">从左侧选择服务…</pre>
+              </section>
+            </div>
+          </section>
+
+          <section class="view hidden" data-view-panel="settings">
+            <div class="settings-grid">
+              <section class="panel">
+                <header class="panel-head">
+                  <div>
+                    <h2>配置文件</h2>
+                    <p>服务登记和动作白名单</p>
+                  </div>
+                </header>
+                <dl class="fact-list">
+                  <div>
+                    <dt>路径</dt>
+                    <dd id="settings-config-path">—</dd>
+                  </div>
+                  <div>
+                    <dt>服务数量</dt>
+                    <dd id="settings-service-count">—</dd>
+                  </div>
+                  <div>
+                    <dt>配置来源</dt>
+                    <dd id="settings-config-source">—</dd>
+                  </div>
+                </dl>
+                <button class="btn btn-small" id="backup-config">
+                  备份配置
+                </button>
+              </section>
+
+              <section class="panel">
+                <header class="panel-head">
+                  <div>
+                    <h2>连接与安全</h2>
+                    <p>Agent 监听和鉴权状态</p>
+                  </div>
+                </header>
+                <dl class="fact-list">
+                  <div>
+                    <dt>Agent 地址</dt>
+                    <dd id="settings-origin">—</dd>
+                  </div>
+                  <div>
+                    <dt>监听地址</dt>
+                    <dd id="settings-bind">—</dd>
+                  </div>
+                  <div>
+                    <dt>Token</dt>
+                    <dd id="settings-token">—</dd>
+                  </div>
+                  <div>
+                    <dt>数据目录</dt>
+                    <dd id="settings-data-dir">—</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="panel">
+                <header class="panel-head">
+                  <div>
+                    <h2>访问 Token</h2>
+                    <p>局域网或远程 Web 访问时保存 Bearer Token</p>
+                  </div>
+                </header>
+                <div class="token-form">
+                  <input
+                    id="token-input"
+                    class="text-input"
+                    type="password"
+                    placeholder="Bearer Token"
+                    autocomplete="off"
+                  />
+                  <button class="btn btn-small" id="token-save">保存</button>
+                  <button class="btn btn-small" id="token-clear">清除</button>
+                </div>
+                <p class="token-hint" id="token-hint">
+                  只保存在当前浏览器 localStorage；桌面端本机访问不需要。
+                </p>
+              </section>
+
+              <section class="panel">
+                <header class="panel-head">
+                  <div>
+                    <h2>运行信息</h2>
+                    <p>当前 Agent 和主机</p>
+                  </div>
+                </header>
+                <dl class="fact-list">
+                  <div>
+                    <dt>版本</dt>
+                    <dd id="settings-version">—</dd>
+                  </div>
+                  <div>
+                    <dt>主机</dt>
+                    <dd id="settings-host">—</dd>
+                  </div>
+                  <div>
+                    <dt>平台</dt>
+                    <dd id="settings-platform">—</dd>
+                  </div>
+                  <div>
+                    <dt>运行时间</dt>
+                    <dd id="settings-uptime">—</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="panel">
+                <header class="panel-head">
+                  <div>
+                    <h2>复用策略</h2>
+                    <p>按需求接入，不提前堆项目</p>
+                  </div>
+                </header>
+                <ul class="policy-list">
+                  <li>
+                    <strong>mac-dash + launchd</strong
+                    ><span
+                      >已复用：Agent 架构、动作白名单，管理
+                      Ollama、ComfyUI、Node/Python 项目</span
+                    >
+                  </li>
+                  <li>
+                    <strong>macmon</strong
+                    ><span>已复用：Apple Silicon 的 GPU/ANE/功耗/温度</span>
+                  </li>
+                  <li>
+                    <strong>Uptime Kuma</strong
+                    ><span>有公网服务告警需求时再加</span>
+                  </li>
+                  <li>
+                    <strong>Dockge</strong><span>Docker 项目较多时再加</span>
+                  </li>
+                  <li>
+                    <strong>Homepage / OliveTin</strong
+                    ><span>只作为入口页和可选按钮层</span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+    <aside id="service-drawer" class="drawer hidden" aria-label="服务详情">
+      <header class="drawer-head">
         <div>
-          <p class="eyebrow">LOCAL OPERATIONS CONSOLE</p>
-          <h1>StudioOps</h1>
-          <p class="muted">桌面端优先的 Mac 服务控制面板</p>
+          <p class="eyebrow">SERVICE DETAIL</p>
+          <h2 id="drawer-name">—</h2>
+          <p id="drawer-kind">—</p>
         </div>
-        <div class="connection">
-          <span id="connection-dot"></span
-          ><span id="connection-text">连接中</span>
-        </div>
+        <button class="icon-btn" id="drawer-close" aria-label="关闭">✕</button>
       </header>
+      <div class="drawer-body" id="drawer-body"></div>
+      <div class="drawer-actions" id="drawer-actions"></div>
+    </aside>
 
-      <section class="grid metrics">
-        <article class="card metric">
-          <span>主机</span><strong id="hostname">—</strong
-          ><small id="platform">—</small>
-        </article>
-        <article class="card metric">
-          <span>运行时间</span><strong id="uptime">—</strong><small>系统</small>
-        </article>
-        <article class="card metric">
-          <span>负载 / GPU</span><strong id="load">—</strong
-          ><small>系统 1 分钟 · Apple Silicon</small>
-        </article>
-        <article class="card metric">
-          <span>内存</span><strong id="memory">—</strong><small>已用比例</small>
-        </article>
-      </section>
-
-      <section class="card services">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">CONTROL PLANE</p>
-            <h2>服务</h2>
-          </div>
-          <button id="refresh">刷新</button>
-        </div>
-        <div id="service-list" class="service-list">
-          <p class="muted">加载中…</p>
-        </div>
-      </section>
-
-      <section class="card activity">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">AUDIT TRAIL</p>
-            <h2>最近操作</h2>
-          </div>
-          <span id="config-source" class="muted"></span>
-          <button id="backup-config">备份配置</button>
-        </div>
-        <div id="event-list" class="event-list">
-          <p class="muted">暂无操作记录</p>
-        </div>
-      </section>
-
-      <section id="log-card" class="card logs hidden">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">SERVICE LOG</p>
-            <h2 id="log-title">日志</h2>
-          </div>
-          <button id="close-logs">关闭</button>
-        </div>
-        <pre id="log-output">加载中…</pre>
-      </section>
-    </main>
+    <div id="toast" class="toast hidden"></div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>
