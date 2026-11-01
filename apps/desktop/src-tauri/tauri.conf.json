@@ -26,7 +26,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": ["app", "dmg"],
+    "icon": ["icons/app-icon.icns", "icons/app-icon.png"],
     "resources": {
       "../../../dist/agent.cjs": "agent.cjs",
       "../../web": "web"

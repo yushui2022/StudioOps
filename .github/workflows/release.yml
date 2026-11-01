@@ -1,0 +1,62 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS DMG and publish release
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        run: npm ci --prefix apps/desktop
+
+      - name: Build app and DMG
+        run: npm --prefix apps/desktop run build
+
+      - name: List bundles
+        run: find apps/desktop/src-tauri/target/release/bundle -maxdepth 3 -type f | sort
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: StudioOps ${{ github.ref_name }}
+          body: |
+            StudioOps ${{ github.ref_name }} for Apple Silicon macOS.
+
+            The build is unsigned. After downloading and opening the DMG, drag StudioOps to Applications.
+            On first launch macOS may block it: right-click the app and choose Open, or allow it in
+            System Settings → Privacy & Security.
+
+            The agent listens on 127.0.0.1:7227. Do not launch it from a Documents folder; install it in
+            /Applications or ~/Applications so macOS does not block the bundled agent with a file-access prompt.
+          files: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          fail_on_unmatched_files: true
