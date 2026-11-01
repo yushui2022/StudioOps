@@ -1104,6 +1104,81 @@ select {
   color: var(--green);
 }
 
+.processes-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.processes-table th,
+.processes-table td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.processes-table th:nth-child(1),
+.processes-table td:nth-child(1) {
+  width: 7%;
+}
+
+.processes-table th:nth-child(2),
+.processes-table td:nth-child(2) {
+  width: 36%;
+}
+
+.processes-table th:nth-child(3),
+.processes-table td:nth-child(3) {
+  width: 9%;
+}
+
+.processes-table th:nth-child(4),
+.processes-table td:nth-child(4) {
+  width: 9%;
+}
+
+.processes-table th:nth-child(5),
+.processes-table td:nth-child(5) {
+  width: 10%;
+}
+
+.processes-table th:nth-child(6),
+.processes-table td:nth-child(6) {
+  width: 10%;
+}
+
+.processes-table th:nth-child(7),
+.processes-table td:nth-child(7) {
+  width: 9%;
+}
+
+.processes-table th:nth-child(8),
+.processes-table td:nth-child(8) {
+  width: 10%;
+}
+
+.processes-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.processes-table td:nth-child(2) strong,
+.processes-table td:nth-child(2) .cell-sub {
+  max-width: 100%;
+}
+
+.processes-table .usage-cell {
+  min-width: 0;
+}
+
+.processes-table .row-actions {
+  flex-wrap: nowrap;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+  color: var(--green);
+}
+
 .table tbody tr.service-detail-row:hover {
   background: transparent;
 }
