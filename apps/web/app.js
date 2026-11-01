@@ -338,6 +338,9 @@ function renderSystem(system) {
       system.memory.totalBytes / 1024 ** 3,
     )} GB`;
     $("hw-total").textContent = String(hardware.totalCores);
+    $("gpu-cores").textContent = hardware.gpuCores
+      ? `${hardware.gpuCores} 核`
+      : "Apple Silicon";
     $("label-pcpu").textContent = `P-CPU ${hardware.performanceCores}c`;
     $("label-ecpu").textContent = `S-CPU ${hardware.superCores}c`;
   }
