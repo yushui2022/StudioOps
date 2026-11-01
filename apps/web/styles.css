@@ -93,16 +93,16 @@ select {
 }
 
 .brand-mark {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid #2c3630;
-  border-radius: 3px;
-  background: #101512;
-  color: var(--green);
-  font-weight: 700;
-  font-size: 13px;
+}
+
+.brand-logo {
+  display: block;
+  width: 28px;
+  height: 28px;
 }
 
 .brand strong {
