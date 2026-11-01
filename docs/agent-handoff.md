@@ -45,7 +45,7 @@
 | 操作审计                | 已完成第一版           | `services/agent/src/core/event-store.ts`                               | SQLite 保存启停动作和错误                                               |
 | 配置备份                | 已完成                 | `services/agent/src/core/config-store.ts`、`apps/web/app.js`           | 自动/手动备份、列表、恢复；保留最近 30 份                               |
 | 配置写入和热加载        | 已完成                 | `services/agent/src/core/config-store.ts`、`/api/config/services`      | 增删改、校验、原子写入、备份、立即刷新注册表                            |
-| Web 面板                | 已完成终端风格 v4      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`        | 六视图、服务编辑表单、备份恢复、边框标题、分块柱状图、快捷键            |
+| Web 面板                | 已完成终端风格 v5      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`        | 六视图、服务行内展开、编辑表单、备份恢复、边框标题、分块柱状图          |
 | Tauri 桌面壳            | 已完成可编译版         | `apps/desktop/src-tauri/`                                              | 复用同一 Web；Agent 作为 release 资源启动                               |
 | 菜单栏入口              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                   | “打开 StudioOps/退出 StudioOps”；窗口关闭后隐藏                         |
 | macOS App 打包          | 已生成 `StudioOps.app` | `apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app`     | 构建通过；尚未完成签名、DMG 和安装升级流程                              |
@@ -90,7 +90,7 @@
 10. 把进程服务写坏后通过 `POST /api/config/reload` 验证：返回 400，旧服务列表继续可用。
 11. 用真实 Ollama LaunchAgent 验证停止/启动：`bootout` 后状态 stopped、11434 关闭；`bootstrap + kickstart` 后恢复 running/healthy。停止状态不再显示 unhealthy，而是 unknown。
 12. 桌面端按钮曾提示“Agent 未启动或端口 7227 不可达”：根因是 Tauri 内嵌页面跨域请求带 `x-studioops-actor`，而 CORS 预检没允许该头。已加入 allowHeaders，并用 OPTIONS 验证返回 204 和完整 allow-headers。以后新增自定义请求头必须同步更新 CORS。
-13. 点击 Ollama 服务行会打开抽屉并请求 `/api/services/ollama/models`，返回 4 个模型及大小/量化信息；加载状态来自 `/api/ps`。
+13. 点击 Ollama 服务行会在表格内向下展开，不打开右侧抽屉；展开区请求 `/api/services/ollama/models`，显示 4 个模型、大小、量化、加载状态和最近日志。再点一次收起。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

@@ -1091,6 +1091,128 @@ select {
   cursor: pointer;
 }
 
+.chevron {
+  width: 9px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+  color: var(--green);
+}
+
+.table tbody tr.service-detail-row:hover {
+  background: transparent;
+}
+
+.service-detail-row > td {
+  padding: 0 !important;
+  background: #090c10;
+  border-bottom: 1px solid var(--border);
+}
+
+.service-detail {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px 14px;
+  border-left: 2px solid #35453a;
+}
+
+.inline-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.inline-fact {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-2);
+}
+
+.inline-fact span {
+  display: block;
+  color: var(--muted);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.inline-fact strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-soft);
+  font-size: 10.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.inline-fact.wide {
+  grid-column: span 2;
+}
+
+.inline-section {
+  display: grid;
+  gap: 6px;
+}
+
+.inline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-head h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.inline-head h3::before {
+  content: "// ";
+  color: var(--green);
+  opacity: 0.65;
+}
+
+.inline-head .muted {
+  margin-left: auto;
+  font-size: 9px;
+}
+
+.inline-log {
+  max-height: 180px;
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  background: #08090c;
+  color: #c3ccda;
+  font:
+    10px/1.55 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.service-detail .model-list {
+  max-height: 200px;
+}
+
 .empty {
   display: grid;
   gap: 3px;
@@ -1779,6 +1901,9 @@ select {
 }
 
 @media (max-width: 1080px) {
+  .inline-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .sidebar {
     width: 60px;
     flex-basis: 60px;

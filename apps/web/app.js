@@ -54,7 +54,9 @@ const state = {
   serviceSearch: "",
   serviceFilter: "all",
   processSearch: "",
-  selectedServiceId: null,
+  expandedServiceId: null,
+  ollamaModels: {},
+  inlineLogs: {},
   logServiceId: null,
   logLines: [],
   logAuto: false,
@@ -430,6 +432,7 @@ function renderServices() {
       <tr data-service="${escapeHtml(service.id)}">
         <td>
           <div class="service-name" data-service="${escapeHtml(service.id)}">
+            <span class="chevron ${state.expandedServiceId === service.id ? "open" : ""}">▸</span>
             <span class="state-dot ${escapeHtml(service.state)}"></span>
             <div>
               <strong>${escapeHtml(service.name)}</strong>
@@ -451,7 +454,8 @@ function renderServices() {
             ${actions}
           </div>
         </td>
-      </tr>`;
+      </tr>
+      ${state.expandedServiceId === service.id ? inlineDetailHtml(service) : ""}`;
     })
     .join("");
 
@@ -477,13 +481,11 @@ function renderServices() {
     loadLogs();
   }
 
-  if (state.selectedServiceId) {
-    const service = services.find(
-      (item) => item.id === state.selectedServiceId,
-    );
-    if (service) renderDrawer(service, true);
-    else closeDrawer();
-  }
+  if (
+    state.expandedServiceId &&
+    !services.some((item) => item.id === state.expandedServiceId)
+  )
+    state.expandedServiceId = null;
 }
 
 /* ---------- processes ---------- */
@@ -671,146 +673,146 @@ function loadTokenField() {
 
 /* ---------- drawer ---------- */
 
-function renderDrawer(service, keepLog = false) {
-  const previousLog = keepLog
-    ? ($("drawer-log")?.textContent ?? "加载中…")
-    : "加载中…";
-  const previousModels = keepLog ? ($("drawer-models")?.innerHTML ?? "") : "";
-  const previousModelCount = keepLog
-    ? ($("drawer-model-count")?.textContent ?? "")
-    : "";
-  state.selectedServiceId = service.id;
-  $("drawer-name").textContent = service.name;
-  $("drawer-kind").textContent =
-    `${service.kind} · ${service.adapter}${service.group ? ` · ${service.group}` : ""}`;
-  const health = service.healthState ?? "unknown";
-  const details = service.details ?? {};
-  const detailRows = Object.entries(details)
-    .filter(([key]) => !["models", "modelCount"].includes(key))
-    .map(([key, value]) => {
-      const rendered = Array.isArray(value)
-        ? value.join(", ")
-        : typeof value === "object"
-          ? JSON.stringify(value)
-          : String(value);
-      return `<div class="drawer-fact"><span>${escapeHtml(key)}</span><strong>${escapeHtml(rendered)}</strong></div>`;
+function modelsToHtml(snapshot) {
+  if (!snapshot.models.length)
+    return '<p class="model-empty">没有已下载的模型</p>';
+  return snapshot.models
+    .map((model) => {
+      const meta = [
+        model.family,
+        model.parameterSize,
+        model.quantization,
+        fmtBytes(model.sizeBytes),
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const expires =
+        model.loaded && model.expiresAt
+          ? ` · 到期 ${fmtClock(model.expiresAt)}`
+          : "";
+      return `<div class="model-row">
+        <div>
+          <strong title="${escapeHtml(model.name)}">${escapeHtml(model.name)}</strong>
+          <small>${escapeHtml(meta)}${escapeHtml(expires)}</small>
+        </div>
+        ${model.loaded ? '<span class="model-badge">loaded</span>' : ""}
+      </div>`;
     })
     .join("");
-  $("drawer-body").innerHTML = `
-    <section class="drawer-section">
-      <h3>状态</h3>
-      <div class="drawer-facts">
-        <div class="drawer-fact"><span>运行状态</span><strong>${escapeHtml(stateLabels[service.state] ?? service.state)}</strong></div>
-        <div class="drawer-fact"><span>健康检查</span><strong>${escapeHtml(healthLabels[health] ?? health)}</strong></div>
-        <div class="drawer-fact"><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
-        <div class="drawer-fact"><span>端口</span><strong>${service.port ?? "—"}</strong></div>
-        <div class="drawer-fact"><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
-        <div class="drawer-fact"><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
-      </div>
-      ${service.healthMessage ? `<p class="muted" style="margin-top: 8px; font-size: 11px">${escapeHtml(service.healthMessage)}</p>` : ""}
-    </section>
-    <section class="drawer-section">
-      <h3>配置</h3>
-      <div class="drawer-facts">
-        <div class="drawer-fact mono"><span>目标</span><strong>${escapeHtml(service.target)}</strong></div>
-        <div class="drawer-fact"><span>适配器</span><strong>${escapeHtml(service.adapter)}</strong></div>
-        <div class="drawer-fact"><span>允许动作</span><strong>${escapeHtml(service.allowedActions.join(" · "))}</strong></div>
-        <div class="drawer-fact"><span>更新时间</span><strong>${escapeHtml(fmtClock(service.updatedAt))}</strong></div>
-        ${service.command ? `<div class="drawer-fact mono"><span>命令</span><strong>${escapeHtml(service.command)} ${escapeHtml((service.args ?? []).join(" "))}</strong></div>` : ""}
-      </div>
-    </section>
-    ${detailRows ? `<section class="drawer-section"><h3>服务详情</h3><div class="drawer-facts">${detailRows}</div></section>` : ""}
-    ${
-      service.kind === "ollama"
-        ? `<section class="drawer-section">
-             <div class="drawer-section-head">
-               <h3>模型</h3>
-               <span class="muted" id="drawer-model-count">${escapeHtml(previousModelCount)}</span>
-               <button class="link" data-model-refresh="${escapeHtml(service.id)}">刷新</button>
-             </div>
-             <div class="model-list" id="drawer-models">${previousModels || "加载中…"}</div>
-           </section>`
-        : ""
-    }
-    <section class="drawer-section">
-      <h3>最近日志</h3>
-      <pre class="drawer-log" id="drawer-log">${escapeHtml(previousLog)}</pre>
-    </section>`;
+}
 
-  $("drawer-actions").innerHTML =
-    `<button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑配置</button>` +
-    visibleActions(service)
-      .map(
-        (action) =>
-          `<button class="btn btn-small" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
-      )
-      .join("");
+function inlineDetailHtml(service) {
+  const models = state.ollamaModels[service.id];
+  const log = state.inlineLogs[service.id];
+  const health = service.healthState ?? "unknown";
+  const modelSection =
+    service.kind === "ollama"
+      ? `<section class="inline-section">
+           <div class="inline-head">
+             <h3>模型</h3>
+             <span class="muted" id="inline-model-count-${escapeHtml(service.id)}">${
+               models
+                 ? `已加载 ${models.loadedCount} / 共 ${models.models.length}`
+                 : ""
+             }</span>
+             <button class="link" data-inline-models="${escapeHtml(service.id)}">刷新</button>
+           </div>
+           <div class="model-list" id="inline-models-${escapeHtml(service.id)}">${
+             models
+               ? modelsToHtml(models)
+               : '<p class="model-empty">加载中…</p>'
+           }</div>
+         </section>`
+      : "";
+  const actions = visibleActions(service)
+    .map(
+      (action) =>
+        `<button class="btn btn-small" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
+    )
+    .join("");
+  return `
+    <tr class="service-detail-row">
+      <td colspan="9">
+        <div class="service-detail">
+          <div class="inline-facts">
+            <div class="inline-fact"><span>运行状态</span><strong>${escapeHtml(stateLabels[service.state] ?? service.state)}</strong></div>
+            <div class="inline-fact"><span>健康检查</span><strong>${escapeHtml(healthLabels[health] ?? health)}</strong></div>
+            <div class="inline-fact"><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
+            <div class="inline-fact"><span>端口</span><strong>${service.port ?? "—"}</strong></div>
+            <div class="inline-fact"><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
+            <div class="inline-fact"><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
+            <div class="inline-fact"><span>适配器</span><strong>${escapeHtml(service.adapter)}</strong></div>
+            <div class="inline-fact"><span>更新时间</span><strong>${escapeHtml(fmtClock(service.updatedAt))}</strong></div>
+            <div class="inline-fact wide"><span>目标</span><strong>${escapeHtml(service.target)}</strong></div>
+            <div class="inline-fact wide"><span>允许动作</span><strong>${escapeHtml(service.allowedActions.join(" · "))}</strong></div>
+          </div>
+          ${modelSection}
+          <section class="inline-section">
+            <div class="inline-head">
+              <h3>最近日志</h3>
+              <span class="muted">${escapeHtml(log?.source ?? "")}</span>
+              <button class="link" data-inline-log="${escapeHtml(service.id)}">刷新</button>
+            </div>
+            <pre class="inline-log" id="inline-log-${escapeHtml(service.id)}">${escapeHtml(
+              log ? log.lines.join("\n") : "加载中…",
+            )}</pre>
+          </section>
+          <div class="inline-actions">
+            <button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑配置</button>
+            ${actions}
+          </div>
+        </div>
+      </td>
+    </tr>`;
+}
 
-  $("service-drawer").classList.remove("hidden");
-  $("drawer-backdrop").classList.remove("hidden");
-  if (!keepLog) {
-    loadDrawerLog(service.id);
-    if (service.kind === "ollama") loadOllamaModels(service.id);
+function toggleServiceDetail(serviceId) {
+  if (state.expandedServiceId === serviceId) {
+    state.expandedServiceId = null;
+    renderServices();
+    return;
   }
+  const service = state.services.find((item) => item.id === serviceId);
+  if (!service) return;
+  state.expandedServiceId = serviceId;
+  renderServices();
+  if (service.kind === "ollama") loadInlineModels(serviceId);
+  loadInlineLog(serviceId);
 }
 
-function closeDrawer() {
-  state.selectedServiceId = null;
-  $("service-drawer").classList.add("hidden");
-  $("drawer-backdrop").classList.add("hidden");
-}
-
-async function loadDrawerLog(serviceId) {
-  const target = $("drawer-log");
-  if (!target) return;
-  try {
-    const log = await api(
-      `/api/services/${encodeURIComponent(serviceId)}/logs?tail=80`,
-    );
-    target.textContent = log.lines.join("\n") || "暂无日志";
-  } catch (error) {
-    target.textContent = error.message;
-  }
-}
-
-async function loadOllamaModels(serviceId) {
-  const target = $("drawer-models");
-  if (!target) return;
-  target.innerHTML = '<p class="model-empty">加载中…</p>';
+async function loadInlineModels(serviceId) {
   try {
     const data = await api(
       `/api/services/${encodeURIComponent(serviceId)}/models`,
     );
-    const count = $("drawer-model-count");
+    state.ollamaModels[serviceId] = data;
+    if (state.expandedServiceId !== serviceId) return;
+    const target = $(`inline-models-${serviceId}`);
+    const count = $(`inline-model-count-${serviceId}`);
+    if (target) target.innerHTML = modelsToHtml(data);
     if (count)
       count.textContent = `已加载 ${data.loadedCount} / 共 ${data.models.length}`;
-    target.innerHTML = data.models.length
-      ? data.models
-          .map((model) => {
-            const meta = [
-              model.family,
-              model.parameterSize,
-              model.quantization,
-              fmtBytes(model.sizeBytes),
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            const expires =
-              model.loaded && model.expiresAt
-                ? ` · 到期 ${fmtClock(model.expiresAt)}`
-                : "";
-            return `<div class="model-row">
-              <div>
-                <strong title="${escapeHtml(model.name)}">${escapeHtml(model.name)}</strong>
-                <small>${escapeHtml(meta)}${escapeHtml(expires)}</small>
-              </div>
-              ${model.loaded ? '<span class="model-badge">loaded</span>' : ""}
-            </div>`;
-          })
-          .join("")
-      : '<p class="model-empty">没有已下载的模型</p>';
   } catch (error) {
-    target.innerHTML = `<p class="model-empty">${escapeHtml(error.message)}</p>`;
+    if (state.expandedServiceId !== serviceId) return;
+    const target = $(`inline-models-${serviceId}`);
+    if (target)
+      target.innerHTML = `<p class="model-empty">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function loadInlineLog(serviceId) {
+  try {
+    const log = await api(
+      `/api/services/${encodeURIComponent(serviceId)}/logs?tail=60`,
+    );
+    state.inlineLogs[serviceId] = log;
+    if (state.expandedServiceId !== serviceId) return;
+    const target = $(`inline-log-${serviceId}`);
+    if (target) target.textContent = log.lines.join("\n") || "暂无日志";
+  } catch (error) {
+    if (state.expandedServiceId !== serviceId) return;
+    const target = $(`inline-log-${serviceId}`);
+    if (target) target.textContent = error.message;
   }
 }
 
@@ -898,7 +900,6 @@ function openServiceForm(service) {
     $("config-delete").classList.remove("hidden");
   }
   updateFormVisibility();
-  closeDrawer();
   $("config-drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
   $("form-name").focus();
@@ -907,8 +908,7 @@ function openServiceForm(service) {
 function closeServiceForm() {
   state.formServiceId = null;
   $("config-drawer").classList.add("hidden");
-  if ($("service-drawer").classList.contains("hidden"))
-    $("drawer-backdrop").classList.add("hidden");
+  $("drawer-backdrop").classList.add("hidden");
 }
 
 function collectServiceForm() {
@@ -1011,7 +1011,15 @@ async function saveServiceForm() {
     );
     closeServiceForm();
     toast(editing ? "服务配置已更新" : "服务已添加");
+    const targetId = editing ?? service.id;
+    delete state.inlineLogs[targetId];
+    delete state.ollamaModels[targetId];
     await refreshAll({ quiet: true });
+    if (state.expandedServiceId === targetId) {
+      loadInlineLog(targetId);
+      const current = state.services.find((item) => item.id === targetId);
+      if (current?.kind === "ollama") loadInlineModels(targetId);
+    }
     if (state.view === "settings") loadBackups();
   } catch (error) {
     setFormError(error.message);
@@ -1216,10 +1224,14 @@ async function performAction(serviceId, action, button) {
     toast(
       `${service?.name ?? serviceId}：${actionLabels[action] ?? action}完成`,
     );
+    if (state.expandedServiceId === serviceId) {
+      delete state.inlineLogs[serviceId];
+      if (service?.kind === "ollama") delete state.ollamaModels[serviceId];
+    }
     await refreshAll({ quiet: true });
-    if (state.selectedServiceId === serviceId) {
-      await loadDrawerLog(serviceId);
-      if (service?.kind === "ollama") loadOllamaModels(serviceId);
+    if (state.expandedServiceId === serviceId) {
+      loadInlineLog(serviceId);
+      if (service?.kind === "ollama") loadInlineModels(serviceId);
     }
   } catch (error) {
     toast(error.message, true);
@@ -1262,8 +1274,9 @@ function switchView(view, { updateHash = true } = {}) {
   const meta = viewMeta[view];
   $("page-title").textContent = meta.title;
   document.title = `StudioOps · ${meta.title}`;
-  closeDrawer();
+  if (view !== "services") state.expandedServiceId = null;
   closeServiceForm();
+  if (view === "services") renderServices();
   if (updateHash) {
     const hash = view === "overview" ? "" : `#${view}`;
     history.replaceState(null, "", `${location.pathname}${hash}`);
@@ -1396,12 +1409,7 @@ document.addEventListener("click", (event) => {
     refreshAll();
     return;
   }
-  if (target.id === "drawer-close") {
-    closeDrawer();
-    return;
-  }
   if (target.id === "drawer-backdrop") {
-    closeDrawer();
     closeServiceForm();
     return;
   }
@@ -1436,8 +1444,12 @@ document.addEventListener("click", (event) => {
     if (service) openServiceForm(service);
     return;
   }
-  if (target.dataset.modelRefresh) {
-    loadOllamaModels(target.dataset.modelRefresh);
+  if (target.dataset.inlineModels) {
+    loadInlineModels(target.dataset.inlineModels);
+    return;
+  }
+  if (target.dataset.inlineLog) {
+    loadInlineLog(target.dataset.inlineLog);
     return;
   }
   if (target.dataset.restoreBackup) {
@@ -1495,17 +1507,11 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (target.dataset.service) {
-    const service = state.services.find(
-      (item) => item.id === target.dataset.service,
-    );
-    if (service) renderDrawer(service);
+    toggleServiceDetail(target.dataset.service);
   }
 });
 
-$("drawer-backdrop").addEventListener("click", () => {
-  closeDrawer();
-  closeServiceForm();
-});
+$("drawer-backdrop").addEventListener("click", closeServiceForm);
 
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -1515,8 +1521,11 @@ document.addEventListener("keydown", (event) => {
 
   if (event.key === "Escape") {
     if (isTyping) active.blur();
-    closeDrawer();
     closeServiceForm();
+    if (state.expandedServiceId) {
+      state.expandedServiceId = null;
+      renderServices();
+    }
     return;
   }
   if (isTyping) return;
