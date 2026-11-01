@@ -19,6 +19,10 @@ import { loadConfig } from "../services/agent/src/core/config.js";
 import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
 import { EventStore } from "../services/agent/src/core/event-store.js";
 import { withHealth } from "../services/agent/src/core/health.js";
+import {
+  ollamaBaseUrl,
+  summarizeOllamaModels,
+} from "../services/agent/src/core/ollama.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
 import { getSystemSnapshot } from "../services/agent/src/core/system.js";
@@ -170,6 +174,54 @@ test("stopped services report unknown health instead of unhealthy", async () => 
   });
   assert.equal(result.healthState, "unknown");
   assert.equal(result.healthMessage, "not running");
+});
+
+test("ollama model summary merges installed and loaded models", () => {
+  const summary = summarizeOllamaModels(
+    "http://127.0.0.1:11434",
+    {
+      models: [
+        {
+          name: "qwen3.8:27b",
+          size: 100,
+          modified_at: "2026-10-01T00:00:00Z",
+          details: {
+            family: "qwen3",
+            parameter_size: "27B",
+            quantization_level: "Q4_K_M",
+          },
+        },
+        { name: "llama3:8b", size: 200, details: {} },
+      ],
+    },
+    {
+      models: [
+        { name: "qwen3.8:27b", size: 120, expires_at: "2026-11-01T10:00:00Z" },
+      ],
+    },
+  );
+  assert.equal(summary.models.length, 2);
+  assert.equal(summary.loadedCount, 1);
+  assert.equal(summary.models[0]?.name, "qwen3.8:27b");
+  assert.equal(summary.models[0]?.loaded, true);
+  assert.equal(summary.models[0]?.sizeBytes, 100);
+  assert.equal(summary.models[0]?.parameterSize, "27B");
+  assert.equal(summary.models[0]?.quantization, "Q4_K_M");
+  assert.equal(summary.models[0]?.expiresAt, "2026-11-01T10:00:00Z");
+  assert.equal(summary.models[1]?.loaded, false);
+});
+
+test("ollama base URL derives from the health endpoint", () => {
+  const definition: ServiceDefinition = {
+    id: "ollama",
+    name: "Ollama",
+    kind: "ollama",
+    adapter: "launchd",
+    target: "gui/501/ai.local.ollama",
+    allowedActions: ["start", "stop"],
+    health: { type: "http", endpoint: "http://127.0.0.1:11434/api/tags" },
+  };
+  assert.equal(ollamaBaseUrl(definition), "http://127.0.0.1:11434");
 });
 
 test("config store validates, backs up, saves and reloads services", () => {

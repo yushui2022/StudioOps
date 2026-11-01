@@ -144,6 +144,24 @@ export interface DockerSnapshot {
   capturedAt: string;
 }
 
+export interface OllamaModel {
+  name: string;
+  sizeBytes: number;
+  modifiedAt?: string;
+  family?: string;
+  parameterSize?: string;
+  quantization?: string;
+  loaded: boolean;
+  expiresAt?: string;
+}
+
+export interface OllamaModelsSnapshot {
+  baseUrl: string;
+  models: OllamaModel[];
+  loadedCount: number;
+  capturedAt: string;
+}
+
 export type Topic = "system" | "services" | "logs" | "events";
 
 export type ClientMessage =

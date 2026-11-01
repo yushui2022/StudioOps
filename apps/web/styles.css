@@ -1087,6 +1087,10 @@ select {
   height: 42px;
 }
 
+.services-table tbody tr[data-service] {
+  cursor: pointer;
+}
+
 .empty {
   display: grid;
   gap: 3px;
@@ -1510,6 +1514,79 @@ select {
 
 .drawer-section {
   margin-bottom: 16px;
+}
+
+.drawer-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.drawer-section-head h3 {
+  margin: 0;
+}
+
+.drawer-section-head .muted {
+  margin-left: auto;
+  font-size: 9px;
+}
+
+.model-list {
+  display: grid;
+  gap: 1px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  background: var(--border-soft);
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: var(--panel-2);
+}
+
+.model-row > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-row strong {
+  display: block;
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid #35453a;
+  color: var(--green);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+}
+
+.model-empty {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .drawer-section h3 {

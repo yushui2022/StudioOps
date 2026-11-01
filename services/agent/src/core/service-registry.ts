@@ -51,6 +51,10 @@ export class ServiceRegistry {
     return withHealth(definition, snapshot);
   }
 
+  definition(id: string): ServiceDefinition {
+    return this.getDefinition(id);
+  }
+
   async execute(id: string, action: ServiceAction): Promise<ServiceSnapshot> {
     const definition = this.getDefinition(id);
     const snapshot = await this.getAdapter(definition).execute(

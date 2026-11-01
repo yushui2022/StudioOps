@@ -18,6 +18,7 @@ import { ProcessAdapter } from "./adapters/process.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { EventStore } from "./core/event-store.js";
+import { getOllamaModels } from "./core/ollama.js";
 import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
@@ -256,6 +257,21 @@ app.post("/api/config/restore", async (c) => {
 app.get("/api/events", (c) =>
   json(eventStore.recent(Number(c.req.query("limit") ?? 50))),
 );
+app.get("/api/services/:id/models", async (c) => {
+  try {
+    const definition = registry.definition(c.req.param("id"));
+    if (definition.kind !== "ollama")
+      return c.json({ error: "Models are only supported for Ollama" }, 400);
+    return json(await getOllamaModels(definition));
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to list models",
+      },
+      400,
+    );
+  }
+});
 app.get("/api/services/:id/logs", async (c) => {
   try {
     return json(

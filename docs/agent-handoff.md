@@ -37,6 +37,7 @@
 | Ollama/ComfyUI 健康摘要 | 已完成轻量版           | `services/agent/src/core/health.ts`                                    | Ollama 模型数量；ComfyUI 设备和版本                                     |
 | macOS 主机指标          | 已完成第二版           | `services/agent/src/core/system.ts`                                    | 内存与 macmon 同口径；P/S CPU、GPU 频率、风扇、功耗、温度               |
 | 进程指标                | 已完成第一版           | `services/agent/src/core/process-metrics.ts`                           | `ps` 读取 CPU、RSS、内存占比                                            |
+| Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`        | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态         |
 | 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`            | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                 |
 | Docker 状态和动作       | 已完成                 | `services/agent/src/core/docker-status.ts`、`/api/docker`              | daemon 状态、容器列表、启动/停止/重启；已用真实容器验证                 |
 | 实时推送                | 已修复                 | `services/agent/src/index.ts`                                          | 订阅先于首帧挂载；系统 2 秒、服务 5 秒推送                              |
@@ -89,6 +90,7 @@
 10. 把进程服务写坏后通过 `POST /api/config/reload` 验证：返回 400，旧服务列表继续可用。
 11. 用真实 Ollama LaunchAgent 验证停止/启动：`bootout` 后状态 stopped、11434 关闭；`bootstrap + kickstart` 后恢复 running/healthy。停止状态不再显示 unhealthy，而是 unknown。
 12. 桌面端按钮曾提示“Agent 未启动或端口 7227 不可达”：根因是 Tauri 内嵌页面跨域请求带 `x-studioops-actor`，而 CORS 预检没允许该头。已加入 allowHeaders，并用 OPTIONS 验证返回 204 和完整 allow-headers。以后新增自定义请求头必须同步更新 CORS。
+13. 点击 Ollama 服务行会打开抽屉并请求 `/api/services/ollama/models`，返回 4 个模型及大小/量化信息；加载状态来自 `/api/ps`。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -111,7 +113,7 @@
 | P1     | 真实暂停/恢复边界            | UI 已按状态过滤动作；launchd、Docker、模型服务不再显示无效暂停按钮；process 的 SIGSTOP/SIGCONT 待补测试               | `ServiceDefinition.allowedActions`、`apps/web/app.js`                                                     | UI 只显示服务声明的动作；暂停后状态和错误可解释                                 |
 | P1     | 日志体验                     | 已完成尾部读取、100/300/1000 行、自动刷新、error/warn 高亮；还缺真正的 WebSocket 日志流和搜索/清空视图                | `services/agent/src/index.ts` WebSocket、`apps/web/app.js`                                                | 日志不会阻塞 Agent；单次读取有上限；长日志可连续查看                            |
 | P1     | 指标历史                     | 保存系统/服务指标到 SQLite，绘制 CPU、GPU、内存、功耗和温度曲线                                                       | `services/agent/src/core/metrics-store.ts`、Web 图表                                                      | 重启后历史仍在；采样频率和保留天数可配置                                        |
-| P1     | Ollama 控制                  | 展示模型、当前加载模型、显存/内存信息；提供卸载模型和任务入口                                                         | 新增 `services/agent/src/adapters/ollama.ts`                                                              | 面板能区分服务运行和模型加载；动作受配置白名单限制                              |
+| P1     | Ollama 控制                  | 已完成模型列表和加载状态；还缺手工加载/卸载模型和显存明细                                                             | `services/agent/src/core/ollama.ts`                                                                       | 面板能区分服务运行和模型加载；动作受配置白名单限制（列表已完成）                |
 | P1     | ComfyUI 控制                 | 展示队列、运行任务、历史任务；支持取消队列任务；保留 MPS 指标                                                         | 新增 `services/agent/src/adapters/comfyui.ts`                                                             | 不影响现有服务启停；队列操作有审计                                              |
 | P2     | 项目运行时模板               | Node/Python/PM2 项目模板；生成 start/stop/restart/status/logs 配置                                                    | `config/services.example.yaml`、新增模板目录                                                              | 新增项目只填路径、命令、端口即可登记                                            |
 | P2     | 通知和告警                   | 服务掉线、重启失败、GPU/磁盘阈值；桌面通知和可选 ntfy/Telegram                                                        | Agent 事件层、Tauri 通知、可选 Uptime Kuma                                                                | 告警有去重、恢复通知和审计记录                                                  |
