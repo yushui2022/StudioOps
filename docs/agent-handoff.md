@@ -38,6 +38,7 @@
 | macOS 主机指标          | 已完成第二版           | `services/agent/src/core/system.ts`                                           | 内存与 macmon 同口径；P/S CPU、GPU 频率、风扇、功耗、温度               |
 | 进程指标                | 已完成第一版           | `services/agent/src/core/process-metrics.ts`                                  | `ps` 读取 CPU、RSS、内存占比                                            |
 | Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`               | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态         |
+| 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                 | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                     |
 | 进程终止                | 已完成                 | `services/agent/src/core/process-control.ts`、`/api/processes/:pid/terminate` | 仅当前用户；保护祖先进程链；SIGTERM 失败后可 SIGKILL；写入审计          |
 | 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`                   | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                 |
 | Docker 状态和动作       | 已完成                 | `services/agent/src/core/docker-status.ts`、`/api/docker`                     | daemon 状态、容器列表、启动/停止/重启；已用真实容器验证                 |
@@ -93,6 +94,7 @@
 12. 桌面端按钮曾提示“Agent 未启动或端口 7227 不可达”：根因是 Tauri 内嵌页面跨域请求带 `x-studioops-actor`，而 CORS 预检没允许该头。已加入 allowHeaders，并用 OPTIONS 验证返回 204 和完整 allow-headers。以后新增自定义请求头必须同步更新 CORS。
 13. 点击 Ollama 服务行会在表格内向下展开，不打开右侧抽屉；展开区请求 `/api/services/ollama/models`，显示 4 个模型、大小、量化、加载状态和最近日志。再点一次收起。
 14. 进程页实际终止一个测试 node 进程：确认框 → SIGTERM → 进程消失 → toast 和 `process:<pid>` 审计记录。Agent 父进程链（zsh）被拒绝终止，返回 400 “StudioOps 进程链”。
+15. 进程页显示真实应用图标：Chrome、WeChat、StudioOps、Ollama 等取到 `.app` 图标，WindowServer 等系统进程使用首字母占位；图标缓存在 `data/icons/`。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

@@ -117,6 +117,7 @@ export interface ProcessSnapshot {
   memoryPercent: number;
   memoryBytes: number;
   command: string;
+  iconUrl?: string;
   killable?: boolean;
   protectedReason?: string;
 }

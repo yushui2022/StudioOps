@@ -19,6 +19,7 @@ import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { EventStore } from "./core/event-store.js";
 import { getOllamaModels } from "./core/ollama.js";
+import { ProcessIconStore } from "./core/process-icons.js";
 import { terminateProcess } from "./core/process-control.js";
 import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
@@ -54,6 +55,7 @@ try {
     error instanceof Error ? error.message : "Invalid services.yaml";
 }
 const eventStore = new EventStore(dataDir);
+const iconStore = new ProcessIconStore(dataDir);
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
@@ -118,7 +120,13 @@ app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
 app.get("/api/processes", async (c) => {
   const sort = c.req.query("sort") === "memory" ? "memory" : "cpu";
-  return json(await listProcesses(sort, Number(c.req.query("limit") ?? 50)));
+  const snapshot = await listProcesses(
+    sort,
+    Number(c.req.query("limit") ?? 50),
+  );
+  for (const processInfo of snapshot.processes)
+    processInfo.iconUrl = iconStore.register(processInfo.command);
+  return json(snapshot);
 });
 app.post("/api/processes/:pid/terminate", async (c) => {
   const pid = Number(c.req.param("pid"));
@@ -378,6 +386,22 @@ app.post("/api/services/:id/:action", async (c) => {
 });
 
 app.get("/api/healthz", (c) => c.text("ok"));
+
+app.get("/icons/:file", async (c) => {
+  const key = c.req.param("file").replace(/\.png$/, "");
+  const file = await iconStore.icon(key);
+  if (!file) return c.notFound();
+  try {
+    return new Response(readFileSync(file), {
+      headers: {
+        "content-type": "image/png",
+        "cache-control": "public, max-age=86400",
+      },
+    });
+  } catch {
+    return c.notFound();
+  }
+});
 
 app.get("/*", (c) => {
   const requested = c.req.path === "/" ? "/index.html" : c.req.path;

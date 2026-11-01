@@ -21,6 +21,7 @@ import { EventStore } from "../services/agent/src/core/event-store.js";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import { withHealth } from "../services/agent/src/core/health.js";
+import { appBundlePath } from "../services/agent/src/core/process-icons.js";
 import { terminateProcess } from "../services/agent/src/core/process-control.js";
 import {
   evaluateKillability,
@@ -229,6 +230,14 @@ test("ollama base URL derives from the health endpoint", () => {
     health: { type: "http", endpoint: "http://127.0.0.1:11434/api/tags" },
   };
   assert.equal(ollamaBaseUrl(definition), "http://127.0.0.1:11434");
+});
+
+test("app bundle path is extracted from executable path", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-icon-"));
+  const app = join(root, "Fake App.app");
+  mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
+  assert.equal(appBundlePath(join(app, "Contents", "MacOS", "fake")), app);
+  assert.equal(appBundlePath("/usr/bin/true"), undefined);
 });
 
 test("process kill guard rejects system and other users", () => {

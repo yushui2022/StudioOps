@@ -629,6 +629,42 @@ select {
   white-space: nowrap;
 }
 
+.process-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.process-name > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.process-name .cell-sub {
+  max-width: 100%;
+}
+
+.process-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.process-icon-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  background: #14171c;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .service-name {
   display: flex;
   align-items: center;

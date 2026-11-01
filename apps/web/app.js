@@ -125,6 +125,13 @@ const baseName = (command) => {
   return parts[parts.length - 1] || trimmed;
 };
 
+function processIconHtml(processInfo) {
+  const letter = (baseName(processInfo.command)[0] ?? "?").toUpperCase();
+  if (processInfo.iconUrl)
+    return `<img class="process-icon" src="${escapeHtml(processInfo.iconUrl)}" alt="" loading="lazy" data-fallback="${escapeHtml(letter)}" />`;
+  return `<span class="process-icon process-icon-fallback">${escapeHtml(letter)}</span>`;
+}
+
 /* ---------- api ---------- */
 
 async function api(path, options = {}) {
@@ -507,7 +514,15 @@ function renderProcesses() {
       (process) => `
       <tr>
         <td class="num mono">${process.pid}</td>
-        <td><span class="strong mono" title="${escapeHtml(process.command)}">${escapeHtml(baseName(process.command))}</span><span class="cell-sub">${escapeHtml(process.command)}</span></td>
+        <td>
+          <div class="process-name">
+            ${processIconHtml(process)}
+            <div>
+              <strong class="strong mono" title="${escapeHtml(process.command)}">${escapeHtml(baseName(process.command))}</strong>
+              <span class="cell-sub">${escapeHtml(process.command)}</span>
+            </div>
+          </div>
+        </td>
         <td>${escapeHtml(process.user)}</td>
         <td class="num"><div class="usage-cell"><span class="meter"><i style="width:${Math.min(Math.max(process.cpuPercent, 0), 100)}%"></i></span>${fmtPercent(process.cpuPercent)}</div></td>
         <td class="num"><div class="usage-cell"><span class="meter memory"><i style="width:${Math.min(Math.max(process.memoryPercent, 0), 100)}%"></i></span>${fmtPercent(process.memoryPercent)}</div></td>
@@ -532,7 +547,15 @@ function renderProcesses() {
       (process) => `
       <tr>
         <td class="num mono">${process.pid}</td>
-        <td><span class="strong mono" title="${escapeHtml(process.command)}">${escapeHtml(baseName(process.command))}</span><span class="cell-sub">${escapeHtml(process.user)}</span></td>
+        <td>
+          <div class="process-name">
+            ${processIconHtml(process)}
+            <div>
+              <strong class="strong mono" title="${escapeHtml(process.command)}">${escapeHtml(baseName(process.command))}</strong>
+              <span class="cell-sub">${escapeHtml(process.user)}</span>
+            </div>
+          </div>
+        </td>
         <td class="num"><div class="usage-cell"><span class="meter"><i style="width:${Math.min(Math.max(process.cpuPercent, 0), 100)}%"></i></span>${fmtPercent(process.cpuPercent)}</div></td>
         <td class="num">${fmtBytes(process.memoryBytes)}</td>
       </tr>`,
@@ -1465,6 +1488,26 @@ function hideError() {
 }
 
 /* ---------- events ---------- */
+
+// Replace a failed app icon request with the same monogram used for processes
+// that have no macOS app bundle.
+document.addEventListener(
+  "error",
+  (event) => {
+    const target = event.target;
+    if (
+      target instanceof HTMLImageElement &&
+      target.classList.contains("process-icon") &&
+      target.dataset.fallback
+    ) {
+      const fallback = document.createElement("span");
+      fallback.className = "process-icon process-icon-fallback";
+      fallback.textContent = target.dataset.fallback;
+      target.replaceWith(fallback);
+    }
+  },
+  true,
+);
 
 document.addEventListener("click", (event) => {
   const target = event.target.closest("button, [data-service]");
