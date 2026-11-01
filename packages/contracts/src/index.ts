@@ -48,6 +48,9 @@ export interface ServiceSnapshot extends ServiceDefinition {
   state: ServiceState;
   pid?: number;
   uptimeSeconds?: number;
+  cpuPercent?: number;
+  memoryBytes?: number;
+  memoryPercent?: number;
   lastError?: string;
   healthState?: HealthState;
   healthMessage?: string;
@@ -83,6 +86,18 @@ export interface SystemSnapshot {
   memory: {
     totalBytes: number;
     freeBytes: number;
+  };
+  disk?: {
+    totalBytes: number;
+    freeBytes: number;
+  };
+  silicon?: {
+    cpuPercent?: number;
+    gpuPercent?: number;
+    anePercent?: number;
+    powerWatts?: number;
+    cpuTemperatureC?: number;
+    gpuTemperatureC?: number;
   };
   updatedAt: string;
 }

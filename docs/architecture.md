@@ -50,8 +50,11 @@ StudioOps 是一台 Mac 的本地运维控制台：桌面端是主入口，Web �
 - Docker Compose：项目级 up/down/restart/logs，禁止裸 Docker socket 暴露到浏览器。
 - 进程与端口健康检查。
 - SQLite 操作审计、服务日志入口和最近操作面板。
+- 进程级 CPU/RSS 内存采集，和服务状态一起通过 WebSocket 更新。
 
 当前本机配置已验证 Ollama（11434）和 ComfyUI（8188）的真实状态；Docker Compose 适配器已完成，但 Docker daemon 当前未运行。
+
+主机快照会读取 `macmon pipe --samples 1`，在可用时提供 GPU、ANE、功耗和 CPU/GPU 温度；没有 macmon 时会保留系统 load、内存和磁盘指标。
 
 ### 0.3 AI 与穿透
 

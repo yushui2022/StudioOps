@@ -12,6 +12,18 @@ const fmtUptime = (seconds) => {
   return `${hours}h ${minutes}m`;
 };
 
+const fmtBytes = (bytes) => {
+  if (!Number.isFinite(bytes)) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`;
+};
+
 const escapeHtml = (value) =>
   String(value ?? "").replace(
     /[&<>'"]/g,
@@ -32,6 +44,13 @@ function renderSystem(system) {
   $("load").textContent = system.load[0].toFixed(2);
   const used = 1 - system.memory.freeBytes / system.memory.totalBytes;
   $("memory").textContent = `${Math.round(used * 100)}%`;
+  if (system.silicon?.gpuPercent !== undefined)
+    $("load").textContent =
+      `${system.load[0].toFixed(2)} · ${system.silicon.gpuPercent.toFixed(0)}%`;
+  if (system.disk) {
+    $("platform").textContent =
+      `${system.platform} · ${system.arch} · 磁盘余量 ${fmtBytes(system.disk.freeBytes)}`;
+  }
 }
 
 function renderServices(services) {
@@ -43,9 +62,13 @@ function renderServices(services) {
           : service.kind === "comfyui" && service.details?.devices?.length
             ? `GPU: ${service.details.devices.join(", ")}`
             : service.healthMessage || "";
+      const usage =
+        service.cpuPercent !== undefined || service.memoryBytes !== undefined
+          ? `${service.cpuPercent?.toFixed(1) ?? "—"}% CPU · ${fmtBytes(service.memoryBytes)}`
+          : "";
       return `
     <article class="service-row">
-      <div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.kind)} · ${escapeHtml(service.description || service.target)}</small><small>${escapeHtml(detail)}</small></div>
+      <div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.kind)} · ${escapeHtml(service.description || service.target)}</small><small>${escapeHtml(detail)}${detail && usage ? " · " : ""}${escapeHtml(usage)}</small></div>
       <span class="state state-${escapeHtml(service.state)}">${escapeHtml(service.state)}</span>
       <span class="health health-${escapeHtml(service.healthState || "unknown")}">${escapeHtml(service.healthState || "unknown")}</span>
       <div class="actions"><button data-log-service="${escapeHtml(service.id)}">日志</button>${service.allowedActions.map((action) => `<button data-service="${escapeHtml(service.id)}" data-action="${escapeHtml(action)}">${escapeHtml(action)}</button>`).join("")}</div>

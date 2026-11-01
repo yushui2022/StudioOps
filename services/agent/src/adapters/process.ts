@@ -46,6 +46,7 @@ export class ProcessAdapter implements ServiceAdapter {
       ...definition,
       state: "running",
       pid,
+      ...(await this.readMetrics(pid)),
       uptimeSeconds: managed
         ? Math.floor((Date.now() - managed.startedAt) / 1000)
         : undefined,
@@ -137,6 +138,35 @@ export class ProcessAdapter implements ServiceAdapter {
       return Number.isInteger(pid) && pid > 0 ? pid : undefined;
     } catch {
       return undefined;
+    }
+  }
+
+  private async readMetrics(pid: number): Promise<{
+    cpuPercent?: number;
+    memoryBytes?: number;
+    memoryPercent?: number;
+  }> {
+    try {
+      const result = await execFileAsync(
+        "ps",
+        ["-p", String(pid), "-o", "%cpu=,%mem=,rss="],
+        { timeout: 1500 },
+      );
+      const [cpu, memoryPercent, rssKb] = result.stdout
+        .trim()
+        .split(/\s+/)
+        .map(Number);
+      return {
+        cpuPercent: Number.isFinite(cpu) ? cpu : undefined,
+        memoryPercent: Number.isFinite(memoryPercent)
+          ? memoryPercent
+          : undefined,
+        memoryBytes: Number.isFinite(rssKb)
+          ? Math.round(rssKb * 1024)
+          : undefined,
+      };
+    } catch {
+      return {};
     }
   }
 

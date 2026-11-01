@@ -83,7 +83,7 @@ app.use("/api/*", async (c, next) => {
 app.get("/api/health", (c) =>
   json({ status: "ok", service: "studioops-agent", version: "0.1.0" }),
 );
-app.get("/api/system", (c) => json(getSystemSnapshot()));
+app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
 app.get("/api/config", (c) =>
   json({
@@ -232,7 +232,7 @@ wss.on("connection", async (client, request) => {
 setInterval(async () => {
   if ([...clients.values()].some((topics) => topics.has("system")))
     broadcast(
-      { type: "snapshot", topic: "system", data: getSystemSnapshot() },
+      { type: "snapshot", topic: "system", data: await getSystemSnapshot() },
       "system",
     );
   if ([...clients.values()].some((topics) => topics.has("services")))

@@ -70,6 +70,23 @@ export class LaunchdAdapter implements ServiceAdapter {
 
   async logs(definition: ServiceDefinition, tail: number): Promise<ServiceLog> {
     if (!definition.logFile || !existsSync(resolve(definition.logFile))) {
+      try {
+        const result = await execFileAsync(
+          "launchctl",
+          ["print", definition.target],
+          { timeout: 3000, maxBuffer: 1024 * 1024 },
+        );
+        const lines = result.stdout.split(/\r?\n/).filter(Boolean);
+        return {
+          serviceId: definition.id,
+          lines: lines.slice(-tail),
+          source: `launchctl print ${definition.target}`,
+          truncated: lines.length > tail,
+          fetchedAt: new Date().toISOString(),
+        };
+      } catch {
+        // Fall through to a clear message when the job is not loaded.
+      }
       return {
         serviceId: definition.id,
         lines: ["No logFile configured for this launchd service."],
