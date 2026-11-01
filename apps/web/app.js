@@ -11,6 +11,7 @@ const agentOrigin =
 const viewMeta = {
   overview: { title: "总览" },
   services: { title: "服务" },
+  projects: { title: "项目" },
   processes: { title: "进程" },
   containers: { title: "容器" },
   logs: { title: "日志" },
@@ -55,6 +56,7 @@ const state = {
   config: null,
   serviceSearch: "",
   serviceFilter: "all",
+  projectSearch: "",
   processSearch: "",
   expandedServiceId: null,
   ollamaModels: {},
@@ -528,6 +530,92 @@ function renderServices() {
     !services.some((item) => item.id === state.expandedServiceId)
   )
     state.expandedServiceId = null;
+  renderProjects();
+}
+
+/* ---------- projects ---------- */
+
+function isProjectService(service) {
+  return (
+    service.category === "project" ||
+    (!service.category && service.kind === "process")
+  );
+}
+
+function projectServices() {
+  return state.services.filter(isProjectService);
+}
+
+function renderProjects() {
+  const all = projectServices();
+  const search = state.projectSearch.trim().toLowerCase();
+  const filtered = search
+    ? all.filter((service) =>
+        [
+          service.name,
+          service.group,
+          service.port,
+          service.target,
+          service.description,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(search),
+      )
+    : all;
+  const running = all.filter((service) => service.state === "running").length;
+  const ports = all
+    .map((service) => service.port)
+    .filter((port) => Number.isFinite(port));
+  $("nav-project-count").textContent = String(all.length);
+  $("project-count").textContent = `${filtered.length} / ${all.length} 个项目`;
+  $("project-summary").textContent = all.length
+    ? `${all.length} 个项目 · ${running} 运行中${ports.length ? ` · 端口 ${ports.join(", ")}` : ""}`
+    : "还没有登记项目服务";
+  const list = $("project-list");
+  if (!filtered.length) {
+    list.innerHTML = `<div class="project-empty">
+      <strong>${all.length ? "没有匹配的项目" : "还没有项目服务"}</strong>
+      <span>${all.length ? "换一个搜索词试试。" : "把 Node、Python 或其他常驻服务登记到这里，和系统进程分开管理。"}</span>
+      ${all.length ? "" : '<button class="btn btn-small" id="add-project-empty">新增项目服务</button>'}
+    </div>`;
+    return;
+  }
+  list.innerHTML = filtered
+    .map((service) => {
+      const actions = visibleActions(service)
+        .map(
+          (action) =>
+            `<button class="btn btn-small" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
+        )
+        .join("");
+      return `<article class="project-card">
+        <header class="project-card-head">
+          <div class="project-title">
+            <span class="state-dot ${escapeHtml(service.state)}"></span>
+            <div>
+              <strong>${escapeHtml(service.name)}</strong>
+              <small>${escapeHtml(service.group ?? "项目服务")} · ${escapeHtml(service.kind)}</small>
+            </div>
+          </div>
+          <span class="state-pill ${escapeHtml(service.state)}">${escapeHtml(stateLabels[service.state] ?? service.state)}</span>
+        </header>
+        <p class="project-target" title="${escapeHtml(service.target)}">${escapeHtml(service.description || service.target)}</p>
+        <div class="project-facts">
+          <div><span>端口</span><strong>${service.port ?? "—"}</strong></div>
+          <div><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
+          <div><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
+          <div><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
+        </div>
+        <footer class="project-actions">
+          <button class="btn btn-small" data-log-service="${escapeHtml(service.id)}">日志</button>
+          <button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑</button>
+          ${actions}
+        </footer>
+      </article>`;
+    })
+    .join("");
 }
 
 /* ---------- processes ---------- */
@@ -925,6 +1013,7 @@ function resetServiceForm() {
     $(id).value = "";
   $("form-kind").value = "process";
   $("form-adapter").value = "process";
+  $("form-category").value = "";
   $("form-health-type").value = "none";
   document
     .querySelectorAll("#config-form .check-row input")
@@ -948,6 +1037,7 @@ function openServiceForm(service) {
     $("form-kind").value = service.kind;
     $("form-adapter").value = service.adapter;
     $("form-group").value = service.group ?? "";
+    $("form-category").value = service.category ?? "";
     $("form-description").value = service.description ?? "";
     $("form-target").value = service.target;
     $("form-command").value = service.command ?? "";
@@ -971,6 +1061,18 @@ function openServiceForm(service) {
       });
     $("config-delete").classList.remove("hidden");
   }
+  updateFormVisibility();
+  $("config-drawer").classList.remove("hidden");
+  $("drawer-backdrop").classList.remove("hidden");
+  $("form-name").focus();
+}
+
+function openProjectForm() {
+  resetServiceForm();
+  state.formServiceId = null;
+  $("config-title").textContent = "新增项目服务";
+  $("form-category").value = "project";
+  $("form-group").value = "项目服务";
   updateFormVisibility();
   $("config-drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
@@ -1006,6 +1108,7 @@ function collectServiceForm() {
 
   const optional = {
     group: $("form-group").value,
+    category: $("form-category").value,
     description: $("form-description").value,
     logFile: $("form-log-file").value,
   };
@@ -1509,6 +1612,7 @@ function switchView(view, { updateHash = true } = {}) {
     history.replaceState(null, "", `${location.pathname}${hash}`);
   }
 
+  if (view === "projects") renderProjects();
   if (view === "processes") loadProcesses();
   if (view === "containers") loadDocker();
   if (view === "settings") {
@@ -1664,6 +1768,10 @@ document.addEventListener("click", (event) => {
     openServiceForm();
     return;
   }
+  if (target.id === "add-project" || target.id === "add-project-empty") {
+    openProjectForm();
+    return;
+  }
   if (target.id === "config-close" || target.id === "config-cancel") {
     closeServiceForm();
     return;
@@ -1794,10 +1902,11 @@ document.addEventListener("keydown", (event) => {
   const viewKeys = {
     1: "overview",
     2: "services",
-    3: "processes",
-    4: "containers",
-    5: "logs",
-    6: "settings",
+    3: "projects",
+    4: "processes",
+    5: "containers",
+    6: "logs",
+    7: "settings",
   };
   if (viewKeys[event.key]) {
     switchView(viewKeys[event.key]);
@@ -1834,6 +1943,11 @@ $("service-search").addEventListener("input", (event) => {
 $("service-filter").addEventListener("change", (event) => {
   state.serviceFilter = event.target.value;
   renderServices();
+});
+
+$("project-search").addEventListener("input", (event) => {
+  state.projectSearch = event.target.value;
+  renderProjects();
 });
 
 $("process-search").addEventListener("input", (event) => {

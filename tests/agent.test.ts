@@ -382,6 +382,7 @@ test("config store validates, backs up, saves and reloads services", () => {
     id: "node-app",
     name: "Node App",
     kind: "process",
+    category: "project",
     adapter: "process",
     target: "/tmp/node-app",
     command: "node",
@@ -389,8 +390,22 @@ test("config store validates, backs up, saves and reloads services", () => {
     allowedActions: ["start", "stop"],
     health: { type: "none" as const },
   };
-  assert.equal(store.add(nodeService).length, 2);
+  const added = store.add(nodeService);
+  assert.equal(added.length, 2);
+  assert.equal(
+    added.find((service) => service.id === "node-app")?.category,
+    "project",
+  );
   assert.match(readFileSync(configPath, "utf8"), /node-app/);
+  assert.throws(
+    () =>
+      store.add({
+        ...nodeService,
+        id: "bad-category",
+        category: "unknown",
+      }),
+    /Unsupported category/,
+  );
   assert.ok(existsSync(join(root, "data", "backups")));
   assert.ok(readdirSync(join(root, "data", "backups")).length > 0);
 

@@ -1,3 +1,5 @@
+export type ServiceCategory = "project" | "ai" | "network" | "system";
+
 export type ServiceKind =
   | "process"
   | "launchd"
@@ -26,6 +28,7 @@ export interface ServiceDefinition {
   kind: ServiceKind;
   description?: string;
   group?: string;
+  category?: ServiceCategory;
   adapter: string;
   target: string;
   allowedActions: ServiceAction[];

@@ -38,6 +38,13 @@
             <span class="nav-label">服务</span>
             <span class="nav-count" id="nav-service-count">0</span>
           </button>
+          <button class="nav-item" data-view="projects">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h7l2 2h7v12H4V5Zm2 4v8h12V9H6Z" />
+            </svg>
+            <span class="nav-label">项目</span>
+            <span class="nav-count" id="nav-project-count">0</span>
+          </button>
           <button class="nav-item" data-view="processes">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 18h4V9H4v9Zm6 0h4V4h-4v14Zm6 0h4v-6h-4v6Z" />
@@ -403,6 +410,36 @@
             </section>
           </section>
 
+          <section class="view hidden" data-view-panel="projects">
+            <div class="toolbar">
+              <label class="search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M10 4a6 6 0 1 0 3.8 10.7L19 20l1-1-5.3-5.2A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"
+                  />
+                </svg>
+                <input
+                  id="project-search"
+                  type="search"
+                  placeholder="搜索项目、端口或分组"
+                />
+              </label>
+              <span class="toolbar-note" id="project-count">—</span>
+              <button class="btn btn-small" id="add-project">
+                新增项目服务
+              </button>
+            </div>
+
+            <section class="panel" data-title="项目服务">
+              <header class="panel-head">
+                <div><p id="project-summary">正在读取项目服务…</p></div>
+              </header>
+              <div id="project-list" class="project-grid">
+                <p class="muted" style="padding: 8px 2px">加载中…</p>
+              </div>
+            </section>
+          </section>
+
           <section class="view hidden" data-view-panel="processes">
             <div class="toolbar">
               <label class="search-field">
@@ -619,7 +656,7 @@
 
         <footer class="statusbar">
           <div class="status-left">
-            <span><b>1-6</b> 视图</span>
+            <span><b>1-7</b> 视图</span>
             <span><b>r</b> 刷新</span>
             <span><b>/</b> 搜索</span>
             <span><b>esc</b> 关闭</span>
@@ -683,6 +720,16 @@
             <label class="field">
               <span>分组</span>
               <input id="form-group" class="text-input" />
+            </label>
+            <label class="field">
+              <span>分类</span>
+              <select id="form-category" class="select">
+                <option value="">未分类</option>
+                <option value="project">项目服务</option>
+                <option value="ai">AI 服务</option>
+                <option value="network">网络</option>
+                <option value="system">系统</option>
+              </select>
             </label>
             <label class="field">
               <span>说明</span>

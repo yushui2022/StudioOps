@@ -5,6 +5,8 @@ services:
   - id: my-node-project
     name: My Node Project
     kind: process
+    group: 项目服务
+    category: project
     adapter: process
     target: /Users/orlando/Projects/my-node-project
     command: npm
@@ -19,6 +21,8 @@ services:
   - id: ollama
     name: Ollama
     kind: ollama
+    group: AI 服务
+    category: ai
     adapter: process
     target: http://127.0.0.1:11434
     command: /Applications/Ollama.app/Contents/Resources/ollama
@@ -32,6 +36,8 @@ services:
   - id: my-compose-stack
     name: My Compose Stack
     kind: docker-compose
+    group: 项目服务
+    category: project
     adapter: docker-compose
     target: /Users/orlando/Projects/my-compose-stack/compose.yaml
     composeFile: /Users/orlando/Projects/my-compose-stack/compose.yaml
@@ -44,6 +50,8 @@ services:
   - id: my-launchd-service
     name: My LaunchAgent
     kind: launchd
+    group: 项目服务
+    category: project
     adapter: launchd
     target: gui/501/com.example.my-service
     allowedActions: [start, stop, restart]
@@ -52,6 +60,8 @@ services:
   - id: my-tunnel
     name: My Tunnel
     kind: tunnel
+    group: 网络
+    category: network
     adapter: launchd
     target: gui/501/com.example.my-tunnel
     allowedActions: [start, stop, restart]

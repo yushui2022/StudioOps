@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from "node:path";
 import { parse } from "yaml";
 import type {
   ServiceAction,
+  ServiceCategory,
   ServiceDefinition,
   ServiceKind,
 } from "../../../../packages/contracts/src/index.js";
@@ -15,6 +16,12 @@ const serviceKinds = new Set<ServiceKind>([
   "comfyui",
   "tunnel",
   "generic",
+]);
+const serviceCategories = new Set<ServiceCategory>([
+  "project",
+  "ai",
+  "network",
+  "system",
 ]);
 const serviceActions = new Set<ServiceAction>([
   "start",
@@ -96,6 +103,13 @@ function validateService(
   const target = stringField(record, "target", filePath, index);
   if (!serviceKinds.has(kind))
     throw new Error(`Unsupported kind '${kind}' for service ${id}`);
+  const categoryValue = record.category;
+  if (
+    categoryValue !== undefined &&
+    (typeof categoryValue !== "string" ||
+      !serviceCategories.has(categoryValue as ServiceCategory))
+  )
+    throw new Error(`Unsupported category for service ${id}`);
   const allowedActions = arrayField(
     record,
     "allowedActions",
@@ -124,6 +138,7 @@ function validateService(
         : resolveTarget(target, rootDirFrom(filePath)),
     description: optionalString(record, "description"),
     group: optionalString(record, "group"),
+    category: categoryValue as ServiceCategory | undefined,
     allowedActions,
     command: optionalString(record, "command"),
     args: optionalStringArray(record, "args"),

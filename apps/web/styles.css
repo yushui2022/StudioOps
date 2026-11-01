@@ -1329,6 +1329,119 @@ select {
   color: var(--green);
 }
 
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-2);
+}
+
+.project-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-title > div {
+  min-width: 0;
+}
+
+.project-title strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.project-title small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.project-target {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--border-soft);
+  background: var(--border-soft);
+}
+
+.project-facts > div {
+  min-width: 0;
+  padding: 5px 6px;
+  background: var(--panel);
+}
+
+.project-facts span {
+  display: block;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
+
+.project-facts strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.project-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  padding: 30px 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 10px;
+}
+
+.project-empty strong {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
 .processes-table {
   table-layout: fixed;
   width: 100%;
