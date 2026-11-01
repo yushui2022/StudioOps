@@ -3,13 +3,39 @@
 use std::fs::create_dir_all;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use tauri::{Manager, RunEvent};
+use tauri::{
+    image::Image,
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    Manager, RunEvent, WindowEvent,
+};
 
 struct AgentProcess(Mutex<Option<Child>>);
 
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            let show = MenuItem::with_id(app, "show", "打开 StudioOps", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出 StudioOps", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
+            TrayIconBuilder::new()
+                .icon(tray_icon)
+                .icon_as_template(true)
+                .menu(&menu)
+                .tooltip("StudioOps")
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+
             #[cfg(not(debug_assertions))]
             {
                 let resource_dir = app.path().resource_dir()?;
@@ -31,6 +57,12 @@ fn main() {
             #[cfg(debug_assertions)]
             app.manage(AgentProcess(Mutex::new(None)));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building StudioOps desktop")

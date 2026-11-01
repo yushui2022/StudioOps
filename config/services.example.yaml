@@ -48,3 +48,11 @@ services:
     target: gui/501/com.example.my-service
     allowedActions: [start, stop, restart]
     logFile: data/logs/my-launchd-service.log
+
+  - id: my-tunnel
+    name: My Tunnel
+    kind: tunnel
+    adapter: launchd
+    target: gui/501/com.example.my-tunnel
+    allowedActions: [start, stop, restart]
+    logFile: data/logs/my-tunnel.log

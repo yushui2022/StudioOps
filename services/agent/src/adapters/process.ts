@@ -6,8 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import type {
   ServiceAction,
@@ -16,9 +15,13 @@ import type {
   ServiceSnapshot,
 } from "../../../../packages/contracts/src/index.js";
 import type { ServiceAdapter } from "./adapter.js";
+import {
+  findPidByPort,
+  isProcessAlive,
+  readProcessMetrics,
+} from "../core/process-metrics.js";
 
 type ManagedProcess = { child: ChildProcess; startedAt: number };
-const execFileAsync = promisify(execFile);
 
 export class ProcessAdapter implements ServiceAdapter {
   readonly id = "process";
@@ -33,8 +36,8 @@ export class ProcessAdapter implements ServiceAdapter {
     const pid =
       managed?.child.pid ??
       this.readPid(definition) ??
-      (definition.port ? await this.findPidByPort(definition.port) : undefined);
-    if (!pid || !this.isAlive(pid)) {
+      (definition.port ? await findPidByPort(definition.port) : undefined);
+    if (!pid || !isProcessAlive(pid)) {
       this.children.delete(definition.id);
       return {
         ...definition,
@@ -46,7 +49,7 @@ export class ProcessAdapter implements ServiceAdapter {
       ...definition,
       state: "running",
       pid,
-      ...(await this.readMetrics(pid)),
+      ...(await readProcessMetrics(pid)),
       uptimeSeconds: managed
         ? Math.floor((Date.now() - managed.startedAt) / 1000)
         : undefined,
@@ -127,49 +130,6 @@ export class ProcessAdapter implements ServiceAdapter {
     return this.track(definition, child);
   }
 
-  private async findPidByPort(port: number): Promise<number | undefined> {
-    try {
-      const result = await execFileAsync(
-        "lsof",
-        ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
-        { timeout: 1500 },
-      );
-      const pid = Number(result.stdout.trim().split(/\s+/)[0]);
-      return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async readMetrics(pid: number): Promise<{
-    cpuPercent?: number;
-    memoryBytes?: number;
-    memoryPercent?: number;
-  }> {
-    try {
-      const result = await execFileAsync(
-        "ps",
-        ["-p", String(pid), "-o", "%cpu=,%mem=,rss="],
-        { timeout: 1500 },
-      );
-      const [cpu, memoryPercent, rssKb] = result.stdout
-        .trim()
-        .split(/\s+/)
-        .map(Number);
-      return {
-        cpuPercent: Number.isFinite(cpu) ? cpu : undefined,
-        memoryPercent: Number.isFinite(memoryPercent)
-          ? memoryPercent
-          : undefined,
-        memoryBytes: Number.isFinite(rssKb)
-          ? Math.round(rssKb * 1024)
-          : undefined,
-      };
-    } catch {
-      return {};
-    }
-  }
-
   private async track(
     definition: ServiceDefinition,
     child: ChildProcess,
@@ -208,14 +168,5 @@ export class ProcessAdapter implements ServiceAdapter {
     if (!pidFile || !existsSync(resolve(pidFile))) return undefined;
     const pid = Number(readFileSync(resolve(pidFile), "utf8").trim());
     return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-  }
-
-  private isAlive(pid: number): boolean {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
   }
 }

@@ -25,7 +25,8 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["app"],
     "resources": ["../../../dist/agent.cjs", "../../web"]
   }
 }

@@ -9,6 +9,7 @@ import type {
   ServiceSnapshot,
 } from "../../../../packages/contracts/src/index.js";
 import type { ServiceAdapter } from "./adapter.js";
+import { readProcessMetrics } from "../core/process-metrics.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,10 +26,18 @@ export class LaunchdAdapter implements ServiceAdapter {
 
   async inspect(definition: ServiceDefinition): Promise<ServiceSnapshot> {
     try {
-      await execFileAsync("launchctl", ["print", definition.target]);
+      const result = await execFileAsync(
+        "launchctl",
+        ["print", definition.target],
+        { timeout: 3000, maxBuffer: 1024 * 1024 },
+      );
+      const pidMatch = result.stdout.match(/^\s*pid\s*=\s*(\d+)/m);
+      const pid = pidMatch ? Number(pidMatch[1]) : undefined;
       return {
         ...definition,
         state: "running",
+        pid,
+        ...(pid ? await readProcessMetrics(pid) : {}),
         updatedAt: new Date().toISOString(),
       };
     } catch {
