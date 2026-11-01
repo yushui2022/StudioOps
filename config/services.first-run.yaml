@@ -1,0 +1,36 @@
+# StudioOps 首次启动时自动复制到 App 数据目录的初始配置。
+# 这份文件不会被覆盖：用户修改后再升级 App，仍使用 App 数据目录里的 services.yaml。
+# 首次启动时会把当前用户的 uid 写入下面的 launchd target，不会写死 501。
+services:
+  - id: ollama
+    name: Ollama
+    kind: ollama
+    group: AI 服务
+    adapter: launchd
+    target: gui/{{UID}}/ai.local.ollama
+    port: 11434
+    allowedActions: [start, stop, restart]
+    health:
+      type: http
+      endpoint: http://127.0.0.1:11434/api/tags
+
+  - id: comfyui
+    name: ComfyUI
+    kind: comfyui
+    group: AI 服务
+    adapter: launchd
+    target: gui/{{UID}}/ai.local.comfyui
+    port: 8188
+    allowedActions: [start, stop, restart]
+    health:
+      type: http
+      endpoint: http://127.0.0.1:8188/system_stats
+
+  - id: ollama-tunnel
+    name: Ollama Tunnel
+    kind: tunnel
+    group: 网络
+    description: 现有 LaunchAgent；隧道健康检查尚未接入。
+    adapter: launchd
+    target: gui/{{UID}}/ai.local.ollama-tunnel
+    allowedActions: [start, stop, restart]

@@ -9,6 +9,7 @@ import {
 import { basename, join, normalize, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
   ClientMessage,
@@ -80,6 +81,19 @@ function broadcast(message: ServerMessage, topic: Topic): void {
       client.send(payload);
   }
 }
+
+app.use(
+  "*",
+  cors({
+    origin: [
+      "tauri://localhost",
+      "http://tauri.localhost",
+      "https://tauri.localhost",
+    ],
+    allowHeaders: ["Authorization", "Content-Type"],
+    allowMethods: ["GET", "POST", "OPTIONS"],
+  }),
+);
 
 app.use("/api/*", async (c, next) => {
   if (!isAuthorized(c.req.raw)) return c.json({ error: "Unauthorized" }, 401);

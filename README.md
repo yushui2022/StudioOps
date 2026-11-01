@@ -54,6 +54,15 @@ npm run build
 - `docs/research/mac-dash.md`：基于 mac-dash 实际源码的复用与取舍记录。
 - `docs/research/adjacent-projects.md`：Dockge、Uptime Kuma、Netdata、OliveTin 等项目的复用边界。
 
+## 复用策略
+
+StudioOps 不把所有能力重新实现一遍，也不提前安装一堆后台页面。现在实际复用的只有两个：
+
+- **mac-dash + launchd**：作为 Agent、动作白名单、WebSocket 和 Tauri 壳的架构参考，并负责 Ollama、ComfyUI、Node/Python 原生项目。
+- **macmon**：读取 Apple Silicon 的 GPU/ANE/功耗/温度。
+
+其余项目按触发条件再加入，不是当前缺口：有公网服务告警需求时再加 Uptime Kuma；Docker 项目较多时再加 Dockge；OliveTin 只作为可选的“按钮层”；Homepage 最后再加，它只是入口页，不负责启停服务。详细边界见 `docs/research/adjacent-projects.md`。
+
 ## 安全边界
 
 Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。

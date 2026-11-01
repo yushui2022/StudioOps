@@ -1,6 +1,13 @@
 const $ = (id) => document.getElementById(id);
+// Release builds load the web assets from Tauri (tauri://localhost), so a
+// relative /api request would never reach the agent. Point every request at the
+// agent explicitly when the page is not served by the agent itself.
+const agentOrigin =
+  location.protocol === "http:" || location.protocol === "https:"
+    ? location.origin
+    : "http://127.0.0.1:7227";
 const api = async (path, options) => {
-  const response = await fetch(path, options);
+  const response = await fetch(`${agentOrigin}${path}`, options);
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || "请求失败");
   return body.data;
@@ -143,9 +150,10 @@ async function refresh() {
 }
 
 function connect() {
-  const socket = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`,
-  );
+  const socketUrl = new URL(agentOrigin);
+  socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+  socketUrl.pathname = "/ws";
+  const socket = new WebSocket(socketUrl.toString());
   socket.addEventListener("open", () => {
     $("connection-dot").className = "online";
     $("connection-text").textContent = "已连接";

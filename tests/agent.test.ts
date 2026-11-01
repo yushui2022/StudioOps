@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -45,6 +45,34 @@ test("YAML config loads process and launchd definitions without shell expansion"
     assert.equal(loaded.services.length, 2);
     assert.equal(loaded.services[0]?.command, "node");
     assert.equal(loaded.services[1]?.target, "gui/501/example.job");
+  } finally {
+    if (previous === undefined) delete process.env.STUDIOOPS_CONFIG;
+    else process.env.STUDIOOPS_CONFIG = previous;
+  }
+});
+
+test("first run template is a loadable config with uid placeholders filled", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-first-run-"));
+  const configPath = join(root, "services.yaml");
+  const template = readFileSync(
+    join(import.meta.dirname, "../config/services.first-run.yaml"),
+    "utf8",
+  );
+  assert.ok(template.includes("{{UID}}"));
+  writeFileSync(configPath, template.replaceAll("{{UID}}", "501"));
+  const previous = process.env.STUDIOOPS_CONFIG;
+  process.env.STUDIOOPS_CONFIG = configPath;
+  try {
+    const loaded = loadConfig(root);
+    assert.deepEqual(
+      loaded.services.map((service) => service.id),
+      ["ollama", "comfyui", "ollama-tunnel"],
+    );
+    assert.equal(loaded.services[0]?.target, "gui/501/ai.local.ollama");
+    assert.equal(loaded.services[1]?.port, 8188);
+    assert.ok(
+      loaded.services.every((service) => service.target.startsWith("gui/501/")),
+    );
   } finally {
     if (previous === undefined) delete process.env.STUDIOOPS_CONFIG;
     else process.env.STUDIOOPS_CONFIG = previous;

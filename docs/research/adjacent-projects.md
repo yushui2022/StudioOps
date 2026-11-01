@@ -1,19 +1,29 @@
 # 可复用的成熟项目边界
 
-StudioOps 的目标是集成面板，因此不把所有能力重新实现一遍。下面是“借鉴架构或作为数据源”的边界：
+StudioOps 的目标是集成面板，因此不把所有能力重新实现一遍。这里记录“什么时候复用、复用什么”，避免把按需项目误当成当前缺口。
 
-| 项目                                                   | 适合复用的部分                                      | StudioOps 的关系                                     |
-| ------------------------------------------------------ | --------------------------------------------------- | ---------------------------------------------------- |
-| [mac-dash](https://github.com/talhaorak/mac-dash)      | macOS launchd、进程、日志、系统状态、插件、Tauri 壳 | 核心 Agent/API 和插件边界的主要参考                  |
-| [Dockge](https://github.com/louislam/dockge)           | Compose 项目目录、启停、日志和更新的交互            | 只复用 Compose 项目模型，接入 `DockerComposeAdapter` |
-| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | HTTP/TCP/关键词探测、通知渠道                       | 作为外部告警系统或后续探测数据源，不当作控制层       |
-| [Netdata](https://github.com/netdata/netdata)          | 主机、容器和长期指标采集                            | 可选外部指标源；Agent 只保留面板需要的轻量快照       |
-| [OliveTin](https://github.com/OliveTin/OliveTin)       | 固定脚本按钮、参数限制和执行日志                    | 只借鉴“动作白名单”思想，不让它成为统一状态模型       |
-| [Homepage](https://github.com/gethomepage/homepage)    | 服务入口和链接导航                                  | 不是控制层；StudioOps 自己提供服务卡片和操作         |
+## 现在就复用
+
+| 项目                                              | 复用方式                                                                    | 当前状态                                                         |
+| ------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [mac-dash](https://github.com/talhaorak/mac-dash) | 复用 Agent-first、launchd 管理、动作白名单、WebSocket topic、Tauri 壳的架构 | 已按源码结构落地；launchd 管理 Ollama、ComfyUI、Node/Python 项目 |
+| [macmon](https://github.com/vladkens/macmon)      | 直接调用 `macmon pipe --samples 1` 读取 Apple Silicon 的 GPU/ANE/功耗/温度  | 已接入系统指标卡片                                               |
+
+## 有明确需求再加
+
+| 项目                                                   | 什么时候加                                     | 接入方式                                                        |
+| ------------------------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------- |
+| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | 有公网服务告警需求时                           | 作为外部告警系统或探测数据源，不当作 StudioOps 控制层           |
+| [Dockge](https://github.com/louislam/dockge)           | 只有 Docker 项目较多、需要项目目录和更新交互时 | 复用 Compose 项目模型，仍由 `DockerComposeAdapter` 执行受控动作 |
+| [OliveTin](https://github.com/OliveTin/OliveTin)       | 需要把固定脚本做成“按钮层”时                   | 只借鉴固定按钮、参数限制和执行日志；不让它绕过服务注册表和审计  |
+| [Netdata](https://github.com/netdata/netdata)          | 需要长期主机/容器指标和图表时                  | 作为可选外部指标源；StudioOps 保留轻量快照                      |
+| [Homepage](https://github.com/gethomepage/homepage)    | 最后再加，只需要统一入口页时                   | 只是入口导航，不负责启停服务                                    |
 
 ## 为什么不直接拼成多个后台页面
 
 这些项目各自解决一个问题：容器项目、告警、指标或入口导航。它们没有共同的服务 id、权限策略、操作审计和桌面生命周期。StudioOps 先统一这些边界，再通过适配器接入它们，用户最终只操作桌面 App 或一个 Web 页面。
+
+顺序原则：先把 Ollama、ComfyUI 和 Node/Python 原生项目的启停、日志、健康检查做扎实，再按上面的触发条件增加项目。不要为了“看起来集成得多”提前安装 Dockge、Homepage 或 Uptime Kuma。
 
 ## 选择标准
 
