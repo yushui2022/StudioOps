@@ -1,15 +1,15 @@
 :root {
   color-scheme: dark;
-  --bg: #06080b;
-  --sidebar: #080a0e;
-  --panel: #0a0d12;
-  --panel-2: #0d1117;
-  --panel-3: #111720;
-  --border: #1c242e;
-  --border-soft: #161d26;
-  --text: #d6dee8;
-  --text-soft: #aab6c4;
-  --muted: #6f7b8a;
+  --bg: #07090c;
+  --sidebar: #090c11;
+  --panel: #0c1016;
+  --panel-2: #10151d;
+  --panel-3: #151c26;
+  --border: #2b3745;
+  --border-soft: #202a35;
+  --text: #e6edf5;
+  --text-soft: #c3cedb;
+  --muted: #9aa8b9;
   --green: #7ee787;
   --green-soft: rgba(126, 231, 135, 0.12);
   --blue: #79c0ff;
@@ -129,7 +129,7 @@ select {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 8.5px;
+  font-size: 9px;
   letter-spacing: 0.13em;
 }
 
@@ -149,7 +149,7 @@ select {
   border-radius: 3px;
   background: transparent;
   color: var(--text-soft);
-  font-size: 11.5px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
@@ -157,7 +157,7 @@ select {
 .nav-item svg {
   width: 14px;
   height: 14px;
-  opacity: 0.55;
+  opacity: 0.72;
 }
 
 .nav-item:hover {
@@ -191,7 +191,7 @@ select {
   border: 1px solid var(--border);
   border-radius: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
 }
 
 .sidebar-spacer {
@@ -217,7 +217,7 @@ select {
 
 .host-card strong {
   display: block;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -228,7 +228,7 @@ select {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -262,7 +262,7 @@ select {
   justify-content: space-between;
   padding: 0 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
 }
 
 .main {
@@ -293,7 +293,7 @@ select {
 .page-subtitle {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .topbar-actions {
@@ -311,7 +311,7 @@ select {
   border-radius: 2px;
   background: #0a120c;
   color: var(--green);
-  font-size: 9px;
+  font-size: 9.5px;
   letter-spacing: 0.08em;
 }
 
@@ -385,7 +385,7 @@ select {
   border-radius: 3px;
   background: #0b0f14;
   color: var(--text-soft);
-  font-size: 10.5px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -408,7 +408,7 @@ select {
 
 .btn-small {
   padding: 4px 7px;
-  font-size: 9.5px;
+  font-size: 10px;
 }
 
 .icon-btn {
@@ -448,7 +448,7 @@ select {
   border-radius: 3px;
   background: #0a0e13;
   color: var(--text-soft);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .select {
@@ -476,7 +476,7 @@ select {
   border: 0;
   background: transparent;
   color: var(--text);
-  font-size: 10.5px;
+  font-size: 11px;
   outline: none;
 }
 
@@ -499,7 +499,7 @@ select {
 .toolbar-note {
   margin-left: auto;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10px;
 }
 
 .switch {
@@ -507,7 +507,7 @@ select {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10px;
   cursor: pointer;
 }
 
@@ -534,7 +534,7 @@ select {
   padding: 0 4px;
   background: var(--bg);
   color: var(--text-soft);
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.08em;
   line-height: 13px;
   white-space: nowrap;
@@ -583,7 +583,7 @@ select {
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .table th {
@@ -591,11 +591,11 @@ select {
   top: 0;
   z-index: 1;
   padding: 6px 11px;
-  background: #090c10;
+  background: #0b0f14;
   border-top: 1px solid var(--border-soft);
   border-bottom: 1px solid var(--border-soft);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 500;
   letter-spacing: 0.1em;
   text-align: left;
@@ -615,7 +615,7 @@ select {
 }
 
 .table tbody tr:hover {
-  background: #0c1117;
+  background: #121924;
 }
 
 .table .num {
@@ -625,7 +625,7 @@ select {
 }
 
 .table .mono {
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .table .strong {
@@ -641,7 +641,7 @@ select {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   max-width: 420px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -666,7 +666,7 @@ select {
   border: 0;
   background: none;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10px;
 }
 
 .kind-tag::before {
@@ -682,7 +682,7 @@ select {
   align-items: center;
   gap: 5px;
   color: var(--text-soft);
-  font-size: 10px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -733,7 +733,7 @@ select {
 }
 
 .health-text {
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--muted);
 }
 
@@ -748,7 +748,7 @@ select {
 .health-message {
   margin-left: 6px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   white-space: nowrap;
 }
 
@@ -764,7 +764,7 @@ select {
   border-radius: 2px;
   background: transparent;
   color: var(--text-soft);
-  font-size: 9px;
+  font-size: 9.5px;
   cursor: pointer;
 }
 
@@ -836,14 +836,14 @@ select {
 
 .chip span {
   color: var(--muted);
-  font-size: 8.5px;
+  font-size: 9.5px;
   letter-spacing: 0.12em;
 }
 
 .chip strong {
   justify-self: end;
   color: var(--text);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -895,21 +895,27 @@ select {
 
 .metric-card:nth-child(1) {
   --metric-color: var(--green);
+  --metric-accent: var(--green);
 }
 .metric-card:nth-child(2) {
   --metric-color: var(--blue);
+  --metric-accent: var(--blue);
 }
 .metric-card:nth-child(3) {
   --metric-color: var(--purple);
+  --metric-accent: var(--purple);
 }
 .metric-card:nth-child(4) {
   --metric-color: var(--amber);
+  --metric-accent: var(--amber);
 }
 .metric-card:nth-child(5) {
   --metric-color: #ffa657;
+  --metric-accent: #ffa657;
 }
 .metric-card:nth-child(6) {
   --metric-color: var(--red);
+  --metric-accent: var(--red);
 }
 
 .metric-card header {
@@ -924,7 +930,7 @@ select {
   padding: 0 4px;
   background: var(--bg);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   letter-spacing: 0.1em;
   line-height: 13px;
 }
@@ -934,8 +940,8 @@ select {
   border: 1px solid var(--border-soft);
   border-radius: 2px;
   background: #0b0f14;
-  color: #7f8b9b;
-  font-size: 8px;
+  color: #9aa8b9;
+  font-size: 9px;
   white-space: nowrap;
 }
 
@@ -947,8 +953,8 @@ select {
 }
 
 .metric-value strong {
-  color: var(--metric-color);
-  font-size: 24px;
+  color: var(--metric-accent, var(--metric-color));
+  font-size: 25px;
   font-weight: 500;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -980,17 +986,17 @@ select {
 }
 
 .sparkline .bars rect.base {
-  opacity: 0.16;
+  opacity: 0.24;
 }
 
 .sparkline .bars rect.bar {
-  opacity: 0.62;
+  opacity: 0.75;
 }
 
 .metric-card footer {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 8.5px;
+  font-size: 9.5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1030,7 +1036,7 @@ select {
 .runtime-grid span {
   display: block;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 9.5px;
   letter-spacing: 0.12em;
 }
 
@@ -1061,7 +1067,7 @@ select {
 }
 
 .compact-service:hover {
-  background: #0c1117;
+  background: #121924;
 }
 
 .compact-service > div {
@@ -1072,7 +1078,7 @@ select {
 .compact-service strong {
   display: block;
   color: var(--text);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
 }
 
@@ -1080,14 +1086,14 @@ select {
   display: block;
   margin-top: 1px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .compact-service .state-pill {
-  font-size: 9px;
+  font-size: 9.5px;
 }
 
 .compact-table {
@@ -1107,7 +1113,7 @@ select {
   padding: 34px 16px;
   color: var(--muted);
   text-align: center;
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .empty strong {
@@ -1139,7 +1145,7 @@ select {
   grid-column: 2;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10px;
   word-break: break-all;
 }
 
@@ -1177,13 +1183,13 @@ select {
   border-radius: 2px;
   background: transparent;
   color: var(--text-soft);
-  font-size: 10.5px;
+  font-size: 11px;
   text-align: left;
   cursor: pointer;
 }
 
 .log-service-item:hover {
-  background: #0c1117;
+  background: #121924;
 }
 
 .log-service-item.active {
@@ -1214,9 +1220,9 @@ select {
   border: 1px solid var(--border-soft);
   border-radius: 0;
   background: #05070a;
-  color: #aab6c4;
+  color: #c3ccda;
   font:
-    10.5px/1.6 ui-monospace,
+    11px/1.6 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
@@ -1255,7 +1261,7 @@ select {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
   gap: 8px;
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .fact-list dt {
@@ -1265,7 +1271,7 @@ select {
 .fact-list dd {
   margin: 0;
   color: var(--text-soft);
-  font-size: 9.5px;
+  font-size: 10px;
   overflow-wrap: anywhere;
 }
 
@@ -1304,7 +1310,7 @@ select {
 .token-hint {
   padding: 0 13px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   line-height: 1.5;
 }
 
@@ -1319,7 +1325,7 @@ select {
 .policy-list li {
   display: grid;
   gap: 1px;
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .policy-list strong {
@@ -1370,7 +1376,7 @@ select {
 .drawer-head p:last-child {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10px;
 }
 
 .drawer-body {
@@ -1386,7 +1392,7 @@ select {
 .drawer-section h3 {
   margin-bottom: 7px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1414,7 +1420,7 @@ select {
 .drawer-fact span {
   display: block;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 9.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1423,7 +1429,7 @@ select {
   display: block;
   margin-top: 3px;
   color: var(--text-soft);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -1440,9 +1446,9 @@ select {
   border: 1px solid var(--border-soft);
   border-radius: 2px;
   background: #05070a;
-  color: #aab6c4;
+  color: #c3ccda;
   font:
-    9.5px/1.55 ui-monospace,
+    10px/1.55 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
@@ -1503,7 +1509,7 @@ select {
   border-top: 1px solid var(--border);
   background: #080a0e;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 9.5px;
   letter-spacing: 0.02em;
 }
 
