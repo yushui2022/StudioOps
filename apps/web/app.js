@@ -770,7 +770,7 @@ function inlineDetailHtml(service) {
           <div class="inline-actions">
             <button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑配置</button>
             ${
-              service.pid
+              service.pid && service.adapter === "process"
                 ? `<button class="btn btn-small btn-danger" data-terminate-pid="${service.pid}" data-terminate-name="${escapeHtml(service.name)}">终止进程</button>`
                 : ""
             }
