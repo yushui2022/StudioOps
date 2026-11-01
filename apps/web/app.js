@@ -58,6 +58,7 @@ const state = {
   logServiceId: null,
   logLines: [],
   logAuto: false,
+  formServiceId: null,
   lastUpdated: null,
   connected: false,
   history: {
@@ -445,6 +446,7 @@ function renderServices() {
         <td class="num">${fmtBytes(service.memoryBytes)}</td>
         <td>
           <div class="row-actions">
+            <button data-edit-service="${escapeHtml(service.id)}">编辑</button>
             <button data-log-service="${escapeHtml(service.id)}">日志</button>
             ${actions}
           </div>
@@ -628,6 +630,11 @@ function renderSettingsFacts() {
     $("settings-config-source").textContent = config.usingFallback
       ? "未找到 services.yaml"
       : "本地配置";
+    const configErrorElement = $("config-error");
+    if (configErrorElement) {
+      configErrorElement.textContent = config.configError ?? "";
+      configErrorElement.classList.toggle("hidden", !config.configError);
+    }
     $("settings-origin").textContent = agentOrigin;
     $("settings-bind").textContent = `${config.host}:${config.port}`;
     $("settings-token").textContent = config.tokenRequired
@@ -713,12 +720,14 @@ function renderDrawer(service, keepLog = false) {
       <pre class="drawer-log" id="drawer-log">${escapeHtml(previousLog)}</pre>
     </section>`;
 
-  $("drawer-actions").innerHTML = visibleActions(service)
-    .map(
-      (action) =>
-        `<button class="btn btn-small ${action === "stop" ? "" : ""}" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
-    )
-    .join("");
+  $("drawer-actions").innerHTML =
+    `<button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑配置</button>` +
+    visibleActions(service)
+      .map(
+        (action) =>
+          `<button class="btn btn-small" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
+      )
+      .join("");
 
   $("service-drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
@@ -741,6 +750,284 @@ async function loadDrawerLog(serviceId) {
     target.textContent = log.lines.join("\n") || "暂无日志";
   } catch (error) {
     target.textContent = error.message;
+  }
+}
+
+/* ---------- service form ---------- */
+
+function updateFormVisibility() {
+  const adapter = $("form-adapter").value;
+  $("fields-process").classList.toggle("hidden", adapter !== "process");
+  $("fields-compose").classList.toggle("hidden", adapter !== "docker-compose");
+}
+
+function setFormError(message) {
+  const element = $("form-error");
+  element.textContent = message ?? "";
+  element.classList.toggle("hidden", !message);
+}
+
+function resetServiceForm() {
+  for (const id of [
+    "form-id",
+    "form-name",
+    "form-group",
+    "form-description",
+    "form-target",
+    "form-command",
+    "form-args",
+    "form-cwd",
+    "form-log-file",
+    "form-env",
+    "form-pid-file",
+    "form-port",
+    "form-compose-file",
+    "form-project-name",
+    "form-health-endpoint",
+  ])
+    $(id).value = "";
+  $("form-kind").value = "process";
+  $("form-adapter").value = "process";
+  $("form-health-type").value = "none";
+  document
+    .querySelectorAll("#config-form .check-row input")
+    .forEach((input) => {
+      input.checked = ["start", "stop", "restart"].includes(input.value);
+    });
+  $("config-delete").classList.add("hidden");
+  $("form-id").readOnly = false;
+  setFormError("");
+  updateFormVisibility();
+}
+
+function openServiceForm(service) {
+  resetServiceForm();
+  state.formServiceId = service?.id ?? null;
+  $("config-title").textContent = service ? "编辑服务" : "新增服务";
+  if (service) {
+    $("form-id").value = service.id;
+    $("form-id").readOnly = true;
+    $("form-name").value = service.name;
+    $("form-kind").value = service.kind;
+    $("form-adapter").value = service.adapter;
+    $("form-group").value = service.group ?? "";
+    $("form-description").value = service.description ?? "";
+    $("form-target").value = service.target;
+    $("form-command").value = service.command ?? "";
+    $("form-args").value = (service.args ?? []).join("\n");
+    $("form-cwd").value = service.cwd ?? "";
+    $("form-log-file").value = service.logFile ?? "";
+    $("form-env").value = Object.entries(service.env ?? {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n");
+    $("form-pid-file").value = service.pidFile ?? "";
+    $("form-port").value = service.port ?? "";
+    $("form-compose-file").value = service.composeFile ?? "";
+    $("form-project-name").value = service.projectName ?? "";
+    $("form-health-type").value = service.health?.type ?? "none";
+    $("form-health-endpoint").value = service.health?.endpoint ?? "";
+    document
+      .querySelectorAll("#config-form .check-row input")
+      .forEach((input) => {
+        input.checked = service.allowedActions.includes(input.value);
+      });
+    $("config-delete").classList.remove("hidden");
+  }
+  updateFormVisibility();
+  closeDrawer();
+  $("config-drawer").classList.remove("hidden");
+  $("drawer-backdrop").classList.remove("hidden");
+  $("form-name").focus();
+}
+
+function closeServiceForm() {
+  state.formServiceId = null;
+  $("config-drawer").classList.add("hidden");
+  if ($("service-drawer").classList.contains("hidden"))
+    $("drawer-backdrop").classList.add("hidden");
+}
+
+function collectServiceForm() {
+  const id = $("form-id").value.trim();
+  const name = $("form-name").value.trim();
+  const adapter = $("form-adapter").value;
+  if (!id) throw new Error("服务 ID 不能为空");
+  if (!name) throw new Error("服务名称不能为空");
+  const target = $("form-target").value.trim();
+  if (!target) throw new Error("目标不能为空");
+
+  const service = {
+    id,
+    name,
+    kind: $("form-kind").value,
+    adapter,
+    target,
+    allowedActions: [
+      ...document.querySelectorAll("#config-form .check-row input:checked"),
+    ].map((input) => input.value),
+  };
+  if (!service.allowedActions.length) throw new Error("至少选择一个允许动作");
+
+  const optional = {
+    group: $("form-group").value,
+    description: $("form-description").value,
+    logFile: $("form-log-file").value,
+  };
+  for (const [key, value] of Object.entries(optional))
+    if (String(value).trim()) service[key] = String(value).trim();
+
+  if (adapter === "process") {
+    service.command = $("form-command").value.trim();
+    if (!service.command) throw new Error("process 服务需要命令");
+    const args = $("form-args")
+      .value.split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (args.length) service.args = args;
+    if ($("form-cwd").value.trim()) service.cwd = $("form-cwd").value.trim();
+    if ($("form-pid-file").value.trim())
+      service.pidFile = $("form-pid-file").value.trim();
+    const envLines = $("form-env")
+      .value.split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (envLines.length) {
+      service.env = {};
+      for (const line of envLines) {
+        const separator = line.indexOf("=");
+        if (separator <= 0) throw new Error(`环境变量格式错误：${line}`);
+        service.env[line.slice(0, separator)] = line.slice(separator + 1);
+      }
+    }
+  }
+  if (adapter === "docker-compose") {
+    service.composeFile = $("form-compose-file").value.trim();
+    if (!service.composeFile) throw new Error("Compose 服务需要 composeFile");
+    if ($("form-project-name").value.trim())
+      service.projectName = $("form-project-name").value.trim();
+  }
+  if ($("form-port").value.trim()) {
+    const port = Number($("form-port").value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+      throw new Error("端口必须是 1-65535 的整数");
+    service.port = port;
+  }
+  const healthType = $("form-health-type").value;
+  if (healthType !== "none") {
+    service.health = { type: healthType };
+    const endpoint = $("form-health-endpoint").value.trim();
+    if (["http", "tcp"].includes(healthType) && !endpoint)
+      throw new Error("HTTP/TCP 健康检查需要端点");
+    if (endpoint) service.health.endpoint = endpoint;
+  }
+  return service;
+}
+
+async function saveServiceForm() {
+  const button = $("config-save");
+  button.disabled = true;
+  setFormError("");
+  try {
+    const service = collectServiceForm();
+    const editing = state.formServiceId;
+    await api(
+      editing
+        ? `/api/config/services/${encodeURIComponent(editing)}`
+        : "/api/config/services",
+      {
+        method: editing ? "PUT" : "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-studioops-actor": "web",
+        },
+        body: JSON.stringify(service),
+      },
+    );
+    closeServiceForm();
+    toast(editing ? "服务配置已更新" : "服务已添加");
+    await refreshAll({ quiet: true });
+    if (state.view === "settings") loadBackups();
+  } catch (error) {
+    setFormError(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteService() {
+  const id = state.formServiceId;
+  if (!id) return;
+  if (!confirm(`删除服务 ${id}？此操作会立即写入配置。`)) return;
+  const button = $("config-delete");
+  button.disabled = true;
+  try {
+    await api(`/api/config/services/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "x-studioops-actor": "web" },
+    });
+    closeServiceForm();
+    toast(`已删除服务 ${id}`);
+    await refreshAll({ quiet: true });
+  } catch (error) {
+    setFormError(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* ---------- config backups ---------- */
+
+async function loadBackups() {
+  const list = $("backup-list");
+  if (!list) return;
+  try {
+    const backups = await api("/api/config/backups");
+    list.innerHTML = backups.length
+      ? backups
+          .slice(0, 8)
+          .map(
+            (backup) => `
+            <div class="backup-item">
+              <span title="${escapeHtml(backup.name)}">${escapeHtml(fmtDateTime(backup.createdAt))}</span>
+              <small>${escapeHtml(fmtBytes(backup.sizeBytes))}</small>
+              <button class="link" data-restore-backup="${escapeHtml(backup.name)}">恢复</button>
+            </div>`,
+          )
+          .join("")
+      : '<p class="backup-empty">暂无备份</p>';
+  } catch (error) {
+    list.innerHTML = `<p class="backup-empty">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function restoreBackup(name) {
+  if (!confirm("恢复这个备份？当前配置会先自动备份。")) return;
+  try {
+    await api("/api/config/restore", {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+      body: JSON.stringify({ name }),
+    });
+    toast("配置已恢复并重新加载");
+    await refreshAll({ quiet: true });
+    await loadBackups();
+  } catch (error) {
+    toast(error.message, true);
+    await refreshAll({ quiet: true });
+  }
+}
+
+async function reloadConfig() {
+  try {
+    await api("/api/config/reload", {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    toast("配置已重新加载");
+    await refreshAll({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+    await refreshAll({ quiet: true });
   }
 }
 
@@ -907,6 +1194,7 @@ function switchView(view, { updateHash = true } = {}) {
   $("page-title").textContent = meta.title;
   document.title = `StudioOps · ${meta.title}`;
   closeDrawer();
+  closeServiceForm();
   if (updateHash) {
     const hash = view === "overview" ? "" : `#${view}`;
     history.replaceState(null, "", `${location.pathname}${hash}`);
@@ -917,6 +1205,7 @@ function switchView(view, { updateHash = true } = {}) {
   if (view === "settings") {
     renderSettingsFacts();
     loadTokenField();
+    loadBackups();
   }
   if (view === "logs") {
     if (!state.logServiceId && state.services[0])
@@ -1044,6 +1333,42 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "drawer-backdrop") {
     closeDrawer();
+    closeServiceForm();
+    return;
+  }
+  if (target.id === "add-service") {
+    openServiceForm();
+    return;
+  }
+  if (target.id === "config-close" || target.id === "config-cancel") {
+    closeServiceForm();
+    return;
+  }
+  if (target.id === "config-save") {
+    saveServiceForm();
+    return;
+  }
+  if (target.id === "config-delete") {
+    deleteService();
+    return;
+  }
+  if (target.id === "backup-refresh") {
+    loadBackups();
+    return;
+  }
+  if (target.id === "reload-config") {
+    reloadConfig();
+    return;
+  }
+  if (target.dataset.editService) {
+    const service = state.services.find(
+      (item) => item.id === target.dataset.editService,
+    );
+    if (service) openServiceForm(service);
+    return;
+  }
+  if (target.dataset.restoreBackup) {
+    restoreBackup(target.dataset.restoreBackup);
     return;
   }
   if (target.id === "log-refresh") {
@@ -1104,7 +1429,10 @@ document.addEventListener("click", (event) => {
   }
 });
 
-$("drawer-backdrop").addEventListener("click", closeDrawer);
+$("drawer-backdrop").addEventListener("click", () => {
+  closeDrawer();
+  closeServiceForm();
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -1115,6 +1443,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     if (isTyping) active.blur();
     closeDrawer();
+    closeServiceForm();
     return;
   }
   if (isTyping) return;
@@ -1181,13 +1510,21 @@ $("log-auto").addEventListener("change", (event) => {
   if (state.logAuto) loadLogs();
 });
 
+$("form-adapter").addEventListener("change", updateFormVisibility);
+
+$("config-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveServiceForm();
+});
+
 async function backupConfig() {
   try {
     const result = await api("/api/config/backup", {
       method: "POST",
       headers: { "x-studioops-actor": "web" },
     });
-    toast(`配置已备份到 ${result.path}`);
+    toast(`已创建备份 ${result.name}`);
+    await loadBackups();
   } catch (error) {
     toast(error.message, true);
   }

@@ -23,6 +23,20 @@ export class ServiceRegistry {
     this.definitions.set(definition.id, definition);
   }
 
+  /** Replace the whole registry after a successful config save. */
+  replaceAll(definitions: ServiceDefinition[]): void {
+    const next = new Map<string, ServiceDefinition>();
+    for (const definition of definitions) {
+      if (next.has(definition.id))
+        throw new Error(`Duplicate service id: ${definition.id}`);
+      if (!this.adapters.has(definition.adapter))
+        throw new Error(`Unknown adapter: ${definition.adapter}`);
+      next.set(definition.id, definition);
+    }
+    this.definitions.clear();
+    for (const [id, definition] of next) this.definitions.set(id, definition);
+  }
+
   list(): Promise<ServiceSnapshot[]> {
     return Promise.all(
       [...this.definitions.values()].map((definition) =>

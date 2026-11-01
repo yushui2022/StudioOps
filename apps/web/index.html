@@ -346,6 +346,7 @@
                 <option value="unhealthy">健康异常</option>
               </select>
               <span class="toolbar-note" id="service-count">—</span>
+              <button class="btn btn-small" id="add-service">新增服务</button>
             </div>
 
             <section class="panel table-panel" data-title="服务列表">
@@ -509,9 +510,20 @@
                     <dd id="settings-config-source">—</dd>
                   </div>
                 </dl>
-                <button class="btn btn-small" id="backup-config">
-                  备份配置
-                </button>
+                <div class="panel-actions">
+                  <button class="btn btn-small" id="backup-config">
+                    备份配置
+                  </button>
+                  <button class="btn btn-small" id="reload-config">
+                    重新加载
+                  </button>
+                </div>
+                <p class="config-error hidden" id="config-error"></p>
+                <div class="backup-head">
+                  <span>最近备份</span>
+                  <button class="link" id="backup-refresh">刷新</button>
+                </div>
+                <div class="backup-list" id="backup-list"></div>
               </section>
 
               <section class="panel" data-title="连接与安全">
@@ -606,6 +618,175 @@
       </header>
       <div class="drawer-body" id="drawer-body"></div>
       <div class="drawer-actions" id="drawer-actions"></div>
+    </aside>
+
+    <aside id="config-drawer" class="drawer hidden" aria-label="服务配置">
+      <header class="drawer-head">
+        <div>
+          <h2 id="config-title">新增服务</h2>
+          <p>保存后立即生效，并自动备份当前配置</p>
+        </div>
+        <button class="icon-btn" id="config-close" aria-label="关闭">✕</button>
+      </header>
+      <div class="drawer-body">
+        <form id="config-form" autocomplete="off">
+          <fieldset class="form-section">
+            <legend>基本信息</legend>
+            <label class="field">
+              <span>服务 ID</span>
+              <input id="form-id" class="text-input" required />
+            </label>
+            <label class="field">
+              <span>名称</span>
+              <input id="form-name" class="text-input" required />
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span>类型</span>
+                <select id="form-kind" class="select">
+                  <option value="process">process</option>
+                  <option value="launchd">launchd</option>
+                  <option value="docker-compose">docker-compose</option>
+                  <option value="ollama">ollama</option>
+                  <option value="comfyui">comfyui</option>
+                  <option value="tunnel">tunnel</option>
+                  <option value="generic">generic</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>适配器</span>
+                <select id="form-adapter" class="select">
+                  <option value="process">process</option>
+                  <option value="launchd">launchd</option>
+                  <option value="docker-compose">docker-compose</option>
+                </select>
+              </label>
+            </div>
+            <label class="field">
+              <span>分组</span>
+              <input id="form-group" class="text-input" />
+            </label>
+            <label class="field">
+              <span>说明</span>
+              <textarea
+                id="form-description"
+                class="text-input"
+                rows="2"
+              ></textarea>
+            </label>
+          </fieldset>
+
+          <fieldset class="form-section">
+            <legend>运行配置</legend>
+            <label class="field">
+              <span>目标</span>
+              <input
+                id="form-target"
+                class="text-input"
+                placeholder="gui/501/ai.local.ollama 或 /path/to/project"
+                required
+              />
+            </label>
+            <div id="fields-process">
+              <label class="field">
+                <span>命令</span>
+                <input
+                  id="form-command"
+                  class="text-input"
+                  placeholder="node"
+                />
+              </label>
+              <label class="field">
+                <span>参数（每行一个）</span>
+                <textarea
+                  id="form-args"
+                  class="text-input"
+                  rows="3"
+                  placeholder="--version"
+                ></textarea>
+              </label>
+              <label class="field">
+                <span>工作目录</span>
+                <input id="form-cwd" class="text-input" />
+              </label>
+              <label class="field">
+                <span>日志文件</span>
+                <input id="form-log-file" class="text-input" />
+              </label>
+              <label class="field">
+                <span>环境变量（KEY=VALUE，每行一个）</span>
+                <textarea id="form-env" class="text-input" rows="2"></textarea>
+              </label>
+              <label class="field">
+                <span>PID 文件</span>
+                <input id="form-pid-file" class="text-input" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>端口</span>
+                <input id="form-port" class="text-input" inputmode="numeric" />
+              </label>
+            </div>
+            <div id="fields-compose" class="hidden">
+              <label class="field">
+                <span>Compose 文件</span>
+                <input id="form-compose-file" class="text-input" />
+              </label>
+              <label class="field">
+                <span>项目名</span>
+                <input id="form-project-name" class="text-input" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-section">
+            <legend>健康检查</legend>
+            <div class="field-row">
+              <label class="field">
+                <span>类型</span>
+                <select id="form-health-type" class="select">
+                  <option value="none">none</option>
+                  <option value="http">http</option>
+                  <option value="tcp">tcp</option>
+                  <option value="process">process</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>端点</span>
+                <input
+                  id="form-health-endpoint"
+                  class="text-input"
+                  placeholder="http://127.0.0.1:3000/health"
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-section">
+            <legend>动作白名单</legend>
+            <div class="check-row">
+              <label
+                ><input type="checkbox" value="start" checked /> 启动</label
+              >
+              <label><input type="checkbox" value="stop" checked /> 停止</label>
+              <label
+                ><input type="checkbox" value="restart" checked /> 重启</label
+              >
+              <label><input type="checkbox" value="pause" /> 暂停</label>
+              <label><input type="checkbox" value="resume" /> 继续</label>
+            </div>
+          </fieldset>
+        </form>
+        <p class="config-error hidden" id="form-error"></p>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn btn-primary" id="config-save">保存</button>
+        <button class="btn" id="config-cancel">取消</button>
+        <button class="btn btn-danger hidden" id="config-delete">
+          删除服务
+        </button>
+      </div>
     </aside>
 
     <div id="toast" class="toast hidden"></div>

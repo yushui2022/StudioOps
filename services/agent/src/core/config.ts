@@ -29,6 +29,17 @@ export interface LoadedConfig {
   services: ServiceDefinition[];
 }
 
+export function resolveConfigPath(rootDir: string): string {
+  const configured = process.env.STUDIOOPS_CONFIG;
+  if (configured)
+    return isAbsolute(configured) ? configured : resolve(rootDir, configured);
+  const existing = [
+    resolve(rootDir, "config/services.yaml"),
+    resolve(rootDir, "config/services.local.yaml"),
+  ].find((candidate) => existsSync(candidate));
+  return existing ?? resolve(rootDir, "config/services.yaml");
+}
+
 export function loadConfig(rootDir: string): LoadedConfig {
   const configured = process.env.STUDIOOPS_CONFIG;
   const candidates = configured
@@ -39,16 +50,31 @@ export function loadConfig(rootDir: string): LoadedConfig {
       ];
   const filePath = candidates.find((candidate) => existsSync(candidate));
   if (!filePath) return { services: [] };
-  const source = parse(readFileSync(filePath, "utf8")) as unknown;
-  const services = (source as { services?: unknown } | null)?.services;
-  if (!Array.isArray(services))
-    throw new Error(`Config ${filePath} must contain a services array`);
   return {
     filePath,
-    services: services.map((value, index) =>
-      validateService(value, index, filePath),
-    ),
+    services: parseServices(readFileSync(filePath, "utf8"), filePath),
   };
+}
+
+export function parseServices(
+  source: unknown,
+  filePath: string,
+): ServiceDefinition[] {
+  const document =
+    typeof source === "string" ? (parse(source) as unknown) : source;
+  const services = (document as { services?: unknown } | null)?.services;
+  if (!Array.isArray(services))
+    throw new Error(`Config ${filePath} must contain a services array`);
+  const normalized = services.map((value, index) =>
+    validateService(value, index, filePath),
+  );
+  const seen = new Set<string>();
+  for (const service of normalized) {
+    if (seen.has(service.id))
+      throw new Error(`Duplicate service id '${service.id}' in ${filePath}`);
+    seen.add(service.id);
+  }
+  return normalized;
 }
 
 function validateService(
@@ -60,6 +86,10 @@ function validateService(
     throw new Error(`Invalid service at ${filePath}:${index + 1}`);
   const record = value as Record<string, unknown>;
   const id = stringField(record, "id", filePath, index);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id))
+    throw new Error(
+      `Invalid service id '${id}': use letters, numbers, '.', '_' or '-'`,
+    );
   const name = stringField(record, "name", filePath, index);
   const kind = stringField(record, "kind", filePath, index) as ServiceKind;
   const adapter = stringField(record, "adapter", filePath, index);

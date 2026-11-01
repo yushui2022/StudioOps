@@ -42,8 +42,9 @@
 | 实时推送                | 已修复                 | `services/agent/src/index.ts`                                          | 订阅先于首帧挂载；系统 2 秒、服务 5 秒推送                            |
 | 远程 Token 鉴权         | 已完成                 | `services/agent/src/index.ts`、`apps/web/app.js`、设置页               | HTTP Bearer + WebSocket query token；本机回环无需 Token               |
 | 操作审计                | 已完成第一版           | `services/agent/src/core/event-store.ts`                               | SQLite 保存启停动作和错误                                             |
-| 配置备份                | 已完成第一版           | `services/agent/src/index.ts`、`apps/web/app.js`                       | 面板按钮复制 YAML 到 `data/backups/`                                  |
-| Web 面板                | 已完成终端风格 v3      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`        | 边框标题、分块柱状图、状态栏快捷键、六视图、抽屉、日志/设置           |
+| 配置备份                | 已完成                 | `services/agent/src/core/config-store.ts`、`apps/web/app.js`           | 自动/手动备份、列表、恢复；保留最近 30 份                             |
+| 配置写入和热加载        | 已完成                 | `services/agent/src/core/config-store.ts`、`/api/config/services`      | 增删改、校验、原子写入、备份、立即刷新注册表                          |
+| Web 面板                | 已完成终端风格 v4      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`        | 六视图、服务编辑表单、备份恢复、边框标题、分块柱状图、快捷键          |
 | Tauri 桌面壳            | 已完成可编译版         | `apps/desktop/src-tauri/`                                              | 复用同一 Web；Agent 作为 release 资源启动                             |
 | 菜单栏入口              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                   | “打开 StudioOps/退出 StudioOps”；窗口关闭后隐藏                       |
 | macOS App 打包          | 已生成 `StudioOps.app` | `apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app`     | 构建通过；尚未完成签名、DMG 和安装升级流程                            |
@@ -82,6 +83,10 @@
 4. 日志页支持 100/300/1000 行、自动刷新和 error/warn 高亮；设置页显示配置路径、绑地址、Token 状态和数据目录。
 5. WebSocket 修复后，`SAMPLE`、指标值和面积图每 2 秒更新；此前订阅消息会因服务端首帧未挂监听而丢失。
 6. 设置页保存 Token 后，HTTP 401/200 和 WebSocket 1008/正常消息均已用独立 Agent 实例验证。
+7. 服务编辑表单新增 process 服务（含 args/cwd/env/pidFile/日志/端口/健康检查），保存后立即出现在服务列表，无需重启 Agent。
+8. 编辑服务后再次保存，环境变量和 PID 文件仍保留；配置校验会拒绝非法 ID、未知适配器、缺少命令/Compose 文件和非法 launchd target。
+9. 设置页可看到每次保存前的备份并恢复；恢复后注册表立即回到备份内容。非法 YAML reload 返回 400，上一份可用配置保持不变。
+10. 把进程服务写坏后通过 `POST /api/config/reload` 验证：返回 400，旧服务列表继续可用。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -96,8 +101,8 @@
 | P0     | Release 真实运行验收         | 已完成本机验收：从 `StudioOps.app` 启动，Agent 在 7227，Web 已连接并显示 Ollama/ComfyUI 健康；退出后 Agent 子进程回收 | `apps/desktop/src-tauri/`                                                                                 | 菜单栏“打开/退出”的人工点击验收仍建议补一次                                     |
 | P0     | 配置和端口生命周期           | 处理端口被占用、Agent 已运行、旧进程残留、配置 YAML 语法错误                                                          | `services/agent/src/index.ts`、桌面 Rust                                                                  | 有明确错误提示；不能静默启动第二个 Agent                                        |
 | P0     | 桌面安全默认值               | 已完成 Web 端 Token 保存/清除和 WS query 鉴权；HTTP 与 WebSocket 都已验证；还缺桌面设置页                             | `services/agent/src/index.ts`、`apps/web/`、桌面设置页                                                    | 非回环监听无 token 时拒绝启动；带 token 的 HTTP 和 WebSocket 都能鉴权（已验证） |
-| P1     | 服务配置编辑器               | 在面板添加、编辑、删除服务，并保存 YAML；提供备份和恢复                                                               | `apps/web/`、新增 `services/agent/src/core/config-store.ts`                                               | 不手改 YAML 也能登记 Node/Python/launchd/Compose 服务                           |
-| P1     | 配置热加载                   | 保存后校验、重新加载服务注册表，不重启桌面 App                                                                        | `ServiceRegistry`、Agent API                                                                              | 新服务出现在列表；非法配置不会破坏当前配置                                      |
+| P1     | 服务配置编辑器               | 已完成：面板新增/编辑/删除服务，服务端校验，保存前自动备份，设置页可恢复                                              | `apps/web/`、`services/agent/src/core/config-store.ts`                                                    | 不手改 YAML 也能登记 Node/Python/launchd/Compose 服务（已实测）                 |
+| P1     | 配置热加载                   | 已完成：保存/恢复后直接替换注册表并广播；非法 reload 保留上一份可用配置                                               | `ServiceRegistry`、Agent API                                                                              | 新服务出现在列表；非法配置不会破坏当前配置（已实测）                            |
 | P1     | launchd 发现                 | 读取 `launchctl list`，展示现有 LaunchAgent；支持选择 label 加入配置                                                  | 新增 `services/agent/src/core/launchd-discovery.ts`、Web                                                  | 能列出本机 `ai.local.*` 和其他用户 LaunchAgent；动作仍走白名单                  |
 | P1     | tunnel 适配器                | 接入 cloudflared；后续再选 Tailscale 或 frp；显示连接状态、入口地址、日志                                             | 新增 `services/agent/src/adapters/tunnel.ts` 或拆成具体适配器                                             | tunnel 卡片能显示 running/healthy/unhealthy 和日志；没有命令时给清晰错误        |
 | P1     | Docker 可用性和 Compose 实测 | Docker daemon 状态、容器列表和单容器启停已完成；还需用 Compose 项目实测 up/down/restart/logs                          | `services/agent/src/adapters/docker-compose.ts`、系统卡片                                                 | 不把“Docker CLI 已安装”误显示成“容器可用”                                       |
@@ -139,7 +144,7 @@
 3. 执行 `npm run typecheck && npm test && npm run format:check`；改 Rust 时再跑 `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`。
 4. 前端已经重做为终端风格：总览、服务、进程、容器、日志、设置。继续改 UI 时保持等宽字体、细线边框、边框式标题、分块柱状图和 2 秒采样；新增面板要么带 `.panel-head h2`，要么直接写 `data-title`，否则边框标题不显示。
 5. 下一步优先做 P0：端口/重复启动/YAML 错误提示、token 设置页和完整鉴权。
-6. 再做服务配置编辑器、配置热加载、launchd 发现、cloudflared tunnel 和 Compose 实测。
+6. 配置编辑和热加载已完成；接下来做 launchd 发现、cloudflared tunnel、Compose 实测和 Ollama/ComfyUI 控制。
 7. 最后做模型服务控制、指标历史、通知、开机启动和发布流程。
 8. 每个阶段都要更新本文件的“当前状态”和验收结果；不要只改 README。
 
@@ -148,6 +153,7 @@
 | 限制                                    | 影响                                        | 处理方式                                                    |
 | --------------------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
 | `config/services.yaml` 是本机私有文件   | 其他机器没有真实服务登记                    | 提供配置编辑器和示例模板；不提交真实路径和用户信息          |
+| 面板保存会重写 YAML                     | 手写注释不会保留；覆盖前原文件在备份目录    | 重要配置先备份；恢复后注释同样来自备份文件                  |
 | Compose 项目还没有真实动作证据          | 只能验证单容器启停，不能声称 Compose 已完成 | 找到真实 Compose 项目后实测 up/down/restart/logs            |
 | Tailscale/frp 未安装                    | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                             |
 | macOS 不能保存任意进程内存快照          | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                             |

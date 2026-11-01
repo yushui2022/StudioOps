@@ -26,6 +26,9 @@ npm run dev
 - `docker-compose`：项目级 `up -d`、`down`、`restart`、`ps` 和 `logs`。
 - `EventStore`：操作历史保存到 `data/studioops.sqlite`，面板可直接查看最近操作。
 - 配置备份：面板“备份配置”会把 `services.yaml` 复制到 `data/backups/`。
+- 配置编辑：面板可新增、编辑、删除服务；保存前校验 ID、适配器、命令、健康端点和动作白名单。
+- 配置热加载：保存或恢复后立即刷新服务注册表，不需要重启 App。
+- 配置回滚：设置页列出最近备份，可直接恢复；当前配置在覆盖前会自动备份。
 - 桌面端：Tauri 2 窗口随 Agent 启动，关闭窗口后保留在菜单栏，可从菜单栏重新打开或退出。
 - 主机监控：系统负载、内存、磁盘余量，以及 `macmon` 提供的 Apple Silicon GPU/ANE/功耗/温度；内存占用与 macmon 使用同一口径。
 - 实时推送：WebSocket 每 2 秒推送主机指标，每 5 秒推送服务状态；订阅在连接建立前不会丢失。

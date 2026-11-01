@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-compose.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
 import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
+import { ConfigStore } from "../services/agent/src/core/config-store.js";
 import { loadConfig } from "../services/agent/src/core/config.js";
 import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
 import { EventStore } from "../services/agent/src/core/event-store.js";
@@ -123,6 +131,85 @@ test("event store persists and reads operation history", () => {
 test("docker adapter keeps command construction separate from shell", () => {
   const adapter = new DockerComposeAdapter();
   assert.equal(adapter.id, "docker-compose");
+});
+
+test("config store validates, backs up, saves and reloads services", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-store-"));
+  const configDir = join(root, "config");
+  mkdirSync(configDir, { recursive: true });
+  const configPath = join(configDir, "services.yaml");
+  writeFileSync(
+    configPath,
+    `services:\n  - id: local-launchd\n    name: Local Launchd\n    kind: launchd\n    adapter: launchd\n    target: gui/501/example.job\n    allowedActions: [start, stop]\n`,
+  );
+  const store = new ConfigStore({
+    rootDir: root,
+    dataDir: join(root, "data"),
+    filePath: configPath,
+    adapterIds: ["launchd", "process", "docker-compose"],
+  });
+  assert.equal(store.load().length, 1);
+
+  const nodeService = {
+    id: "node-app",
+    name: "Node App",
+    kind: "process",
+    adapter: "process",
+    target: "/tmp/node-app",
+    command: "node",
+    args: ["--version"],
+    allowedActions: ["start", "stop"],
+    health: { type: "none" as const },
+  };
+  assert.equal(store.add(nodeService).length, 2);
+  assert.match(readFileSync(configPath, "utf8"), /node-app/);
+  assert.ok(existsSync(join(root, "data", "backups")));
+  assert.ok(readdirSync(join(root, "data", "backups")).length > 0);
+
+  assert.throws(() => store.add(nodeService), /already exists/);
+  assert.throws(
+    () => store.add({ ...nodeService, id: "bad", adapter: "missing" }),
+    /Unknown adapter/,
+  );
+  assert.throws(
+    () =>
+      store.add({
+        id: "no-command",
+        name: "No Command",
+        kind: "process",
+        adapter: "process",
+        target: "no-command",
+        allowedActions: ["start"],
+      }),
+    /needs a command/,
+  );
+
+  const updated = store.update("node-app", {
+    ...nodeService,
+    name: "Node Dev",
+  });
+  assert.equal(
+    updated.find((service) => service.id === "node-app")?.name,
+    "Node Dev",
+  );
+
+  const backups = store.listBackups();
+  assert.ok(backups.length >= 1);
+  assert.throws(() => store.restore("../evil.yaml"), /Invalid backup name/);
+  const restored = store.restore(backups[0]!.name);
+  assert.equal(
+    restored.find((service) => service.id === "node-app")?.name,
+    "Node App",
+  );
+
+  assert.equal(store.remove("node-app").length, 1);
+  writeFileSync(configPath, "services: nope\n");
+  assert.throws(() => store.reload(), /must contain a services array/);
+  assert.equal(
+    store.services.length,
+    1,
+    "a failed reload must keep the last good registry",
+  );
 });
 
 test("process list is sorted and exposes numeric usage fields", async () => {

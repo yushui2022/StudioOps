@@ -1,27 +1,21 @@
 import { randomUUID } from "node:crypto";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
-import { basename, join, normalize, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, normalize, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
   ClientMessage,
-  ServiceAction,
   ServerMessage,
+  ServiceAction,
+  ServiceDefinition,
   Topic,
 } from "../../../packages/contracts/src/index.js";
-import { LaunchdAdapter } from "./adapters/launchd.js";
 import { DockerComposeAdapter } from "./adapters/docker-compose.js";
-import { MockAdapter } from "./adapters/mock.js";
+import { LaunchdAdapter } from "./adapters/launchd.js";
 import { ProcessAdapter } from "./adapters/process.js";
-import { loadConfig } from "./core/config.js";
+import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { EventStore } from "./core/event-store.js";
 import { listProcesses } from "./core/process-list.js";
@@ -42,25 +36,20 @@ if (host !== "127.0.0.1" && host !== "localhost" && !configuredToken) {
 }
 
 const registry = new ServiceRegistry();
-registry.registerAdapter(new MockAdapter());
 registry.registerAdapter(new LaunchdAdapter());
 registry.registerAdapter(new ProcessAdapter());
 registry.registerAdapter(new DockerComposeAdapter());
-const loadedConfig = loadConfig(rootDir);
-if (loadedConfig.services.length > 0) {
-  for (const service of loadedConfig.services) registry.register(service);
-} else {
-  registry.register({
-    id: "demo-web",
-    name: "Demo Web Project",
-    kind: "process",
-    description: "Fallback service used until config/services.yaml is created.",
-    group: "Projects",
-    adapter: "mock",
-    target: "demo-web",
-    allowedActions: ["start", "stop", "restart", "pause", "resume"],
-    health: { type: "none" },
-  });
+const configStore = new ConfigStore({
+  rootDir,
+  dataDir,
+  adapterIds: ["launchd", "process", "docker-compose"],
+});
+let configError: string | undefined;
+try {
+  registry.replaceAll(configStore.load());
+} catch (error) {
+  configError =
+    error instanceof Error ? error.message : "Invalid services.yaml";
 }
 const eventStore = new EventStore(dataDir);
 
@@ -84,6 +73,24 @@ function broadcast(message: ServerMessage, topic: Topic): void {
   }
 }
 
+async function applyServices(services: ServiceDefinition[]): Promise<void> {
+  registry.replaceAll(services);
+  configError = undefined;
+  broadcast(
+    { type: "snapshot", topic: "services", data: await registry.list() },
+    "services",
+  );
+}
+
+async function readJsonObject(
+  request: Request,
+): Promise<Record<string, unknown>> {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    throw new Error("Request body must be a JSON object");
+  return body as Record<string, unknown>;
+}
+
 app.use(
   "*",
   cors({
@@ -93,7 +100,7 @@ app.use(
       "https://tauri.localhost",
     ],
     allowHeaders: ["Authorization", "Content-Type"],
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   }),
 );
 
@@ -153,9 +160,10 @@ app.post("/api/docker/containers/:id/:action", async (c) => {
 });
 app.get("/api/config", (c) =>
   json({
-    filePath: loadedConfig.filePath,
-    serviceCount: loadedConfig.services.length,
-    usingFallback: loadedConfig.services.length === 0,
+    filePath: configStore.filePath,
+    serviceCount: configStore.services.length,
+    usingFallback: !existsSync(configStore.filePath),
+    configError,
     host,
     port,
     tokenRequired: Boolean(configuredToken),
@@ -163,18 +171,87 @@ app.get("/api/config", (c) =>
     version: "0.1.0",
   }),
 );
+app.get("/api/config/services", (c) => json(configStore.services));
+app.post("/api/config/services", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const services = configStore.add(body);
+    await applyServices(services);
+    return json({ services });
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to add service",
+      },
+      400,
+    );
+  }
+});
+app.put("/api/config/services/:id", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const services = configStore.update(c.req.param("id"), body);
+    await applyServices(services);
+    return json({ services });
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to update service",
+      },
+      400,
+    );
+  }
+});
+app.delete("/api/config/services/:id", async (c) => {
+  try {
+    const services = configStore.remove(c.req.param("id"));
+    await applyServices(services);
+    return json({ services });
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to delete service",
+      },
+      400,
+    );
+  }
+});
+app.post("/api/config/reload", async (c) => {
+  try {
+    const services = configStore.reload();
+    await applyServices(services);
+    return json({ services });
+  } catch (error) {
+    configError =
+      error instanceof Error ? error.message : "Unable to reload config";
+    return c.json({ error: configError }, 400);
+  }
+});
+app.get("/api/config/backups", (c) => json(configStore.listBackups()));
 app.post("/api/config/backup", (c) => {
-  if (!loadedConfig.filePath)
-    return c.json({ error: "No services.yaml is configured" }, 400);
-  const backupDir = join(dataDir, "backups");
-  mkdirSync(backupDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupPath = join(
-    backupDir,
-    `${stamp}-${basename(loadedConfig.filePath)}`,
-  );
-  copyFileSync(loadedConfig.filePath, backupPath);
-  return json({ path: backupPath, createdAt: new Date().toISOString() });
+  const backup = configStore.backup();
+  if (!backup) return c.json({ error: "No services.yaml is configured" }, 400);
+  return json(backup);
+});
+app.post("/api/config/restore", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    if (typeof body.name !== "string" || !body.name.trim())
+      throw new Error("Backup name is required");
+    const services = configStore.restore(body.name.trim());
+    await applyServices(services);
+    return json({ services });
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to restore backup",
+      },
+      400,
+    );
+  }
 });
 app.get("/api/events", (c) =>
   json(eventStore.recent(Number(c.req.query("limit") ?? 50))),
