@@ -10,3 +10,8 @@ dist/
 coverage/
 target/
 apps/desktop/src-tauri/gen/
+*.key
+*.crt
+*.pem
+*.p12
+config/*.bak-*
