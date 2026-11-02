@@ -29,6 +29,8 @@ export interface ServiceDefinition {
   description?: string;
   group?: string;
   category?: ServiceCategory;
+  persisted?: boolean;
+  persistenceLabel?: string;
   adapter: string;
   target: string;
   allowedActions: ServiceAction[];

@@ -139,6 +139,8 @@ function validateService(
     description: optionalString(record, "description"),
     group: optionalString(record, "group"),
     category: categoryValue as ServiceCategory | undefined,
+    persisted: record.persisted === true ? true : undefined,
+    persistenceLabel: optionalString(record, "persistenceLabel"),
     allowedActions,
     command: optionalString(record, "command"),
     args: optionalStringArray(record, "args"),

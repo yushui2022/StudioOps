@@ -1353,6 +1353,22 @@ select {
   gap: 10px;
 }
 
+.project-badges {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.persist-badge {
+  padding: 1px 5px;
+  border: 1px solid #35453a;
+  color: var(--green);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
 .project-title {
   display: flex;
   align-items: center;

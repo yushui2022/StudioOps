@@ -23,6 +23,7 @@ import os from "node:os";
 import { withHealth } from "../services/agent/src/core/health.js";
 import { detectRole } from "../services/agent/src/core/inference.js";
 import { appBundlePath } from "../services/agent/src/core/process-icons.js";
+import { buildProjectPlist } from "../services/agent/src/core/project-persistence.js";
 import { terminateProcess } from "../services/agent/src/core/process-control.js";
 import {
   evaluateKillability,
@@ -288,6 +289,31 @@ test("inference roles are detected from full command lines", () => {
   );
   assert.equal(detectRole("/usr/bin/node server.js"), undefined);
   assert.equal(detectRole("/bin/bash ollama-tunnel"), undefined);
+});
+
+test("project plist contains launchd keepalive and escaped environment", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-plist-"));
+  const definition: ServiceDefinition = {
+    id: "plist-test",
+    name: "Plist Test",
+    kind: "process",
+    category: "project",
+    adapter: "process",
+    target: root,
+    command: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    cwd: root,
+    env: { TEST_VALUE: "a&b" },
+    port: 4399,
+    allowedActions: ["start", "stop", "restart"],
+  };
+  const plist = await buildProjectPlist(definition, root);
+  assert.equal(plist.label, "com.studioops.project.plist-test");
+  assert.ok(plist.plistPath.endsWith("com.studioops.project.plist-test.plist"));
+  assert.match(plist.content, /<key>KeepAlive<\/key>\s*<true\/>/);
+  assert.match(plist.content, /<key>RunAtLoad<\/key>\s*<true\/>/);
+  assert.match(plist.content, /a&amp;b/);
+  assert.match(plist.content, /<string>-e<\/string>/);
 });
 
 test("app bundle path is extracted from executable path", () => {

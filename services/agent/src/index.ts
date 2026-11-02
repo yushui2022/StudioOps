@@ -22,6 +22,11 @@ import { EventStore } from "./core/event-store.js";
 import { listInferenceProcesses } from "./core/inference.js";
 import { getOllamaModels } from "./core/ollama.js";
 import { ProcessIconStore } from "./core/process-icons.js";
+import {
+  buildProjectPlist,
+  installProjectPlist,
+  removeProjectPlist,
+} from "./core/project-persistence.js";
 import { terminateProcess } from "./core/process-control.js";
 import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
@@ -264,6 +269,84 @@ app.post("/api/docker/containers/:id/:action", async (c) => {
       },
       400,
     );
+  }
+});
+app.post("/api/projects/:id/persist", async (c) => {
+  const id = c.req.param("id");
+  try {
+    const definition = registry.definition(id);
+    if (
+      definition.category !== "project" &&
+      !(definition.category === undefined && definition.kind === "process")
+    )
+      throw new Error("Only project services can be made persistent");
+    if (definition.adapter === "launchd" && !definition.persisted)
+      throw new Error("This service is already managed by launchd");
+    const plist = await buildProjectPlist(definition, dataDir);
+    if (definition.adapter === "process") await registry.execute(id, "stop");
+    await installProjectPlist(plist);
+    let services;
+    try {
+      services = configStore.update(id, {
+        ...definition,
+        adapter: "launchd",
+        target: plist.target,
+        plistFile: plist.plistPath,
+        logFile: definition.logFile ?? plist.logFile,
+        persisted: true,
+        persistenceLabel: plist.label,
+        allowedActions: definition.allowedActions.filter(
+          (action) => action !== "pause" && action !== "resume",
+        ),
+      });
+    } catch (error) {
+      await removeProjectPlist({
+        ...definition,
+        persistenceLabel: plist.label,
+        target: plist.target,
+      });
+      throw error;
+    }
+    await applyServices(services);
+    recordConfigEvent(c, id, true);
+    return json({
+      label: plist.label,
+      plistPath: plist.plistPath,
+      services,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to make project persistent";
+    recordConfigEvent(c, id, false, message);
+    return c.json({ error: message }, 400);
+  }
+});
+app.delete("/api/projects/:id/persist", async (c) => {
+  const id = c.req.param("id");
+  try {
+    const definition = registry.definition(id);
+    if (!definition.persisted)
+      throw new Error("Service is not a persistent project");
+    const label = await removeProjectPlist(definition);
+    const services = configStore.update(id, {
+      ...definition,
+      adapter: "process",
+      target: definition.cwd ?? definition.command ?? id,
+      plistFile: undefined,
+      persisted: undefined,
+      persistenceLabel: undefined,
+      allowedActions: ["start", "stop", "restart", "pause", "resume"],
+    });
+    await applyServices(services);
+    recordConfigEvent(c, id, true);
+    return json({ label, services });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to remove persistence";
+    recordConfigEvent(c, id, false, message);
+    return c.json({ error: message }, 400);
   }
 });
 app.get("/api/config", (c) =>

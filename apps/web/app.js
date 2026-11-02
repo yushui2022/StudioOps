@@ -599,7 +599,10 @@ function renderProjects() {
               <small>${escapeHtml(service.group ?? "项目服务")} · ${escapeHtml(service.kind)}</small>
             </div>
           </div>
-          <span class="state-pill ${escapeHtml(service.state)}">${escapeHtml(stateLabels[service.state] ?? service.state)}</span>
+          <span class="project-badges">
+            ${service.persisted ? '<span class="persist-badge">常驻</span>' : ""}
+            <span class="state-pill ${escapeHtml(service.state)}">${escapeHtml(stateLabels[service.state] ?? service.state)}</span>
+          </span>
         </header>
         <p class="project-target" title="${escapeHtml(service.target)}">${escapeHtml(service.description || service.target)}</p>
         <div class="project-facts">
@@ -609,6 +612,11 @@ function renderProjects() {
           <div><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
         </div>
         <footer class="project-actions">
+          ${
+            service.persisted
+              ? `<button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
+              : `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">设为常驻</button>`
+          }
           <button class="btn btn-small" data-log-service="${escapeHtml(service.id)}">日志</button>
           <button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑</button>
           ${actions}
@@ -688,6 +696,28 @@ function adoptDiscovered(processInfo) {
   $("config-title").textContent = "纳入项目";
   $("config-delete").classList.add("hidden");
   setFormError("");
+}
+
+async function changeProjectPersistence(serviceId, enabled, button) {
+  const service = state.services.find((item) => item.id === serviceId);
+  const name = service?.name ?? serviceId;
+  const message = enabled
+    ? `将 ${name} 设为常驻？\n当前进程会停止，改由 launchd 在登录和重启后自动启动。`
+    : `取消 ${name} 的常驻？\nlaunchd 会自动停止该服务，之后由 StudioOps 手动启动。`;
+  if (!confirm(message)) return;
+  if (button) button.disabled = true;
+  try {
+    await api(`/api/projects/${encodeURIComponent(serviceId)}/persist`, {
+      method: enabled ? "POST" : "DELETE",
+      headers: { "x-studioops-actor": "web" },
+    });
+    toast(enabled ? `${name} 已设为常驻` : `${name} 已取消常驻`);
+    await refreshAll({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 /* ---------- processes ---------- */
@@ -1187,6 +1217,24 @@ function collectServiceForm() {
   for (const [key, value] of Object.entries(optional))
     if (String(value).trim()) service[key] = String(value).trim();
 
+  const existing = state.formServiceId
+    ? state.services.find((item) => item.id === state.formServiceId)
+    : undefined;
+  if (existing?.persisted) {
+    service.adapter = "launchd";
+    service.target = existing.target;
+    service.plistFile = existing.plistFile;
+    service.persisted = true;
+    service.persistenceLabel = existing.persistenceLabel;
+    service.command = existing.command;
+    service.args = existing.args;
+    service.cwd = existing.cwd;
+    service.env = existing.env;
+    service.pidFile = existing.pidFile;
+    service.allowedActions = service.allowedActions.filter(
+      (action) => action !== "pause" && action !== "resume",
+    );
+  }
   if (adapter === "process") {
     service.command = $("form-command").value.trim();
     if (!service.command) throw new Error("process 服务需要命令");
@@ -1850,6 +1898,14 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "discovered-refresh") {
     loadDiscovered();
+    return;
+  }
+  if (target.dataset.persistProject) {
+    changeProjectPersistence(target.dataset.persistProject, true, target);
+    return;
+  }
+  if (target.dataset.unpersistProject) {
+    changeProjectPersistence(target.dataset.unpersistProject, false, target);
     return;
   }
   if (target.dataset.adoptDiscovered) {

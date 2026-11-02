@@ -1,14 +1,12 @@
 import {
   appendFileSync,
   closeSync,
-  createWriteStream,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -127,14 +125,17 @@ export class ProcessAdapter implements ServiceAdapter {
       : undefined;
     if (logFile) {
       mkdirSync(dirname(logFile), { recursive: true });
-      writeFileSync(logFile, "", { flag: "a" });
-      const stream = createWriteStream(logFile, { flags: "a" });
-      const child = spawn(definition.command, definition.args ?? [], {
-        cwd: definition.cwd ? resolve(definition.cwd) : undefined,
-        env: { ...process.env, ...(definition.env ?? {}) },
-        stdio: ["ignore", stream, stream],
-      });
-      return this.track(definition, child);
+      const fd = openSync(logFile, "a");
+      try {
+        const child = spawn(definition.command, definition.args ?? [], {
+          cwd: definition.cwd ? resolve(definition.cwd) : undefined,
+          env: { ...process.env, ...(definition.env ?? {}) },
+          stdio: ["ignore", fd, fd],
+        });
+        return this.track(definition, child);
+      } finally {
+        closeSync(fd);
+      }
     }
     const child = spawn(definition.command, definition.args ?? [], {
       cwd: definition.cwd ? resolve(definition.cwd) : undefined,
