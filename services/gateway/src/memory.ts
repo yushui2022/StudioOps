@@ -162,25 +162,25 @@ export class MemoryGuard implements MemoryAdmission {
     if (!isMemoryInfluencing(request)) return { allowed: true };
     const memoryDenied = this.memoryDecision(request);
     if (memoryDenied) return memoryDenied;
-    if (
-      request.backend !== "ollama" ||
-      !request.model ||
-      this.loadedModels.length < this.maxLoadedModels ||
-      this.loadedModels.includes(request.model)
-    ) {
+    if (request.backend !== "ollama" || !request.model)
       return { allowed: true, snapshot: this.status() };
-    }
 
     // A different model is requested while the slot is full. Unload an idle
     // model instead of letting Ollama silently load a second one.
+    const initialSlot = this.slotDecision(request);
+    if (!initialSlot) return { allowed: true, snapshot: this.status() };
     const active = new Set(request.activeModels ?? []);
     const candidate = this.loadedModels.find((model) => !active.has(model));
     if (candidate) {
       const unloaded = await this.ensureUnloaded(candidate);
       if (unloaded) {
-        const deniedAfterUnload = this.memoryDecision(request);
-        if (deniedAfterUnload) return deniedAfterUnload;
-        return { allowed: true, snapshot: this.status() };
+        const afterUnload = this.slotDecision(request);
+        if (!afterUnload) {
+          const deniedAfterUnload = this.memoryDecision(request);
+          if (deniedAfterUnload) return deniedAfterUnload;
+          return { allowed: true, snapshot: this.status() };
+        }
+        return afterUnload;
       }
     }
     return {
@@ -188,7 +188,27 @@ export class MemoryGuard implements MemoryAdmission {
       code: "model-slot",
       reason: candidate
         ? `内存准入：Ollama 已加载 ${this.loadedModels.length} 个模型（上限 ${this.maxLoadedModels}），自动卸载空闲模型 ${candidate} 失败；请先在服务页手动卸载`
-        : `内存准入：Ollama 已加载 ${this.loadedModels.length} 个模型（上限 ${this.maxLoadedModels}），且有请求正在使用；请求的 ${request.model} 需要额外加载`,
+        : `内存准入：Ollama 已加载或正在加载 ${this.maxLoadedModels} 个模型，且有请求正在使用；请求的 ${request.model} 需要额外加载`,
+      snapshot: this.status(),
+    };
+  }
+
+  /**
+   * The model slot counts both loaded models and models with a request in
+   * flight, so two concurrent requests cannot load two models after one unload.
+   */
+  private slotDecision(
+    request: AdmissionRequest,
+  ): AdmissionDecision | undefined {
+    if (request.backend !== "ollama" || !request.model) return undefined;
+    const active = new Set(request.activeModels ?? []);
+    const effective = new Set([...this.loadedModels, ...active]);
+    if (effective.size < this.maxLoadedModels || effective.has(request.model))
+      return undefined;
+    return {
+      allowed: false,
+      code: "model-slot",
+      reason: `内存准入：Ollama 已加载或正在加载 ${effective.size} 个模型（上限 ${this.maxLoadedModels}），请求的 ${request.model} 需要额外加载`,
       snapshot: this.status(),
     };
   }
