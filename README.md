@@ -27,6 +27,12 @@
 
 <p align="center"><sub>推理网关：Ollama / ComfyUI / 视频 H3 三个队列与模型调用记录 · 服务：launchd、Bridge 和健康状态</sub></p>
 
+<p align="center">
+  <img src="docs/assets/compute.png" width="72%" alt="算力用户审计" />
+</p>
+
+<p align="center"><sub>算力用户：独立 compute 标准用户的会话、进程、磁盘、登录历史、SSH 状态和审计</sub></p>
+
 > StudioOps 目前是 pre-1.0 项目。它优先解决一台 Mac 上“AI 服务能稳定跑、不会把内存打爆、外部请求能排队”的问题，而不是做一个聊天客户端。
 
 ## 为什么做 StudioOps
