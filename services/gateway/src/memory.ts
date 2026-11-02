@@ -366,9 +366,19 @@ const OLLAMA_MEMORY_PATHS = new Set([
   "/api/pull",
   "/api/create",
   "/api/copy",
+  // Ollama also exposes OpenAI-compatible endpoints; external Sub2API traffic
+  // uses these paths, so they must go through admission too.
+  "/v1/chat/completions",
+  "/v1/completions",
+  "/v1/embeddings",
 ]);
 
-const COMFY_MEMORY_PATHS = new Set(["/prompt", "/api/prompt", "/queue"]);
+const COMFY_MEMORY_PATHS = new Set([
+  "/prompt",
+  "/api/prompt",
+  "/queue",
+  "/v1/images/generations",
+]);
 
 function isMemoryInfluencing(request: AdmissionRequest): boolean {
   if (request.method.toUpperCase() !== "POST") return false;

@@ -624,6 +624,14 @@ test("memory guard enforces the model slot and the memory budget", async () => {
   });
   assert.equal(denied.allowed, false);
   assert.equal(denied.code, "memory");
+  const openAiDenied = await highGuard.admit({
+    backend: "ollama",
+    method: "POST",
+    path: "/v1/chat/completions",
+    model: "another-model",
+  });
+  assert.equal(openAiDenied.allowed, false);
+  assert.equal(openAiDenied.code, "memory");
   assert.equal(
     (
       await highGuard.admit({
