@@ -69,7 +69,11 @@ const state = {
   inference: null,
   logServiceId: null,
   logLines: [],
-  logAuto: false,
+  logAuto: true,
+  logSearch: "",
+  logSource: "",
+  logError: "",
+  logTruncated: false,
   historyRange: "5m",
   historyData: null,
   historyServiceId: null,
@@ -2394,51 +2398,141 @@ async function reloadConfig() {
 
 /* ---------- logs view ---------- */
 
-function renderLogMeta(log) {
-  if (!log) return;
-  const truncated = log.truncated ? " · 已截断" : "";
-  $("log-meta").textContent =
-    `${log.lines.length} 行 · ${log.source}${truncated} · ${fmtDateTime(log.fetchedAt)}`;
+function logSocketSend(message) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify(message));
+  return true;
 }
 
-async function loadLogs(serviceId = state.logServiceId) {
+function unsubscribeLogs(serviceId = state.logServiceId) {
+  if (serviceId) logSocketSend({ type: "log-unsubscribe", serviceId });
+}
+
+function subscribeLogs(serviceId = state.logServiceId) {
   if (!serviceId) return;
-  state.logServiceId = serviceId;
-  const service = state.services.find((item) => item.id === serviceId);
-  const logTitle = service ? `${service.name} 日志` : serviceId;
-  $("log-title").textContent = logTitle;
-  const logPanel = $("log-title").closest(".panel");
-  if (logPanel) logPanel.dataset.title = logTitle;
-  $("log-output").textContent = "加载中…";
-  document
-    .querySelectorAll(".log-service-item")
-    .forEach((item) =>
-      item.classList.toggle("active", item.dataset.logService === serviceId),
-    );
+  const ok = logSocketSend({
+    type: "log-subscribe",
+    serviceId,
+    tail: Number($("log-tail").value),
+  });
+  if (!ok) loadLogSnapshot(serviceId);
+}
+
+function renderLogMeta() {
+  const lines = state.logLines.length;
+  const query = state.logSearch.trim();
+  const matching = query
+    ? state.logLines.filter((line) =>
+        line.toLowerCase().includes(query.toLowerCase()),
+      ).length
+    : lines;
+  const parts = [
+    state.logSource || "—",
+    query ? `${matching} / ${lines} 行匹配` : `${lines} 行`,
+    state.logAuto ? "实时" : "已暂停",
+  ];
+  if (state.logTruncated) parts.push("已截断");
+  if (state.logError) parts.push(state.logError);
+  $("log-meta").textContent = parts.join(" · ");
+}
+
+function highlightLogLine(line, query) {
+  if (!query) return escapeHtml(line);
+  const lower = line.toLowerCase();
+  const needle = query.toLowerCase();
+  let output = "";
+  let cursor = 0;
+  let index = lower.indexOf(needle);
+  while (index >= 0) {
+    output += escapeHtml(line.slice(cursor, index));
+    output += `<mark>${escapeHtml(line.slice(index, index + needle.length))}</mark>`;
+    cursor = index + needle.length;
+    index = lower.indexOf(needle, cursor);
+  }
+  return output + escapeHtml(line.slice(cursor));
+}
+
+function renderLogOutput({ scroll = true } = {}) {
+  const query = state.logSearch.trim();
+  const lines = query
+    ? state.logLines.filter((line) =>
+        line.toLowerCase().includes(query.toLowerCase()),
+      )
+    : state.logLines;
+  if (!lines.length) {
+    $("log-output").innerHTML = state.logError
+      ? `<span class="log-error">${escapeHtml(state.logError)}</span>`
+      : `<span class="muted">${query ? "没有匹配的日志" : "暂无日志"}</span>`;
+  } else {
+    $("log-output").innerHTML = lines
+      .map((line) => {
+        const severity = /\b(error|failed|fatal|exception)\b/i.test(line)
+          ? "log-error"
+          : /\b(warn|warning)\b/i.test(line)
+            ? "log-warn"
+            : "";
+        return `<span class="log-line ${severity}">${highlightLogLine(line, query)}</span>`;
+      })
+      .join("\n");
+    if (scroll && state.logAuto)
+      $("log-output").scrollTop = $("log-output").scrollHeight;
+  }
+  renderLogMeta();
+}
+
+function handleLogFrame(data) {
+  if (!data || data.serviceId !== state.logServiceId) return;
+  state.logSource = data.source || state.logSource;
+  state.logError = data.error || "";
+  state.logTruncated = Boolean(data.truncated);
+  if (data.reset) state.logLines = [...(data.lines ?? [])];
+  else state.logLines.push(...(data.lines ?? []));
+  const maxLines = Math.max(Number($("log-tail").value) * 5, 2000);
+  if (state.logLines.length > maxLines)
+    state.logLines = state.logLines.slice(-maxLines);
+  renderLogOutput();
+}
+
+async function loadLogSnapshot(serviceId) {
   try {
     const tail = Number($("log-tail").value);
     const log = await api(
       `/api/services/${encodeURIComponent(serviceId)}/logs?tail=${tail}`,
     );
     state.logLines = log.lines;
-    renderLogMeta(log);
-    $("log-output").innerHTML = log.lines.length
-      ? log.lines
-          .map((line) => {
-            const severity = /\b(error|failed|fatal|exception)\b/i.test(line)
-              ? "log-error"
-              : /\b(warn|warning)\b/i.test(line)
-                ? "log-warn"
-                : "";
-            return `<span class="log-line ${severity}">${escapeHtml(line)}</span>`;
-          })
-          .join("\n")
-      : '<span class="muted">暂无日志</span>';
-    $("log-output").scrollTop = $("log-output").scrollHeight;
+    state.logSource = log.source;
+    state.logTruncated = Boolean(log.truncated);
+    state.logError = "";
+    renderLogOutput();
   } catch (error) {
-    $("log-meta").textContent = "";
-    $("log-output").textContent = error.message;
+    state.logError = error.message;
+    state.logLines = [];
+    renderLogOutput();
   }
+}
+
+async function loadLogs(serviceId = state.logServiceId) {
+  if (!serviceId) return;
+  if (state.logServiceId && state.logServiceId !== serviceId)
+    unsubscribeLogs(state.logServiceId);
+  state.logServiceId = serviceId;
+  const service = state.services.find((item) => item.id === serviceId);
+  const logTitle = service ? `${service.name} 日志` : serviceId;
+  $("log-title").textContent = logTitle;
+  const logPanel = $("log-title").closest(".panel");
+  if (logPanel) logPanel.dataset.title = logTitle;
+  document
+    .querySelectorAll(".log-service-item")
+    .forEach((item) =>
+      item.classList.toggle("active", item.dataset.logService === serviceId),
+    );
+  state.logLines = [];
+  state.logSource = "";
+  state.logError = "";
+  state.logTruncated = false;
+  $("log-output").textContent = state.logAuto ? "连接实时日志…" : "加载中…";
+  if (state.logAuto) subscribeLogs(serviceId);
+  else await loadLogSnapshot(serviceId);
 }
 
 /* ---------- data loading ---------- */
@@ -2477,8 +2571,6 @@ async function refreshAll({ quiet = false } = {}) {
     $("connection-text").textContent = "已连接";
     if (!quiet) toast("数据已刷新");
   }
-  if (state.view === "logs" && state.logAuto && state.logServiceId)
-    loadLogs().catch(() => {});
 }
 
 function roleLabel(role) {
@@ -2703,6 +2795,8 @@ async function performContainerAction(id, action, button) {
 
 function switchView(view, { updateHash = true } = {}) {
   if (!viewMeta[view]) view = "overview";
+  const previousView = state.view;
+  if (previousView === "logs" && view !== "logs") unsubscribeLogs();
   state.view = view;
   document
     .querySelectorAll(".nav-item")
@@ -2776,6 +2870,14 @@ function connect() {
         topics: ["system", "services", "events"],
       }),
     );
+    if (state.view === "logs" && state.logAuto && state.logServiceId)
+      activeSocket.send(
+        JSON.stringify({
+          type: "log-subscribe",
+          serviceId: state.logServiceId,
+          tail: Number($("log-tail").value),
+        }),
+      );
   });
   activeSocket.addEventListener("close", () => {
     if (socket !== activeSocket) return;
@@ -2795,6 +2897,7 @@ function connect() {
         renderServices();
       }
       if (message.topic === "events") refreshEvents();
+      if (message.topic === "logs") handleLogFrame(message.data);
     } catch {
       // Ignore malformed frames.
     }
@@ -3043,6 +3146,12 @@ document.addEventListener("click", (event) => {
     restoreBackup(target.dataset.restoreBackup);
     return;
   }
+  if (target.id === "log-clear") {
+    state.logLines = [];
+    state.logError = "";
+    renderLogOutput({ scroll: false });
+    return;
+  }
   if (target.id === "log-refresh") {
     loadLogs();
     return;
@@ -3188,7 +3297,15 @@ $("log-tail").addEventListener("change", () => loadLogs());
 
 $("log-auto").addEventListener("change", (event) => {
   state.logAuto = event.target.checked;
-  if (state.logAuto) loadLogs();
+  if (!state.logAuto) {
+    unsubscribeLogs();
+    renderLogMeta();
+  } else if (state.view === "logs") loadLogs();
+});
+
+$("log-search").addEventListener("input", (event) => {
+  state.logSearch = event.target.value;
+  renderLogOutput({ scroll: false });
 });
 
 $("form-adapter").addEventListener("change", () => {
@@ -3292,9 +3409,6 @@ setInterval(() => {
 setInterval(() => {
   if (!document.hidden) refreshEvents();
 }, 15000);
-setInterval(() => {
-  if (!document.hidden && state.logAuto && state.logServiceId) loadLogs();
-}, 4000);
 setInterval(() => {
   if (!document.hidden && state.view === "history")
     loadHistory({ quiet: true });

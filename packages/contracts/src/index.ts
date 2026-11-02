@@ -253,6 +253,8 @@ export type Topic = "system" | "services" | "logs" | "events";
 export type ClientMessage =
   | { type: "subscribe"; topics: Topic[] }
   | { type: "unsubscribe"; topics: Topic[] }
+  | { type: "log-subscribe"; serviceId: string; tail?: number }
+  | { type: "log-unsubscribe"; serviceId: string }
   | { type: "ping" };
 
 export type ServerMessage =
@@ -265,6 +267,19 @@ export type ServerMessage =
         action: ServiceAction;
         serviceId: string;
         state: ServiceState;
+        at: string;
+      };
+    }
+  | {
+      type: "log";
+      topic: "logs";
+      data: {
+        serviceId: string;
+        lines: string[];
+        source: string;
+        reset: boolean;
+        truncated: boolean;
+        error?: string;
         at: string;
       };
     }

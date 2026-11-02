@@ -55,6 +55,10 @@ import {
   ollamaBaseUrl,
   summarizeOllamaModels,
 } from "../services/agent/src/core/ollama.js";
+import {
+  LogFileTailer,
+  readLogTail,
+} from "../services/agent/src/core/log-stream.js";
 import { buildMetricSamples } from "../services/agent/src/core/metrics-sampler.js";
 import { MetricsStore } from "../services/agent/src/core/metrics-store.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
@@ -381,6 +385,26 @@ test("config diff marks only runtime fields as restart-required", () => {
     }),
     [],
   );
+});
+
+test("log tailer reads only new bytes and recovers after truncation", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-log-tail-"));
+  const file = join(root, "app.log");
+  writeFileSync(file, "one\ntwo\nthree\n");
+  const tail = readLogTail(file, 2);
+  assert.deepEqual(tail.lines, ["two", "three"]);
+  assert.equal(tail.reset, true);
+
+  const tailer = new LogFileTailer(file, 100);
+  const initial = tailer.initial();
+  assert.deepEqual(initial.lines, ["one", "two", "three"]);
+  writeFileSync(file, "one\ntwo\nthree\nfour\n");
+  assert.deepEqual(tailer.poll()?.lines, ["four"]);
+
+  writeFileSync(file, "reset\n");
+  const rotated = tailer.poll();
+  assert.equal(rotated?.reset, true);
+  assert.deepEqual(rotated?.lines, ["reset"]);
 });
 
 test("alert engine deduplicates service down and sends recovery", async () => {

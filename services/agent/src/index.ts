@@ -34,6 +34,7 @@ import {
   type AlertSettingsInput,
 } from "./core/alerts.js";
 import { listInferenceProcesses } from "./core/inference.js";
+import { LogStreamer } from "./core/log-stream.js";
 import { MetricsSampler } from "./core/metrics-sampler.js";
 import {
   MetricsStore,
@@ -111,6 +112,7 @@ const iconStore = new ProcessIconStore(dataDir);
 const metricsStore = new MetricsStore(dataDir);
 const alertStore = new AlertStore(dataDir);
 const alertEngine = new AlertEngine(alertStore, sendMacNotification);
+const logStreamer = new LogStreamer((id) => registry.definition(id).logFile);
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
@@ -1342,6 +1344,7 @@ wss.on("connection", async (client, request) => {
   }
   const topics = new Set<Topic>(["services"]);
   clients.set(client, topics);
+  client.on("close", () => logStreamer.removeClient(client));
   // Attach the listener before awaiting the first snapshot. Otherwise a client
   // that sends "subscribe" immediately after connecting loses the message.
   client.on("message", async (raw) => {
@@ -1351,6 +1354,14 @@ wss.on("connection", async (client, request) => {
         message.topics.forEach((topic) => topics.add(topic));
       if (message.type === "unsubscribe")
         message.topics.forEach((topic) => topics.delete(topic));
+      if (message.type === "log-subscribe")
+        logStreamer.subscribe(
+          client,
+          message.serviceId,
+          Number(message.tail ?? 300),
+        );
+      if (message.type === "log-unsubscribe")
+        logStreamer.unsubscribe(client, message.serviceId);
       if (message.type === "ping")
         client.send(
           JSON.stringify({ type: "pong", at: new Date().toISOString() }),
