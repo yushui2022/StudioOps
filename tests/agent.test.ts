@@ -233,11 +233,16 @@ test("event store persists and reads operation history", () => {
     action: "start",
     state: "running",
     success: true,
-    actor: "local",
+    actor: "web",
+    remoteUser: "friend@example.com",
+    remoteName: "Friend",
     at: new Date().toISOString(),
   });
   assert.ok(event.id);
-  assert.equal(store.recent(10)[0]?.serviceId, "demo");
+  const recent = store.recent(10)[0];
+  assert.equal(recent?.serviceId, "demo");
+  assert.equal(recent?.remoteUser, "friend@example.com");
+  assert.equal(recent?.remoteName, "Friend");
   store.close();
 });
 

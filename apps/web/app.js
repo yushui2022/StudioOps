@@ -960,7 +960,14 @@ function renderEvents() {
           <td><span class="strong">${escapeHtml(event.serviceId)}</span></td>
           <td>${escapeHtml(actionLabels[event.action] ?? event.action)}</td>
           <td><span class="health-text ${event.success ? "healthy" : "unhealthy"}">${event.success ? "ok" : "fail"}</span></td>
-          <td>${escapeHtml(event.actor ?? "local")}</td>
+          <td>
+            <span class="strong">${escapeHtml(event.actor ?? "local")}</span>
+            ${
+              event.remoteUser
+                ? `<span class="cell-sub" title="${escapeHtml(event.remoteName ?? event.remoteUser)}">${escapeHtml(event.remoteUser)}</span>`
+                : ""
+            }
+          </td>
         </tr>`,
         )
         .join("")

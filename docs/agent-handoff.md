@@ -38,6 +38,7 @@
 | macOS 主机指标          | 已完成第三版           | `services/agent/src/core/system.ts`                                                                                    | 芯片/P/S/GPU 核心数、内存、活跃核心；P/S 占用、频率、风扇、功耗、温度                                            |
 | 进程指标                | 已完成第一版           | `services/agent/src/core/process-metrics.ts`                                                                           | `ps` 读取 CPU、RSS、内存占比                                                                                     |
 | ComfyUI 队列            | 已完成                 | `core/comfyui.ts`、`/api/services/:id/comfyui`、`/api/services/:id/comfyui/cancel`、`apps/web/app.js`                  | 运行/等待/历史；MPS VRAM；中断/取消；comfy-cancel 审计                                                           |
+| Tailscale 身份审计      | 已完成                 | `core/event-store.ts`、`services/agent/src/index.ts`、`apps/web/app.js`                                                | Tauri/本机/远程 actor；Tailscale-User-Login/Name 写入审计；旧 SQLite 自动加列                                    |
 | Ollama 模型操作         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`、`/api/services/:id/models/:action`                    | 合并 tags/ps；VRAM/内存/到期；加载/卸载；服务停止隐藏操作；model-load/unload 审计                                |
 | 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                                                          | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                                                              |
 | 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs`     | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent                 |
@@ -140,7 +141,8 @@
 37. LaunchAgent 导入验收：真实环境扫描 7 个用户 agent，列出 4 个 `ai.local.*`、loaded/PID 和命令；已配置的 ollama/comfyui/ollama-tunnel 禁用导入；临时 HOME 中导入 `ai.local.demo`，表单预填 target/plist/log，保存后配置为 launchd 服务并通过白名单校验。
 38. Ollama 模型验收：bge-m3 在 UI 显示 VRAM/内存/到期；卸载后 `/api/ps` 为空、UI 变为“磁盘”并显示加载按钮；重新加载后恢复 VRAM；审计记录 model-unload/model-load；服务停止时按钮由 `state === running` 隐藏。
 39. ComfyUI 队列验收：真实 ComfyUI 返回 1 个运行任务、6 条历史和 mps 显存；服务行显示 MPS VRAM/GPU/温度；模拟 ComfyUI 服务验证运行任务 `/interrupt`、等待任务 `delete`，两次 comfy-cancel 审计成功；未取消真实任务。
-40. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
+40. Tailscale 身份审计验收：带 `Tailscale-User-Login`/`Tailscale-User-Name` 的远程请求写入审计，`/api/events` 返回 `actor=web`、`remoteUser=friend@example.com`、`remoteName=Friend User`；本机事件仍不带远程身份。
+41. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

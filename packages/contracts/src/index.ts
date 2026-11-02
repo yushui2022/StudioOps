@@ -103,6 +103,8 @@ export interface OperationEvent {
   state: ServiceState;
   success: boolean;
   actor: "desktop" | "web" | "local";
+  remoteUser?: string;
+  remoteName?: string;
   error?: string;
   at: string;
 }

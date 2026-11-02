@@ -22,18 +22,21 @@ export class EventStore {
         state TEXT NOT NULL,
         success INTEGER NOT NULL,
         actor TEXT NOT NULL,
+        remote_user TEXT,
+        remote_name TEXT,
         error TEXT,
         at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_operation_events_at ON operation_events(at DESC);
     `);
+    this.migrate();
     this.prune();
   }
 
   record(event: OperationEvent): OperationEvent {
     const result = this.db
       .prepare(
-        "INSERT INTO operation_events (service_id, action, state, success, actor, error, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO operation_events (service_id, action, state, success, actor, remote_user, remote_name, error, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         event.serviceId,
@@ -41,6 +44,8 @@ export class EventStore {
         event.state,
         event.success ? 1 : 0,
         event.actor,
+        event.remoteUser ?? null,
+        event.remoteName ?? null,
         event.error ?? null,
         event.at,
       );
@@ -52,7 +57,7 @@ export class EventStore {
   recent(limit = 50): OperationEvent[] {
     const rows = this.db
       .prepare(
-        "SELECT id, service_id as serviceId, action, state, success, actor, error, at FROM operation_events ORDER BY id DESC LIMIT ?",
+        "SELECT id, service_id as serviceId, action, state, success, actor, remote_user AS remoteUser, remote_name AS remoteName, error, at FROM operation_events ORDER BY id DESC LIMIT ?",
       )
       .all(Math.max(1, Math.min(limit, 500))) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
@@ -63,9 +68,22 @@ export class EventStore {
       action: row.action as OperationEvent["action"],
       state: row.state as OperationEvent["state"],
       actor: row.actor as OperationEvent["actor"],
+      remoteUser: row.remoteUser ? String(row.remoteUser) : undefined,
+      remoteName: row.remoteName ? String(row.remoteName) : undefined,
       error: row.error ? String(row.error) : undefined,
       at: String(row.at),
     }));
+  }
+
+  private migrate(): void {
+    const columns = this.db
+      .prepare("PRAGMA table_info(operation_events)")
+      .all() as Array<{ name?: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has("remote_user"))
+      this.db.exec("ALTER TABLE operation_events ADD COLUMN remote_user TEXT");
+    if (!names.has("remote_name"))
+      this.db.exec("ALTER TABLE operation_events ADD COLUMN remote_name TEXT");
   }
 
   private prune(): void {

@@ -192,6 +192,18 @@ function actorFor(c: Context): "desktop" | "web" | "local" {
   return header === "desktop" ? "desktop" : header === "web" ? "web" : "local";
 }
 
+function remoteIdentity(c: Context): {
+  remoteUser?: string;
+  remoteName?: string;
+} {
+  const remoteUser = c.req.header("tailscale-user-login")?.trim();
+  const remoteName = c.req.header("tailscale-user-name")?.trim();
+  return {
+    ...(remoteUser ? { remoteUser } : {}),
+    ...(remoteName ? { remoteName } : {}),
+  };
+}
+
 function recordConfigEvent(
   c: Context,
   id: string,
@@ -204,6 +216,7 @@ function recordConfigEvent(
     state: "unknown",
     success,
     actor: actorFor(c),
+    ...remoteIdentity(c),
     error,
     at: new Date().toISOString(),
   });
@@ -362,6 +375,7 @@ app.post("/api/processes/:pid/terminate", async (c) => {
       state: result.exited ? "stopped" : "running",
       success: true,
       actor,
+      ...remoteIdentity(c),
       at: new Date().toISOString(),
     });
     return json(result);
@@ -374,6 +388,7 @@ app.post("/api/processes/:pid/terminate", async (c) => {
       state: "error",
       success: false,
       actor,
+      ...remoteIdentity(c),
       error: message,
       at: new Date().toISOString(),
     });
@@ -410,6 +425,7 @@ app.post("/api/docker/containers/:id/:action", async (c) => {
       state: action === "stop" ? "stopped" : "running",
       success: true,
       actor,
+      ...remoteIdentity(c),
       at: new Date().toISOString(),
     });
     return json({ ...result, snapshot: await getDockerSnapshot() });
@@ -420,6 +436,7 @@ app.post("/api/docker/containers/:id/:action", async (c) => {
       state: "error",
       success: false,
       actor,
+      ...remoteIdentity(c),
       error: error instanceof Error ? error.message : "Container action failed",
       at: new Date().toISOString(),
     });
@@ -1231,6 +1248,7 @@ app.post("/api/services/:id/comfyui/cancel", async (c) => {
       state: snapshot.state,
       success: true,
       actor,
+      ...remoteIdentity(c),
       at: new Date().toISOString(),
     });
     return json({ cancelled, snapshot: refreshed });
@@ -1243,6 +1261,7 @@ app.post("/api/services/:id/comfyui/cancel", async (c) => {
       state: "error",
       success: false,
       actor,
+      ...remoteIdentity(c),
       error: message,
       at: new Date().toISOString(),
     });
@@ -1288,6 +1307,7 @@ app.post("/api/services/:id/models/:action", async (c) => {
       state: snapshot.state,
       success: true,
       actor,
+      ...remoteIdentity(c),
       at: new Date().toISOString(),
     });
     return json(updated);
@@ -1300,6 +1320,7 @@ app.post("/api/services/:id/models/:action", async (c) => {
       state: "error",
       success: false,
       actor,
+      ...remoteIdentity(c),
       error: message,
       at: new Date().toISOString(),
     });
@@ -1339,6 +1360,7 @@ app.post("/api/services/:id/:action", async (c) => {
       state: snapshot.state,
       success: true,
       actor,
+      ...remoteIdentity(c),
       at: new Date().toISOString(),
     });
     broadcast(
@@ -1376,6 +1398,7 @@ app.post("/api/services/:id/:action", async (c) => {
       state: "error",
       success: false,
       actor,
+      ...remoteIdentity(c),
       error: message,
       at: new Date().toISOString(),
     });
