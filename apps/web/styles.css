@@ -1989,6 +1989,25 @@ select {
   font-size: 9.5px;
 }
 
+.template-field {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-2);
+}
+
+.template-field .field {
+  margin-bottom: 0;
+}
+
+.template-hint {
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
 .form-section {
   margin: 0 0 12px;
   padding: 10px 11px 11px;

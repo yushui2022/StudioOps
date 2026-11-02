@@ -22,6 +22,17 @@ export type HealthState = "unknown" | "healthy" | "unhealthy";
 
 export type ServiceAction = "start" | "stop" | "restart" | "pause" | "resume";
 
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  description: string;
+  command: string;
+  args: string[];
+  port: number;
+  healthPath?: string;
+  requires?: string;
+}
+
 export interface ServiceDefinition {
   id: string;
   name: string;

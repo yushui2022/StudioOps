@@ -1130,6 +1130,7 @@ function resetServiceForm() {
 
 function openServiceForm(service) {
   resetServiceForm();
+  $("template-field").classList.add("hidden");
   state.formServiceId = service?.id ?? null;
   $("config-title").textContent = service ? "编辑服务" : "新增服务";
   if (service) {
@@ -1169,16 +1170,66 @@ function openServiceForm(service) {
   $("form-name").focus();
 }
 
-function openProjectForm() {
+async function loadProjectTemplates() {
+  if (state.templates) return state.templates;
+  try {
+    state.templates = await api("/api/project-templates");
+  } catch {
+    state.templates = [];
+  }
+  return state.templates;
+}
+
+function templateLabel(template) {
+  return template.requires
+    ? `${template.name}（需要 ${template.requires}）`
+    : template.name;
+}
+
+function applyProjectTemplate(templateId) {
+  const template = state.templates?.find((item) => item.id === templateId);
+  if (!template) return;
+  $("form-kind").value = "process";
+  $("form-adapter").value = "process";
+  $("form-category").value = "project";
+  if (!$("form-group").value.trim()) $("form-group").value = "项目服务";
+  $("form-command").value = template.command;
+  $("form-args").value = template.args.join("\n");
+  $("form-port").value = String(template.port);
+  if (template.healthPath) {
+    $("form-health-type").value = "http";
+    $("form-health-endpoint").value =
+      `http://127.0.0.1:${template.port}${template.healthPath}`;
+  } else {
+    $("form-health-type").value = "none";
+    $("form-health-endpoint").value = "";
+  }
+  $("template-hint").textContent = template.requires
+    ? `${template.description} · 需要本机已安装 ${template.requires}`
+    : template.description;
+  updateFormVisibility();
+}
+
+async function openProjectForm() {
   resetServiceForm();
   state.formServiceId = null;
   $("config-title").textContent = "新增项目服务";
   $("form-category").value = "project";
   $("form-group").value = "项目服务";
+  $("template-field").classList.remove("hidden");
+  const templates = await loadProjectTemplates();
+  const select = $("form-template");
+  select.innerHTML = templates
+    .map(
+      (template) =>
+        `<option value="${escapeHtml(template.id)}">${escapeHtml(templateLabel(template))}</option>`,
+    )
+    .join("");
+  if (templates[0]) applyProjectTemplate(templates[0].id);
   updateFormVisibility();
   $("config-drawer").classList.remove("hidden");
   $("drawer-backdrop").classList.remove("hidden");
-  $("form-name").focus();
+  $("form-template").focus();
 }
 
 function closeServiceForm() {
@@ -1273,6 +1324,10 @@ function collectServiceForm() {
       throw new Error("端口必须是 1-65535 的整数");
     service.port = port;
   }
+  if (service.args && service.args.length)
+    service.args = service.args.map((arg) =>
+      arg.replaceAll("{port}", String(service.port ?? "")),
+    );
   const healthType = $("form-health-type").value;
   if (healthType !== "none") {
     service.health = { type: healthType };
@@ -2111,6 +2166,44 @@ $("log-auto").addEventListener("change", (event) => {
 });
 
 $("form-adapter").addEventListener("change", updateFormVisibility);
+
+$("form-template").addEventListener("change", (event) => {
+  applyProjectTemplate(event.target.value);
+});
+
+$("form-cwd").addEventListener("input", (event) => {
+  const value = event.target.value.trim();
+  if (!value) return;
+  const base = value.split("/").filter(Boolean).at(-1) ?? "project";
+  if (!$("form-target").value.trim()) $("form-target").value = value;
+  if (!$("form-name").value.trim()) $("form-name").value = base;
+  if (!$("form-id").value.trim()) {
+    const id = base
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+    $("form-id").value = id || `project-${$("form-port").value || "app"}`;
+  }
+  if (!$("form-log-file").value.trim() && state.config?.dataDir) {
+    const id = $("form-id").value.trim() || "project";
+    $("form-log-file").value = `${state.config.dataDir}/logs/${id}.log`;
+  }
+});
+
+$("form-port").addEventListener("input", () => {
+  const port = Number($("form-port").value);
+  if (!Number.isInteger(port) || $("form-health-type").value !== "http") return;
+  try {
+    const endpoint = new URL($("form-health-endpoint").value);
+    if (["127.0.0.1", "localhost"].includes(endpoint.hostname)) {
+      endpoint.port = String(port);
+      $("form-health-endpoint").value = endpoint.toString();
+    }
+  } catch {
+    // Leave non-URL endpoints untouched.
+  }
+});
 
 $("config-form").addEventListener("submit", (event) => {
   event.preventDefault();

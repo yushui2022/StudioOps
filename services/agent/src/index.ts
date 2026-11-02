@@ -22,6 +22,7 @@ import { EventStore } from "./core/event-store.js";
 import { listInferenceProcesses } from "./core/inference.js";
 import { getOllamaModels } from "./core/ollama.js";
 import { ProcessIconStore } from "./core/process-icons.js";
+import { listProjectTemplates } from "./core/project-templates.js";
 import {
   buildProjectPlist,
   installProjectPlist,
@@ -349,6 +350,7 @@ app.delete("/api/projects/:id/persist", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/project-templates", (c) => json(listProjectTemplates()));
 app.get("/api/config", (c) =>
   json({
     filePath: configStore.filePath,

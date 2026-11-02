@@ -701,6 +701,14 @@
       </header>
       <div class="drawer-body">
         <form id="config-form" autocomplete="off">
+          <div id="template-field" class="template-field hidden">
+            <label class="field">
+              <span>项目模板</span>
+              <select id="form-template" class="select"></select>
+            </label>
+            <p class="template-hint" id="template-hint"></p>
+          </div>
+
           <fieldset class="form-section">
             <legend>基本信息</legend>
             <label class="field">
@@ -797,8 +805,12 @@
                 ></textarea>
               </label>
               <label class="field">
-                <span>工作目录</span>
-                <input id="form-cwd" class="text-input" />
+                <span>项目目录 / 工作目录</span>
+                <input
+                  id="form-cwd"
+                  class="text-input"
+                  placeholder="选择项目目录后自动补全名称、ID、日志路径"
+                />
               </label>
               <label class="field">
                 <span>日志文件</span>

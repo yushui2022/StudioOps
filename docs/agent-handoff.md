@@ -42,6 +42,7 @@
 | 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs` | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent |
 | 启动错误提示            | 已完成                 | `apps/desktop/src-tauri/src/main.rs`、`apps/web/app.js`                                                            | 端口冲突/连续启动失败弹窗；配置错误顶部横幅；日志路径提示                                        |
 | Agent 自动重启          | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                                                               | 桌面端 supervisor 监控 Agent；异常退出退避重启；正常退出不拉起                                   |
+| 项目服务模板            | 已完成                 | `services/agent/src/core/project-templates.ts`、`/api/project-templates`、`apps/web/app.js`                        | 7 个模板；选目录自动补全名称/ID/日志/命令/端口/健康检查                                          |
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                      | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                              |
 | 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`core/discovery.ts`、`apps/web/app.js`                                     | `category: project` 单独成页；自动发现监听端口的开发进程并可纳入项目                             |
 | 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
@@ -111,6 +112,7 @@
 22. Agent 自动重启验收：直接 `kill -9` 7227 的 Agent，约 2 秒后出现新 PID 并恢复 `/api/health`；退出 App 后 Agent 停止且不重启。已有 Agent 被接管时，旧 Agent 消失后也会自动补起。
 23. 启动错误验收：用 `python3 -m http.server 7227` 占用端口后启动 App，弹出“StudioOps Agent 无法启动 / 端口 7227 已被其他程序占用”对话框，并提示 `lsof` 排查命令；关闭占用后再次启动恢复正常。
 24. 进程身份验收：启动一个无端口、无 pidFile 的 Node 项目，生成 `data/pids/adopt-test.pid`（含 PID、lstart、命令行）；kill Agent 后子进程继续运行，新 Agent 启动后仍识别同一 PID；停止后 pid 文件删除。
+25. 项目模板验收：打开“新增项目服务”可选择 Node/npm、Vite、Python、uvicorn、PM2、静态站点；选择 `/Users/orlando/Documents/kopi` 后自动填充 ID/name/target/日志路径；切到 uvicorn 后命令、参数、端口和健康检查自动更新。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

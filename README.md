@@ -38,6 +38,7 @@ npm run dev
 - Ollama 模型列表：点击 Ollama 服务行，显示已安装模型、大小、参数量、量化方式和加载状态。
 - 进程图标：应用进程显示对应 `.app` 图标，其他进程用首字母占位；图标提取后缓存在 `data/icons`。
 - 项目视图：Node/Python/自建常驻服务标记 `category: project` 后，在“项目”页单独管理端口、PID、CPU/内存、日志和启停，不和系统进程混在一起。
+- 项目模板：新增项目可从 Node、Vite、Python、uvicorn、PM2、静态站点模板开始，选择项目目录后自动补全名称、ID、日志、命令和健康检查。
 - 自动发现：扫描本机正在监听端口、工作目录在用户目录下的开发进程，自动列在“项目 → 自动发现”，可一键纳入项目。
 - 项目常驻：项目服务可“设为常驻”，生成 `~/Library/LaunchAgents/com.studioops.project.<id>.plist`，由 launchd 在登录/重启后自动拉起。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
