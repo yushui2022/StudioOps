@@ -658,6 +658,20 @@
                 <div class="backup-list" id="backup-list"></div>
               </section>
 
+              <section class="panel panel-wide" data-title="LaunchAgent 发现">
+                <div class="panel-actions">
+                  <button class="btn btn-small" id="launchd-scan">
+                    重新扫描
+                  </button>
+                  <span class="muted" id="launchd-summary">检查中…</span>
+                </div>
+                <div class="launchd-list" id="launchd-list"></div>
+                <p class="uninstall-hint">
+                  只扫描当前用户的 ~/Library/LaunchAgents。导入会打开预填表单，
+                  保存后仍走 launchd 适配器和动作白名单。
+                </p>
+              </section>
+
               <section class="panel" data-title="连接与安全">
                 <dl class="fact-list">
                   <div>

@@ -2317,6 +2317,78 @@ select {
   white-space: nowrap;
 }
 
+.launchd-list {
+  display: grid;
+  gap: 1px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 0 13px 8px;
+}
+
+.launchd-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 52px 58px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.launchd-row:last-child {
+  border-bottom: 0;
+}
+
+.launchd-main {
+  min-width: 0;
+}
+
+.launchd-main strong {
+  display: block;
+  color: var(--text-soft);
+  font-size: 9.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launchd-main small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 8.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launchd-state {
+  color: var(--muted);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.launchd-state.loaded {
+  color: var(--green);
+}
+
+.launchd-configured {
+  color: var(--amber);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.launchd-row .btn {
+  padding: 2px 5px;
+  font-size: 9px;
+}
+
+.launchd-empty {
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
 .metrics-settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2455,6 +2527,78 @@ select {
     color: var(--muted);
     font-size: 8.5px;
     white-space: nowrap;
+  }
+
+  .launchd-list {
+    display: grid;
+    gap: 1px;
+    max-height: 260px;
+    overflow: auto;
+    padding: 0 13px 8px;
+  }
+
+  .launchd-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 72px 52px 58px;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .launchd-row:last-child {
+    border-bottom: 0;
+  }
+
+  .launchd-main {
+    min-width: 0;
+  }
+
+  .launchd-main strong {
+    display: block;
+    color: var(--text-soft);
+    font-size: 9.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .launchd-main small {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 8.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .launchd-state {
+    color: var(--muted);
+    font-size: 8.5px;
+    white-space: nowrap;
+  }
+
+  .launchd-state.loaded {
+    color: var(--green);
+  }
+
+  .launchd-configured {
+    color: var(--amber);
+    font-size: 8.5px;
+    white-space: nowrap;
+  }
+
+  .launchd-row .btn {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  .launchd-empty {
+    padding: 4px 0;
+    color: var(--muted);
+    font-size: 9.5px;
   }
 
   .metrics-settings-grid {

@@ -34,6 +34,7 @@ import {
   type AlertSettingsInput,
 } from "./core/alerts.js";
 import { listInferenceProcesses } from "./core/inference.js";
+import { listLaunchdAgents } from "./core/launchd-discovery.js";
 import { LogStreamer } from "./core/log-stream.js";
 import { MetricsSampler } from "./core/metrics-sampler.js";
 import {
@@ -783,6 +784,9 @@ app.post("/api/remote-access/serve", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/launchd/agents", async (c) =>
+  json(await listLaunchdAgents({ services: configStore.services })),
+);
 app.get("/api/security/audit", async (c) => {
   const tailscale = await readTailscaleInfo();
   const [serve, funnel] = await Promise.all([

@@ -79,6 +79,7 @@ const state = {
   historyServiceId: null,
   metricsSettings: null,
   alerts: null,
+  launchdAgents: null,
   formServiceId: null,
   lastUpdated: null,
   connected: false,
@@ -1224,6 +1225,78 @@ function setHistoryRange(range) {
       button.classList.toggle("active", button.dataset.historyRange === range),
     );
   loadHistory();
+}
+
+async function loadLaunchdAgents() {
+  $("launchd-summary").textContent = "扫描中…";
+  try {
+    state.launchdAgents = await api("/api/launchd/agents");
+    renderLaunchdAgents();
+  } catch (error) {
+    $("launchd-summary").textContent = error.message;
+    $("launchd-list").innerHTML =
+      '<p class="launchd-empty">无法读取 LaunchAgent</p>';
+  }
+}
+
+function renderLaunchdAgents() {
+  const agents = state.launchdAgents ?? [];
+  const configured = agents.filter((agent) => agent.configuredServiceId).length;
+  $("launchd-summary").textContent = agents.length
+    ? `${agents.length} 个 · 已配置 ${configured} 个`
+    : "没有发现用户 LaunchAgent";
+  if (!agents.length) {
+    $("launchd-list").innerHTML =
+      '<p class="launchd-empty">没有发现用户 LaunchAgent</p>';
+    return;
+  }
+  $("launchd-list").innerHTML = agents
+    .map((agent) => {
+      const command = [agent.program, ...(agent.args ?? [])]
+        .filter(Boolean)
+        .join(" ");
+      return `<div class="launchd-row">
+        <div class="launchd-main">
+          <strong title="${escapeHtml(agent.label)}">${escapeHtml(agent.label)}</strong>
+          <small title="${escapeHtml(agent.plistPath)}">${escapeHtml(command || agent.plistPath)}</small>
+        </div>
+        <span class="launchd-state ${agent.loaded ? "loaded" : "stopped"}">
+          ${agent.loaded ? `PID ${agent.pid ?? "—"}` : "未加载"}
+        </span>
+        <span class="launchd-configured">${agent.configuredServiceId ? "已配置" : ""}</span>
+        <button
+          class="btn btn-small"
+          data-launchd-import="${escapeHtml(agent.label)}"
+          ${agent.configuredServiceId ? "disabled" : ""}
+        >${agent.configuredServiceId ? "已导入" : "导入"}</button>
+      </div>`;
+    })
+    .join("");
+}
+
+function openLaunchdImport(agent) {
+  if (!agent) return;
+  openServiceForm({
+    id: agent.suggestedId,
+    name: agent.suggestedName,
+    kind: "launchd",
+    adapter: "launchd",
+    target: agent.target,
+    plistFile: agent.plistPath,
+    logFile: agent.stdoutPath,
+    group: "LaunchAgent",
+    category: "system",
+    description: [agent.program, ...(agent.args ?? [])]
+      .filter(Boolean)
+      .join(" "),
+    allowedActions: ["start", "stop", "restart"],
+    health: { type: "none" },
+  });
+  state.formServiceId = null;
+  $("form-id").readOnly = false;
+  $("config-title").textContent = "导入 LaunchAgent";
+  $("config-delete").classList.add("hidden");
+  setFormError("");
 }
 
 async function loadAlertsStatus({
@@ -2886,6 +2959,7 @@ function switchView(view, { updateHash = true } = {}) {
     loadTokenField();
     loadBackups();
     loadMetricsSettings();
+    loadLaunchdAgents();
     loadAlertsStatus({ populateSettings: true });
     loadRemoteAccess();
     loadSecurityAudit();
@@ -3109,6 +3183,17 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "history-refresh") {
     loadHistory();
+    return;
+  }
+  if (target.id === "launchd-scan") {
+    loadLaunchdAgents();
+    return;
+  }
+  if (target.dataset.launchdImport) {
+    const agent = state.launchdAgents?.find(
+      (item) => item.label === target.dataset.launchdImport,
+    );
+    openLaunchdImport(agent);
     return;
   }
   if (target.id === "alerts-save") {

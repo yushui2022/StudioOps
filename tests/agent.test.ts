@@ -62,6 +62,11 @@ import {
   LogFileTailer,
   readLogTail,
 } from "../services/agent/src/core/log-stream.js";
+import {
+  parseLaunchctlList,
+  parseLaunchdPlist,
+  suggestServiceId,
+} from "../services/agent/src/core/launchd-discovery.js";
 import { buildMetricSamples } from "../services/agent/src/core/metrics-sampler.js";
 import { MetricsStore } from "../services/agent/src/core/metrics-store.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
@@ -388,6 +393,22 @@ test("config diff marks only runtime fields as restart-required", () => {
     }),
     [],
   );
+});
+
+test("launchd discovery parses loaded labels and suggests service ids", () => {
+  const listed = parseLaunchctlList(
+    "PID\tStatus\tLabel\n123\t0\tai.local.ollama\n-\t-15\tcom.example.worker\n",
+  );
+  assert.equal(listed.get("ai.local.ollama")?.pid, 123);
+  assert.equal(listed.get("com.example.worker")?.status, -15);
+  assert.equal(listed.get("com.example.worker")?.pid, undefined);
+  assert.equal(suggestServiceId("ai.local.ollama"), "ollama");
+  assert.equal(suggestServiceId("homebrew.mxcl.redis"), "redis");
+  assert.equal(
+    suggestServiceId("com.google.keystone.agent"),
+    "google.keystone.agent",
+  );
+  assert.deepEqual(parseLaunchdPlist({ Label: "demo" }), { Label: "demo" });
 });
 
 test("log tailer reads only new bytes and recovers after truncation", () => {
