@@ -82,6 +82,7 @@ npm run build
 - `docs/uninstall.md`：卸载、导出与重装后的恢复步骤。
 - `docs/tailscale.md`：Tailscale 安装、登录、私网访问和安全边界。
 - `docs/cloudflared.md`：cloudflared quick/named/token 隧道和公网安全要求。
+- `docs/research/ops-monitoring.md`：指标存储、告警、日志和 SQLite 备份的调研与设计边界。
 
 ## 复用策略
 

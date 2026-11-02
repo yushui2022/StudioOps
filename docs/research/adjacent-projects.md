@@ -9,6 +9,16 @@ StudioOps 的目标是集成面板，因此不把所有能力重新实现一遍�
 | [mac-dash](https://github.com/talhaorak/mac-dash) | 复用 Agent-first、launchd 管理、动作白名单、WebSocket topic、Tauri 壳的架构 | 已按源码结构落地；launchd 管理 Ollama、ComfyUI、Node/Python 项目 |
 | [macmon](https://github.com/vladkens/macmon)      | 直接调用 `macmon pipe --samples 1` 读取 Apple Silicon 的 GPU/ANE/功耗/温度  | 已接入系统指标卡片                                               |
 
+## 运维模块调研
+
+指标、告警、日志和备份的候选项目与取舍已经单独整理在 [`ops-monitoring.md`](./ops-monitoring.md)。简短结论：
+
+- 指标继续用 SQLite，不嵌入 Prometheus/VictoriaMetrics
+- 告警借鉴 Alertmanager 的去重/分组/抑制和 Netdata 的滞后/延迟，不引入独立服务
+- 日志借鉴 Loki 的低基数标签和按流限流，但先做本地有界 ring buffer
+- 备份借鉴 Litestream 的快照思路，先使用 SQLite `VACUUM INTO`
+- 图表先沿用现有 SVG 风格，uPlot 作为后续性能备选
+
 ## 有明确需求再加
 
 | 项目                                                   | 什么时候加                                     | 接入方式                                                        |
