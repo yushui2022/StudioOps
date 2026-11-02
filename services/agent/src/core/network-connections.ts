@@ -280,9 +280,19 @@ export class NetworkMonitor {
           connection.remoteAddress,
           (outboundByIp.get(connection.remoteAddress) ?? 0) + 1,
         );
+      const priorityOutbound = new Set(
+        outbound
+          .filter((connection) => connection.remotePort === 22)
+          .map((connection) => connection.remoteAddress),
+      );
       const busiestOutbound = [...outboundByIp.entries()]
-        .sort((left, right) => right[1] - left[1])
-        .slice(0, 8)
+        .sort((left, right) => {
+          const priority =
+            Number(priorityOutbound.has(right[0])) -
+            Number(priorityOutbound.has(left[0]));
+          return priority || right[1] - left[1];
+        })
+        .slice(0, 20)
         .map(([address]) => address);
       this.current = {
         capturedAt: new Date(now).toISOString(),

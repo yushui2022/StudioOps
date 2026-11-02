@@ -1163,6 +1163,9 @@ function renderNetworkList(data) {
   const rows = [...grouped.values()].sort((left, right) => {
     if (left.direction !== right.direction)
       return left.direction === "inbound" ? -1 : 1;
+    const leftSsh = left.remotePort === 22 || left.process === "ssh";
+    const rightSsh = right.remotePort === 22 || right.process === "ssh";
+    if (leftSsh !== rightSsh) return leftSsh ? -1 : 1;
     return right.count - left.count;
   });
   const list = $("network-list");
