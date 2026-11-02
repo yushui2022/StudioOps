@@ -702,3 +702,56 @@ test("memory guard unloads an idle model to make room for a new one", async () =
   assert.deepEqual(calls, ["/api/generate"]);
   assert.deepEqual(guard.status().ollama.loadedModels, []);
 });
+
+test("gateway cancels an admission check when the client disconnects", async () => {
+  const admitEntered = deferred();
+  const release = deferred();
+  let upstreamCalled = false;
+  const admission: MemoryAdmission = {
+    status: () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 20 * 1024 ** 3,
+      freeBytes: 44 * 1024 ** 3,
+      percent: 31.25,
+      budgetBytes: 52 * 1024 ** 3,
+      reserveBytes: 12 * 1024 ** 3,
+      pressure: "normal",
+      ollama: { loadedModels: [], maxLoadedModels: 1 },
+    }),
+    admit: async () => {
+      admitEntered.resolve();
+      await release.promise;
+      return { allowed: true };
+    },
+  };
+  const harness = await startHarness({
+    admission,
+    handler: (_req, res) => {
+      upstreamCalled = true;
+      res.end("ok");
+    },
+  });
+  try {
+    const controller = new AbortController();
+    const request = fetch(`${harness.base}/api/chat`, {
+      method: "POST",
+      body: JSON.stringify({ model: "qwen" }),
+      signal: controller.signal,
+    }).catch(() => undefined);
+    await admitEntered.promise;
+    controller.abort();
+    await waitFor(
+      async () => (await status(harness)).backends[0]?.stats.cancelled === 1,
+    );
+    release.resolve();
+    await request;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(upstreamCalled, false);
+    const snapshot = await status(harness);
+    assert.equal(snapshot.backends[0]?.stats.started, 0);
+    assert.equal(snapshot.backends[0]?.active, 0);
+    assert.equal(snapshot.backends[0]?.queued, 0);
+  } finally {
+    await harness.close();
+  }
+});

@@ -288,8 +288,8 @@ class BackendQueue {
     res.on("close", () => {
       if (job.state !== "queued") return;
       const index = this.queue.indexOf(job);
-      if (index < 0) return;
-      this.queue.splice(index, 1);
+      if (index >= 0) this.queue.splice(index, 1);
+      else if (!this.scheduling.delete(job)) return;
       job.state = "cancelled";
       job.finishedAt = Date.now();
       clearTimeout(job.queueTimer);
@@ -310,7 +310,12 @@ class BackendQueue {
         this.scheduling.add(job);
         const decision = await this.admit(job);
         this.scheduling.delete(job);
-        if (job.state !== "queued") continue;
+        if (
+          job.state !== "queued" ||
+          job.res.destroyed ||
+          job.res.writableEnded
+        )
+          continue;
         if (decision) {
           this.reject(job, decision);
           continue;
