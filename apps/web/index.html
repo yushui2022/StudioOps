@@ -782,6 +782,7 @@
                     <tr>
                       <th>时间</th>
                       <th>后端</th>
+                      <th>模型</th>
                       <th>状态</th>
                       <th>请求</th>
                       <th>来源</th>
@@ -797,6 +798,51 @@
                 <strong>暂无请求</strong>
                 <span>网关启动后还没有收到外部推理请求。</span>
               </div>
+            </section>
+
+            <section class="panel" data-title="模型调用记录">
+              <div class="gateway-records-toolbar">
+                <label class="search-field gateway-record-search">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M10 4a6 6 0 1 0 3.8 10.7L19 20l1-1-5.3-5.2A6 6 0 0 0 10 4Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"
+                    />
+                  </svg>
+                  <input
+                    id="gateway-record-search"
+                    type="search"
+                    placeholder="筛选模型、路径、来源或状态"
+                  />
+                </label>
+                <span class="toolbar-note" id="gateway-records-meta">—</span>
+              </div>
+              <div class="table-wrap gateway-table-wrap">
+                <table class="table gateway-table">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>模型</th>
+                      <th>后端</th>
+                      <th>状态</th>
+                      <th>请求</th>
+                      <th>来源</th>
+                      <th class="num">状态码</th>
+                      <th class="num">等待</th>
+                      <th class="num">耗时</th>
+                    </tr>
+                  </thead>
+                  <tbody id="gateway-records-body"></tbody>
+                </table>
+              </div>
+              <div id="gateway-records-empty" class="empty hidden">
+                <strong>还没有模型调用记录</strong>
+                <span>外部请求经过网关并调用模型后，这里会保留记录。</span>
+              </div>
+              <p class="network-note gateway-records-note">
+                只记录模型、路线、来源、状态和耗时，不记录 prompt
+                或请求体。日志文件：
+                <code id="gateway-records-file">—</code>
+              </p>
             </section>
           </section>
 

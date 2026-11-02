@@ -27,6 +27,7 @@ export interface GatewayPaths {
   scriptPath: string;
   logFile: string;
   errorFile: string;
+  recordsFile: string;
   workingDirectory: string;
 }
 
@@ -44,6 +45,8 @@ export interface GatewayStatus {
   adminPort: number;
   adminUrl: string;
   memory?: GatewayMemoryStatus;
+  records?: { file: string; error?: string };
+  recordsFile?: string;
   backends: GatewayBackendStatus[];
   recent: GatewayRecentEvent[];
   error?: string;
@@ -83,6 +86,7 @@ export interface GatewayBackendStatus {
 export interface GatewayJob {
   id: string;
   backend: string;
+  model?: string;
   method: string;
   path: string;
   client?: string;
@@ -95,6 +99,7 @@ export interface GatewayJob {
 export interface GatewayRecentEvent {
   id: string;
   backend: string;
+  model?: string;
   state: string;
   method: string;
   path: string;
@@ -121,6 +126,7 @@ export function gatewayPaths(dataDir: string): GatewayPaths {
     scriptPath: join(workingDirectory, "gateway.cjs"),
     logFile: join(dataDir, "logs", "gateway.log"),
     errorFile: join(dataDir, "logs", "gateway.err"),
+    recordsFile: join(workingDirectory, "model-calls.jsonl"),
     workingDirectory,
   };
 }
@@ -154,6 +160,7 @@ export function buildGatewayPlist(options: {
     process.env.STUDIOOPS_GATEWAY_COMFY_PORT ?? 8191,
   );
   environment.STUDIOOPS_GATEWAY_ADMIN_PORT = String(GATEWAY_ADMIN_PORT);
+  environment.STUDIOOPS_GATEWAY_RECORDS_FILE = paths.recordsFile;
 
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -314,6 +321,7 @@ export async function readGatewayStatus(): Promise<GatewayStatus> {
       adminPort?: number;
       pid?: number;
       memory?: GatewayMemoryStatus;
+      records?: { file: string; error?: string };
       backends?: GatewayBackendStatus[];
       recent?: GatewayRecentEvent[];
     };
@@ -324,6 +332,8 @@ export async function readGatewayStatus(): Promise<GatewayStatus> {
     base.pid = payload.pid ?? base.pid;
     base.adminPort = payload.adminPort ?? base.adminPort;
     base.memory = payload.memory;
+    base.records = payload.records;
+    base.recordsFile = payload.records?.file;
     base.backends = payload.backends ?? [];
     base.recent = payload.recent ?? [];
     return base;
@@ -331,6 +341,38 @@ export async function readGatewayStatus(): Promise<GatewayStatus> {
     base.error = error instanceof Error ? error.message : String(error);
     return base;
   }
+}
+
+export interface GatewayRecord {
+  id: string;
+  backend: string;
+  model?: string;
+  state: string;
+  method: string;
+  path: string;
+  client?: string;
+  statusCode?: number;
+  enqueuedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  waitMs?: number;
+  durationMs?: number;
+  bytes: number;
+  error?: string;
+}
+
+export async function readGatewayRecords(
+  limit = 200,
+): Promise<GatewayRecord[]> {
+  const safeLimit = Math.min(1000, Math.max(1, Math.floor(limit)));
+  const response = await fetch(
+    `http://127.0.0.1:${GATEWAY_ADMIN_PORT}/records?limit=${safeLimit}`,
+    { signal: AbortSignal.timeout(2500) },
+  );
+  if (!response.ok)
+    throw new Error(`Gateway records returned ${response.status}`);
+  const payload = (await response.json()) as { records?: GatewayRecord[] };
+  return payload.records ?? [];
 }
 
 export async function cancelGatewayJob(

@@ -4,8 +4,12 @@ import {
   type BackendName,
 } from "./gateway.js";
 import { MemoryGuard } from "./memory.js";
+import { join } from "node:path";
 
-const GATEWAY_VERSION = "0.1.0";
+const GATEWAY_VERSION = "0.1.1";
+const recordsFile =
+  process.env.STUDIOOPS_GATEWAY_RECORDS_FILE ??
+  join(process.cwd(), "data", "gateway", "model-calls.jsonl");
 
 function numberFromEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -89,6 +93,7 @@ const gateway = new InferenceGateway(
     host: "127.0.0.1",
     version: GATEWAY_VERSION,
     admission: memoryGuard,
+    recordsFile,
   },
   (message) => console.log(message),
 );
@@ -113,6 +118,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 async function main(): Promise<void> {
   await memoryGuard.start();
   await gateway.start();
+  console.log(`[gateway] model calls ${recordsFile}`);
 }
 
 main().catch((error) => {

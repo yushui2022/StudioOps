@@ -51,6 +51,27 @@ macOS 没有 Linux cgroup 那样的硬内存限制，所以网关在应用层做
 - 请求新模型而槽位已满时，网关会尝试卸载没有正在执行请求的空闲模型；卸载失败才拒绝。
 - 只对会分配模型的请求做准入：Ollama 的 `POST /api/generate|chat|embed|embeddings|pull|create|copy` 和 OpenAI 兼容路径 `POST /v1/chat/completions|completions|embeddings`，ComfyUI 的 `POST /prompt|api/prompt|queue|v1/images/generations`。`/api/tags`、`/api/ps`、状态查询始终放行。
 
+## 模型调用记录
+
+网关把每次模型调用写入 append-only JSONL：
+
+```text
+~/Library/Application Support/com.studioops.desktop/gateway/model-calls.jsonl
+```
+
+记录字段：
+
+```text
+时间、模型、后端、状态、方法、路径、来源、状态码、等待、耗时、错误
+```
+
+- 只记录有 `model` 的请求，以及 ComfyUI 的 `/prompt`、`/api/prompt`、`/v1/images/generations`。
+- 不记录 prompt、消息内容、图片、请求体或 Authorization。
+- 文件超过 5MB 时轮转为 `model-calls.jsonl.1`，只保留一份历史。
+- 网关管理 API：`GET http://127.0.0.1:11436/records?limit=200`。
+- StudioOps API：`GET /api/gateway/records?limit=200`。
+- 推理网关视图会显示最近 200 条记录，可按模型、路径、来源或状态筛选，并给出成功/异常/平均耗时。
+
 ## 环境变量
 
 | 变量                                     | 默认值                  |

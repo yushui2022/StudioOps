@@ -86,6 +86,9 @@ const state = {
   networkDirection: "inbound",
   networkBusy: false,
   gateway: null,
+  gatewayRecords: [],
+  gatewayRecordsError: "",
+  gatewayRecordSearch: "",
   metricsSettings: null,
   alerts: null,
   launchdAgents: null,
@@ -1430,6 +1433,7 @@ function renderGateway() {
       (event) => `<tr>
         <td class="mono">${escapeHtml(fmtClock(event.finishedAt ?? event.enqueuedAt))}</td>
         <td>${escapeHtml(gatewayBackendLabels[event.backend] ?? event.backend)}</td>
+        <td class="mono gateway-model">${escapeHtml(event.model ?? "—")}</td>
         <td><span class="gateway-job-state ${escapeHtml(event.state)}" title="${escapeHtml(event.error ?? "")}">${escapeHtml(gatewayStateLabels[event.state] ?? event.state)}</span></td>
         <td class="mono gateway-path">${escapeHtml(event.method)} ${escapeHtml(event.path)}${event.error ? `<small class="cell-sub" title="${escapeHtml(event.error)}">${escapeHtml(event.error)}</small>` : ""}</td>
         <td class="mono">${escapeHtml(event.client ?? "—")}</td>
@@ -1466,7 +1470,10 @@ async function gatewayAction(path, button, successMessage) {
       headers: { "x-studioops-actor": "web" },
     });
     toast(successMessage);
-    await loadGateway({ quiet: true });
+    await Promise.all([
+      loadGateway({ quiet: true }),
+      loadGatewayRecords({ quiet: true }),
+    ]);
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -1505,12 +1512,81 @@ async function cancelGatewayJob(id, button) {
       },
     );
     toast(result.cancelled ? "请求已取消" : "请求已不在队列中");
-    await loadGateway({ quiet: true });
+    await Promise.all([
+      loadGateway({ quiet: true }),
+      loadGatewayRecords({ quiet: true }),
+    ]);
   } catch (error) {
     toast(error.message, true);
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+function renderGatewayRecords() {
+  const query = state.gatewayRecordSearch.trim().toLowerCase();
+  const all = state.gatewayRecords;
+  const rows = query
+    ? all.filter((record) =>
+        [
+          record.model,
+          record.backend,
+          record.path,
+          record.client,
+          record.state,
+          record.error,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query)),
+      )
+    : all;
+  const succeeded = rows.filter(
+    (record) => record.state === "completed",
+  ).length;
+  const failed = rows.filter((record) =>
+    ["failed", "rejected", "timed-out", "cancelled"].includes(record.state),
+  ).length;
+  const durations = rows
+    .map((record) => record.durationMs)
+    .filter((value) => Number.isFinite(value));
+  const average = durations.length
+    ? durations.reduce((sum, value) => sum + value, 0) / durations.length
+    : Number.NaN;
+  $("gateway-records-meta").textContent = rows.length
+    ? `最近 ${rows.length} 条 · 成功 ${succeeded} · 异常 ${failed} · 平均 ${fmtDuration(average)}`
+    : state.gatewayRecordsError || "暂无模型调用记录";
+  $("gateway-records-file").textContent =
+    state.gateway?.recordsFile || state.gateway?.records?.file || "—";
+  $("gateway-records-body").innerHTML = rows
+    .map(
+      (record) => `<tr>
+        <td class="mono">${escapeHtml(fmtClock(record.finishedAt ?? record.enqueuedAt))}</td>
+        <td class="mono gateway-model" title="${escapeHtml(record.model ?? "")}">${escapeHtml(record.model ?? (record.backend === "comfyui" ? "ComfyUI 工作流" : "—"))}</td>
+        <td>${escapeHtml(gatewayBackendLabels[record.backend] ?? record.backend)}</td>
+        <td><span class="gateway-job-state ${escapeHtml(record.state)}" title="${escapeHtml(record.error ?? "")}">${escapeHtml(gatewayStateLabels[record.state] ?? record.state)}</span></td>
+        <td class="mono gateway-path">${escapeHtml(record.method)} ${escapeHtml(record.path)}${record.error ? `<small class="cell-sub" title="${escapeHtml(record.error)}">${escapeHtml(record.error)}</small>` : ""}</td>
+        <td class="mono">${escapeHtml(record.client ?? "—")}</td>
+        <td class="num">${record.statusCode ?? "—"}</td>
+        <td class="num">${fmtDuration(record.waitMs)}</td>
+        <td class="num">${fmtDuration(record.durationMs)}</td>
+      </tr>`,
+    )
+    .join("");
+  $("gateway-records-body")
+    .closest(".table-wrap")
+    .classList.toggle("hidden", rows.length === 0);
+  $("gateway-records-empty").classList.toggle("hidden", rows.length > 0);
+}
+
+async function loadGatewayRecords({ quiet = false } = {}) {
+  try {
+    state.gatewayRecords = await api("/api/gateway/records?limit=200");
+    state.gatewayRecordsError = "";
+  } catch (error) {
+    state.gatewayRecordsError = error.message;
+    if (!quiet) toast(error.message, true);
+  }
+  renderGatewayRecords();
 }
 
 /* ---------- metrics history ---------- */
@@ -3621,7 +3697,10 @@ function switchView(view, { updateHash = true } = {}) {
   if (view === "containers") loadDocker();
   if (view === "history") loadHistory();
   if (view === "network") loadNetwork();
-  if (view === "gateway") loadGateway();
+  if (view === "gateway") {
+    loadGateway();
+    loadGatewayRecords();
+  }
   if (view === "settings") {
     renderSettingsFacts();
     loadTokenField();
@@ -3784,6 +3863,7 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "gateway-refresh") {
     loadGateway();
+    loadGatewayRecords();
     return;
   }
   if (target.id === "gateway-install") {
@@ -4180,6 +4260,11 @@ $("log-auto").addEventListener("change", (event) => {
   } else if (state.view === "logs") loadLogs();
 });
 
+$("gateway-record-search").addEventListener("input", (event) => {
+  state.gatewayRecordSearch = event.target.value;
+  renderGatewayRecords();
+});
+
 $("log-search").addEventListener("input", (event) => {
   state.logSearch = event.target.value;
   renderLogOutput({ scroll: false });
@@ -4274,6 +4359,7 @@ switchView(initialView, { updateHash: false });
 refreshAll({ quiet: true }).catch(() => {});
 loadProcesses();
 loadGateway({ quiet: true });
+loadGatewayRecords({ quiet: true });
 connect();
 setInterval(() => {
   if (!document.hidden) loadProcesses();
@@ -4296,6 +4382,8 @@ setInterval(() => {
     loadNetwork({ quiet: true });
 }, 5000);
 setInterval(() => {
-  if (!document.hidden && state.view === "gateway")
+  if (!document.hidden && state.view === "gateway") {
     loadGateway({ quiet: true });
+    loadGatewayRecords({ quiet: true });
+  }
 }, 3000);

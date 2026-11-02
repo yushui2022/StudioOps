@@ -31,6 +31,7 @@ import {
   ensureGatewayInstalled,
   gatewayPaths,
   installGateway,
+  readGatewayRecords,
   readGatewayStatus,
   restartGateway,
   uninstallGateway,
@@ -355,7 +356,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/health", (c) =>
-  json({ status: "ok", service: "studioops-agent", version: "0.1.4" }),
+  json({ status: "ok", service: "studioops-agent", version: "0.1.5" }),
 );
 app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
@@ -827,8 +828,23 @@ app.get("/api/gateway/status", async (c) =>
     plistPath: gatewayPaths(dataDir).plistPath,
     scriptPath: gatewayPaths(dataDir).scriptPath,
     logFile: gatewayPaths(dataDir).logFile,
+    recordsFile: gatewayPaths(dataDir).recordsFile,
   }),
 );
+app.get("/api/gateway/records", async (c) => {
+  try {
+    const limit = Number(c.req.query("limit") ?? 200);
+    return json(await readGatewayRecords(Number.isFinite(limit) ? limit : 200));
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Gateway records failed",
+      },
+      502,
+    );
+  }
+});
 app.post("/api/gateway/install", async (c) => {
   try {
     const plist = await installGateway({
@@ -1138,7 +1154,7 @@ app.get("/api/config", (c) =>
     tokenRequired: Boolean(configuredToken),
     tokenSource,
     dataDir,
-    version: "0.1.4",
+    version: "0.1.5",
   }),
 );
 app.get("/api/config/services", (c) => json(configStore.services));

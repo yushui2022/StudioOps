@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -22,6 +22,7 @@ interface HarnessOptions {
   requestTimeoutMs?: number;
   maxBodyBytes?: number;
   admission?: MemoryAdmission;
+  recordsFile?: string;
   handler: (req: http.IncomingMessage, res: http.ServerResponse) => void;
 }
 
@@ -55,6 +56,7 @@ async function startHarness(options: HarnessOptions): Promise<Harness> {
     adminPort: 0,
     version: "test",
     admission: options.admission,
+    recordsFile: options.recordsFile,
   });
   await gateway.start();
   const addresses = gateway.addresses();
@@ -751,6 +753,58 @@ test("gateway cancels an admission check when the client disconnects", async () 
     assert.equal(snapshot.backends[0]?.stats.started, 0);
     assert.equal(snapshot.backends[0]?.active, 0);
     assert.equal(snapshot.backends[0]?.queued, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("gateway persists model call records without request bodies", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-records-"));
+  const recordsFile = join(root, "model-calls.jsonl");
+  const harness = await startHarness({
+    recordsFile,
+    handler: (_req, res) => res.end("ok"),
+  });
+  try {
+    const prompt = "secret-prompt-must-not-be-recorded";
+    const response = await fetch(`${harness.base}/api/chat`, {
+      method: "POST",
+      body: JSON.stringify({
+        model: "qwen3.8-test",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    await fetch(`${harness.base}/api/tags`);
+    await waitFor(async () => {
+      const records = await (await fetch(`${harness.admin}/records`)).json();
+      return (records as { records: unknown[] }).records.length === 1;
+    });
+    const recordsResponse = await fetch(`${harness.admin}/records?limit=10`);
+    assert.equal(recordsResponse.status, 200);
+    const records = (await recordsResponse.json()) as {
+      records: Array<{
+        backend: string;
+        model?: string;
+        state: string;
+        path: string;
+        durationMs?: number;
+      }>;
+    };
+    assert.equal(records.records.length, 1);
+    assert.equal(records.records[0]?.backend, "ollama");
+    assert.equal(records.records[0]?.model, "qwen3.8-test");
+    assert.equal(records.records[0]?.state, "completed");
+    assert.equal(records.records[0]?.path, "/api/chat");
+    assert.ok(Number.isFinite(records.records[0]?.durationMs));
+    const raw = readFileSync(recordsFile, "utf8");
+    assert.match(raw, /qwen3\.8-test/);
+    assert.equal(raw.includes(prompt), false);
+    const summary = await status(harness);
+    assert.equal(
+      summary.recent.some((event) => event.path === "/api/tags"),
+      true,
+    );
   } finally {
     await harness.close();
   }

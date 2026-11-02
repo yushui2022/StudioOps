@@ -6,6 +6,7 @@ import http, {
 import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { extractModel, type MemoryAdmission } from "./memory.js";
+import { ModelCallLog, type ModelCallRecord } from "./records.js";
 
 export type BackendName = "ollama" | "comfyui";
 export type JobState =
@@ -34,6 +35,7 @@ export interface GatewayOptions {
   host?: string;
   version?: string;
   admission?: MemoryAdmission;
+  recordsFile?: string;
 }
 
 export interface BackendStats {
@@ -46,7 +48,7 @@ export interface BackendStats {
   cancelled: number;
 }
 
-interface RecentEvent {
+export interface RecentEvent {
   id: string;
   backend: BackendName;
   state: JobState;
@@ -129,6 +131,7 @@ class BackendQueue {
   constructor(
     private readonly config: BackendConfig,
     private readonly admission?: MemoryAdmission,
+    private readonly onModelCall?: (record: ModelCallRecord) => void,
   ) {}
 
   handle(req: IncomingMessage, res: ServerResponse): void {
@@ -513,6 +516,7 @@ class BackendQueue {
     };
     this.recent.unshift(event);
     if (this.recent.length > 50) this.recent.length = 50;
+    if (isModelCallEvent(event)) this.onModelCall?.(event);
   }
 }
 
@@ -521,6 +525,7 @@ export class InferenceGateway {
   private readonly host: string;
   private readonly adminServer: http.Server;
   private readonly backendServers: http.Server[] = [];
+  private readonly recordLog?: ModelCallLog;
   private startedAt = new Date().toISOString();
 
   constructor(
@@ -528,12 +533,18 @@ export class InferenceGateway {
     private readonly logger: (message: string) => void = () => {},
   ) {
     this.host = options.host ?? "127.0.0.1";
+    this.recordLog = options.recordsFile
+      ? new ModelCallLog(options.recordsFile)
+      : undefined;
     this.backends = options.backends.map(
-      (config) => new BackendQueue(config, options.admission),
+      (config) =>
+        new BackendQueue(config, options.admission, (record) =>
+          this.recordLog?.append(record),
+        ),
     );
-    this.adminServer = http.createServer((req, res) =>
-      this.handleAdmin(req, res),
-    );
+    this.adminServer = http.createServer((req, res) => {
+      void this.handleAdmin(req, res);
+    });
   }
 
   async start(): Promise<void> {
@@ -594,6 +605,7 @@ export class InferenceGateway {
       pid: process.pid,
       adminPort: this.options.adminPort,
       memory: this.options.admission?.status(),
+      records: this.recordLog?.status(),
       backends: this.backends.map((backend) => backend.status()),
       recent: this.backends
         .flatMap((backend) => backend.recentEvents())
@@ -608,6 +620,7 @@ export class InferenceGateway {
 
   async close(): Promise<void> {
     this.backends.forEach((backend) => backend.close());
+    await this.recordLog?.close();
     for (const server of [...this.backendServers, this.adminServer]) {
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -616,7 +629,10 @@ export class InferenceGateway {
     }
   }
 
-  private handleAdmin(req: IncomingMessage, res: ServerResponse): void {
+  private async handleAdmin(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
     const url = new URL(req.url ?? "/", `http://${this.host}`);
     if (req.method === "GET" && url.pathname === "/health") {
       jsonResponse(res, 200, {
@@ -630,6 +646,21 @@ export class InferenceGateway {
     }
     if (req.method === "GET" && url.pathname === "/status") {
       jsonResponse(res, 200, this.status());
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/records") {
+      const requested = Number(url.searchParams.get("limit") ?? 200);
+      const limit = Number.isFinite(requested)
+        ? Math.min(1000, Math.max(1, Math.floor(requested)))
+        : 200;
+      try {
+        const records = (await this.recordLog?.read(limit)) ?? [];
+        jsonResponse(res, 200, { records });
+      } catch (error) {
+        jsonResponse(res, 500, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
     if (
@@ -649,6 +680,21 @@ export class InferenceGateway {
       return;
     }
     jsonResponse(res, 404, { error: "Not found" });
+  }
+}
+
+function isModelCallEvent(event: RecentEvent): boolean {
+  if (event.model) return true;
+  if (event.backend !== "comfyui" || event.method !== "POST") return false;
+  try {
+    const pathname = new URL(event.path, "http://127.0.0.1").pathname;
+    return (
+      pathname === "/prompt" ||
+      pathname === "/api/prompt" ||
+      pathname === "/v1/images/generations"
+    );
+  } catch {
+    return false;
   }
 }
 
