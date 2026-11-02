@@ -33,6 +33,12 @@
 
 <p align="center"><sub>算力用户：独立 compute 标准用户的会话、进程、磁盘、登录历史、SSH 状态和审计</sub></p>
 
+<p align="center">
+  <img src="docs/assets/warpgate.png" width="72%" alt="Warpgate SSH 网关状态" />
+</p>
+
+<p align="center"><sub>Warpgate SSH 网关 PoC：2222 入口、目标、连接命令和直连 22 风险提示</sub></p>
+
 > StudioOps 目前是 pre-1.0 项目。它优先解决一台 Mac 上“AI 服务能稳定跑、不会把内存打爆、外部请求能排队”的问题，而不是做一个聊天客户端。
 
 ## 为什么做 StudioOps
