@@ -26,6 +26,15 @@ import { cancelComfyTask, getComfySnapshot } from "./core/comfyui.js";
 import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
+import {
+  cancelGatewayJob,
+  ensureGatewayInstalled,
+  gatewayPaths,
+  installGateway,
+  readGatewayStatus,
+  restartGateway,
+  uninstallGateway,
+} from "./core/gateway-service.js";
 import { listDiscoveredProcesses } from "./core/discovery.js";
 import { EventStore } from "./core/event-store.js";
 import {
@@ -346,7 +355,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/health", (c) =>
-  json({ status: "ok", service: "studioops-agent", version: "0.1.3" }),
+  json({ status: "ok", service: "studioops-agent", version: "0.1.4" }),
 );
 app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
@@ -812,6 +821,68 @@ app.get("/api/network/connections", (c) => json(networkMonitor.snapshot()));
 app.post("/api/network/refresh", async (c) =>
   json(await networkMonitor.refresh()),
 );
+app.get("/api/gateway/status", async (c) =>
+  json({
+    ...(await readGatewayStatus()),
+    plistPath: gatewayPaths(dataDir).plistPath,
+    scriptPath: gatewayPaths(dataDir).scriptPath,
+    logFile: gatewayPaths(dataDir).logFile,
+  }),
+);
+app.post("/api/gateway/install", async (c) => {
+  try {
+    const plist = await installGateway({
+      rootDir,
+      dataDir,
+      nodePath: process.execPath,
+    });
+    return json({
+      installed: true,
+      plistPath: plist.plistPath,
+      scriptPath: plist.scriptPath,
+      status: await readGatewayStatus(),
+    });
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Gateway install failed",
+      },
+      500,
+    );
+  }
+});
+app.post("/api/gateway/restart", async (c) => {
+  try {
+    await restartGateway(dataDir);
+    return json(await readGatewayStatus());
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Gateway restart failed",
+      },
+      500,
+    );
+  }
+});
+app.post("/api/gateway/uninstall", async (c) => {
+  await uninstallGateway(dataDir);
+  return json(await readGatewayStatus());
+});
+app.post("/api/gateway/queue/:id/cancel", async (c) => {
+  try {
+    const result = await cancelGatewayJob(c.req.param("id"));
+    return json(result);
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : "Gateway cancel failed",
+      },
+      502,
+    );
+  }
+});
 app.get("/api/launchd/agents", async (c) =>
   json(await listLaunchdAgents({ services: configStore.services })),
 );
@@ -1067,7 +1138,7 @@ app.get("/api/config", (c) =>
     tokenRequired: Boolean(configuredToken),
     tokenSource,
     dataDir,
-    version: "0.1.3",
+    version: "0.1.4",
   }),
 );
 app.get("/api/config/services", (c) => json(configStore.services));
@@ -1465,6 +1536,21 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
     `StudioOps agent listening at http://${info.address}:${info.port}`,
   );
 });
+
+if (process.env.STUDIOOPS_GATEWAY_AUTOSTART === "1") {
+  ensureGatewayInstalled({
+    rootDir,
+    dataDir,
+    nodePath: process.execPath,
+  })
+    .then((result) => console.log(`[gateway] ${result.reason}`))
+    .catch((error) =>
+      console.error(
+        "[gateway] autostart failed",
+        error instanceof Error ? error.message : error,
+      ),
+    );
+}
 
 const metricsSampler = new MetricsSampler(
   metricsStore,

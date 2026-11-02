@@ -47,6 +47,7 @@ npm run dev
 - Tailscale 私网访问：设置页检测 Tailscale 状态、Tailnet IP 和 MagicDNS 名称；可生成访问 Token，并通过 Tailscale Serve 只对 tailnet 开放 StudioOps，不启用 Funnel，不把 7227 绑定到公网。
 - 项目 Tailnet 入口：项目卡片可单独开放/关闭 Tailscale Serve 入口，自动分配 8443 起的 HTTPS 端口，配置保存 `tailscaleServePort`；入口只对 tailnet 可见。
 - 外部访问安全检查：设置页审计监听地址、Token、Funnel、Ollama 11434、项目入口和 ACL 风险；发现 Funnel 或敏感端口暴露时给出高风险提示。
+- 推理网关：Ollama/ComfyUI 外部请求统一从 11435/8191 进入，队列、并发、排队/请求超时、取消和内存准入由独立 LaunchAgent 守护；模型端口只监听本机回环。
 - cloudflared 隧道：支持 quick、config、token 三种模式；服务页显示 running/stopped/error、公网地址、最后错误和日志；quick tunnel 会被安全审计标记为公网高风险。
 - 指标历史：Agent 默认每 10 秒采样系统和服务指标写入 SQLite；历史视图提供 5 分钟、1 小时、24 小时曲线，服务可切换查看 CPU/内存，采样间隔和保留天数可在设置页调整。
 - 告警与通知：服务掉线、操作失败、内存/磁盘/温度阈值；带确认时间、滞后阈值、去重、重复间隔和恢复通知；设置页可开关、调整阈值并发送测试通知，桌面通知走 macOS。

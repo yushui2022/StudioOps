@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "StudioOps",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "com.studioops.desktop",
   "build": {
     "beforeDevCommand": "npm --prefix ../.. run start",
-    "beforeBuildCommand": "npm --prefix ../.. run build:agent",
+    "beforeBuildCommand": "npm --prefix ../.. run build:services",
     "devUrl": "http://127.0.0.1:7227",
     "frontendDist": "../../web"
   },
@@ -32,13 +32,23 @@
     "macOS": {
       "dmg": {
         "background": "dmg-background.png",
-        "windowSize": { "width": 660, "height": 420 },
-        "appPosition": { "x": 180, "y": 200 },
-        "applicationFolderPosition": { "x": 480, "y": 200 }
+        "windowSize": {
+          "width": 660,
+          "height": 420
+        },
+        "appPosition": {
+          "x": 180,
+          "y": 200
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 200
+        }
       }
     },
     "resources": {
       "../../../dist/agent.cjs": "agent.cjs",
+      "../../../dist/gateway.cjs": "gateway.cjs",
       "../../../scripts/uninstall-studioops.sh": "uninstall-studioops.sh",
       "../../web": "web"
     }

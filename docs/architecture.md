@@ -23,6 +23,10 @@ StudioOps 是一台 Mac 的本地运维控制台：桌面端是主入口，Web �
        │ launchd    │ Docker     │ AI         │ Tunnel     │
        │ adapter    │ adapter    │ adapter    │ adapter    │
        └────────────┴────────────┴────────────┴────────────┘
+
+外部推理流量：
+Sub2API → SSH 反向隧道 → Inference Gateway 11435/8191
+        → 队列/并发/内存准入 → Ollama 11434 / ComfyUI 桥 8190
 ```
 
 ## 核心决策
@@ -33,6 +37,7 @@ StudioOps 是一台 Mac 的本地运维控制台：桌面端是主入口，Web �
 4. **能力声明**：服务只显示它声明支持的动作。`pause` 只对明确支持的本地进程开放；网络服务默认不显示暂停，避免误把断线当成停止。
 5. **实时推送按订阅惰性启动**：system/services/events 使用 WebSocket 主题；没有订阅者时不做高频轮询。历史曲线再进入 SQLite，避免把 Agent 变成重型监控系统。
 6. **安全默认值**：默认只监听 `127.0.0.1`；一旦绑定局域网或 Tailscale，必须配置 token。服务目标由配置产生，不接受客户端提交的路径和 shell 字符串。
+7. **外部推理必须过网关**：Ollama/ComfyUI 的模型端口只在本机回环；VPS 隧道映射到 `11435/8191`，由独立 LaunchAgent 守护的 Inference Gateway 执行队列、并发、超时、取消和内存准入。网关默认不保存 prompt/请求体。
 
 ## 版本路线
 
@@ -54,7 +59,7 @@ StudioOps 是一台 Mac 的本地运维控制台：桌面端是主入口，Web �
 - 配置备份入口，明确“保存”保存的是配置文件而不是进程内存。
 - Tauri 2 桌面壳提供菜单栏常驻入口，窗口关闭后隐藏，菜单栏可重新打开或退出并回收 Agent；release App 的首次配置复制、签名和安装升级仍待完成。
 
-当前本机配置已验证 Ollama（11434）、ComfyUI（8188）和 Ollama Tunnel 的真实 LaunchAgent 状态；Docker Compose 适配器已完成，但 Docker daemon 当前未运行。
+当前本机配置已验证 Ollama（11434）、ComfyUI（8188）、Inference Gateway（11435/8191/11436）和 Ollama Tunnel 的真实 LaunchAgent 状态；Docker Compose 适配器已完成。外部 Sub2API 流量已通过 SSH 隧道进入网关，再由网关转发到 Ollama。
 
 主机快照会读取 `macmon pipe --samples 1`，在可用时提供 GPU、ANE、功耗和 CPU/GPU 温度；没有 macmon 时会保留系统 load、内存和磁盘指标。
 

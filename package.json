@@ -1,6 +1,6 @@
 {
   "name": "studioops",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Desktop-first local operations console for macOS development and AI services",
   "type": "module",
@@ -8,6 +8,8 @@
     "dev": "tsx watch services/agent/src/index.ts",
     "start": "tsx services/agent/src/index.ts",
     "build:agent": "esbuild services/agent/src/index.ts --bundle --platform=node --format=cjs --outfile=dist/agent.cjs --external:node:*",
+    "build:gateway": "esbuild services/gateway/src/index.ts --bundle --platform=node --format=cjs --outfile=dist/gateway.cjs --external:node:*",
+    "build:services": "npm run build:agent && npm run build:gateway",
     "desktop:dev": "npm --prefix apps/desktop run dev",
     "desktop:build": "npm --prefix apps/desktop run build",
     "test": "node --import tsx --test",

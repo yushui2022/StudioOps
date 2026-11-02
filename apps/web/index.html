@@ -72,14 +72,23 @@
               />
             </svg>
             <span class="nav-label">历史</span>
-            <button class="nav-item" data-view="network">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2c1.4 0 2.8 1.7 3.5 4H8.5C9.2 6.7 10.6 5 12 5ZM5.2 9h2.6a17 17 0 0 0 0 6H5.2a7.3 7.3 0 0 1 0-6Zm3.3 0h7a17 17 0 0 1 0 6h-7a17 17 0 0 1 0-6ZM12 19c-1.4 0-2.8-1.7-3.5-4h7C14.8 17.3 13.4 19 12 19Z"
-                />
-              </svg>
-              <span class="nav-label">网络</span>
-            </button>
+          </button>
+          <button class="nav-item" data-view="network">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2c1.4 0 2.8 1.7 3.5 4H8.5C9.2 6.7 10.6 5 12 5ZM5.2 9h2.6a17 17 0 0 0 0 6H5.2a7.3 7.3 0 0 1 0-6Zm3.3 0h7a17 17 0 0 1 0 6h-7a17 17 0 0 1 0-6ZM12 19c-1.4 0-2.8-1.7-3.5-4h7C14.8 17.3 13.4 19 12 19Z"
+              />
+            </svg>
+            <span class="nav-label">网络</span>
+          </button>
+          <button class="nav-item" data-view="gateway">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5 4h14v3H5V4Zm0 6h14v3H5v-3Zm0 6h14v3H5v-3Zm2-4.5h2v1H7v-1Zm0 6h2v1H7v-1ZM7 5.5h2v1H7v-1Z"
+              />
+            </svg>
+            <span class="nav-label">推理网关</span>
+            <span class="nav-count" id="nav-gateway-count">0</span>
           </button>
         </nav>
 
@@ -683,6 +692,111 @@
             </div>
             <section class="panel" data-title="当前公网连接">
               <div class="network-list" id="network-list"></div>
+            </section>
+          </section>
+
+          <section class="view hidden" data-view-panel="gateway">
+            <div
+              class="network-toolbar gateway-toolbar panel"
+              data-title="推理网关"
+            >
+              <div class="network-summary">
+                <span class="gateway-state">
+                  <i id="gateway-dot" class="dot"></i>
+                  <strong id="gateway-state">—</strong>
+                </span>
+                <span>PID <strong id="gateway-pid">—</strong></span>
+                <span>版本 <strong id="gateway-version">—</strong></span>
+                <span>运行 <strong id="gateway-uptime">—</strong></span>
+                <span>管理口 <strong id="gateway-admin">—</strong></span>
+                <span class="gateway-actions">
+                  <button class="btn btn-small" id="gateway-refresh">
+                    刷新
+                  </button>
+                  <button class="btn btn-small hidden" id="gateway-install">
+                    安装常驻
+                  </button>
+                  <button class="btn btn-small" id="gateway-restart">
+                    重启
+                  </button>
+                  <button class="btn btn-small" id="gateway-uninstall">
+                    卸载
+                  </button>
+                </span>
+              </div>
+              <div class="gateway-memory" id="gateway-memory">
+                <div class="gateway-memory-head">
+                  <span
+                    >内存准入 <strong id="gateway-memory-state">—</strong></span
+                  >
+                  <small id="gateway-memory-detail">—</small>
+                </div>
+                <div class="bar"><i id="gateway-memory-bar"></i></div>
+              </div>
+              <p class="network-note">
+                Ollama 和 ComfyUI 的外部请求统一从本机 11435 / 8191
+                进入，排队、并发和超时由网关控制，再转发到 11434 / 8190。
+                网关只监听
+                127.0.0.1，模型端口不直接暴露到公网；这里只记录请求元数据，不记录
+                prompt 或请求内容。
+              </p>
+              <p class="gateway-error hidden" id="gateway-error"></p>
+            </div>
+
+            <div class="gateway-backends" id="gateway-backends">
+              <section class="panel" data-title="Ollama 队列">
+                <p class="muted gateway-placeholder">正在读取网关状态…</p>
+              </section>
+              <section class="panel" data-title="ComfyUI 队列">
+                <p class="muted gateway-placeholder">正在读取网关状态…</p>
+              </section>
+            </div>
+
+            <section class="panel" data-title="排队与执行中">
+              <div class="table-wrap gateway-table-wrap">
+                <table class="table gateway-table">
+                  <thead>
+                    <tr>
+                      <th>状态</th>
+                      <th>后端</th>
+                      <th>请求</th>
+                      <th>来源</th>
+                      <th class="num">等待</th>
+                      <th class="num">已运行</th>
+                      <th class="actions-col">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="gateway-queue-body"></tbody>
+                </table>
+              </div>
+              <div id="gateway-queue-empty" class="empty hidden">
+                <strong>队列为空</strong>
+                <span>当前没有排队或执行中的推理请求。</span>
+              </div>
+            </section>
+
+            <section class="panel" data-title="最近请求事件">
+              <div class="table-wrap gateway-table-wrap">
+                <table class="table gateway-table">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>后端</th>
+                      <th>状态</th>
+                      <th>请求</th>
+                      <th>来源</th>
+                      <th class="num">状态码</th>
+                      <th class="num">等待</th>
+                      <th class="num">耗时</th>
+                    </tr>
+                  </thead>
+                  <tbody id="gateway-events-body"></tbody>
+                </table>
+              </div>
+              <div id="gateway-events-empty" class="empty hidden">
+                <strong>暂无请求</strong>
+                <span>网关启动后还没有收到外部推理请求。</span>
+              </div>
             </section>
           </section>
 

@@ -445,6 +445,7 @@ fn spawn_agent(resource_dir: &Path, data_dir: &Path, config_path: &Path) -> std:
         .env("STUDIOOPS_DATA_DIR", data_dir)
         .env("STUDIOOPS_CONFIG", config_path)
         .env("STUDIOOPS_HOST", "127.0.0.1")
+        .env("STUDIOOPS_GATEWAY_AUTOSTART", "1")
         .env("PATH", path)
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(stderr))

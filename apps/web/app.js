@@ -17,6 +17,7 @@ const viewMeta = {
   logs: { title: "日志" },
   history: { title: "历史" },
   network: { title: "网络" },
+  gateway: { title: "推理网关" },
   settings: { title: "设置" },
 };
 
@@ -84,6 +85,7 @@ const state = {
   network: null,
   networkDirection: "inbound",
   networkBusy: false,
+  gateway: null,
   metricsSettings: null,
   alerts: null,
   launchdAgents: null,
@@ -1234,6 +1236,280 @@ async function loadNetwork({ refresh = false, quiet = false } = {}) {
     if (!quiet) toast(error.message, true);
   } finally {
     state.networkBusy = false;
+  }
+}
+
+/* ---------- inference gateway ---------- */
+
+const gatewayStateLabels = {
+  queued: "排队中",
+  active: "执行中",
+  completed: "完成",
+  failed: "失败",
+  rejected: "拒绝",
+  "timed-out": "超时",
+  cancelled: "取消",
+};
+
+const gatewayBackendLabels = {
+  ollama: "Ollama",
+  comfyui: "ComfyUI",
+};
+
+function fmtDuration(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
+function gatewayIsoAge(iso) {
+  return iso ? Date.now() - new Date(iso).getTime() : Number.NaN;
+}
+
+function gatewayBackendHtml(backend) {
+  const stats = backend.stats ?? {};
+  const limits = [
+    `并发 ${backend.concurrency}`,
+    `队列上限 ${backend.maxQueue}`,
+    `排队超时 ${fmtDuration(backend.queueTimeoutMs)}`,
+    `请求超时 ${fmtDuration(backend.requestTimeoutMs)}`,
+    `请求体上限 ${fmtBytes(backend.maxBodyBytes)}`,
+  ].join(" · ");
+  return `<section class="panel gateway-backend" data-title="${escapeHtml(gatewayBackendLabels[backend.backend] ?? backend.backend)} 队列">
+    <div class="gateway-chain">
+      <span class="gateway-port">入口 :${escapeHtml(backend.listenPort)}</span>
+      <span class="gateway-arrow">→</span>
+      <span class="gateway-upstream">${escapeHtml(backend.upstream)}</span>
+    </div>
+    <div class="gateway-metrics">
+      <div class="gateway-metric active">
+        <span>执行中</span>
+        <strong>${backend.active}</strong>
+        <small>/ ${backend.concurrency} 并发</small>
+      </div>
+      <div class="gateway-metric queued">
+        <span>排队</span>
+        <strong>${backend.queued}</strong>
+        <small>/ ${backend.maxQueue} 上限</small>
+      </div>
+      <div class="gateway-metric rejected">
+        <span>已拒绝</span>
+        <strong>${stats.rejected ?? 0}</strong>
+        <small>累计</small>
+      </div>
+      <div class="gateway-metric timeout">
+        <span>已超时</span>
+        <strong>${(stats.timedOut ?? 0) + (stats.failed ?? 0)}</strong>
+        <small>超时 + 失败</small>
+      </div>
+    </div>
+    <div class="gateway-stats">
+      接收 ${stats.received ?? 0} · 完成 ${stats.completed ?? 0} · 取消 ${stats.cancelled ?? 0}
+    </div>
+    <div class="gateway-limits">${escapeHtml(limits)}</div>
+  </section>`;
+}
+
+function gatewayQueueRows(gateway) {
+  const rows = [];
+  for (const backend of gateway.backends ?? []) {
+    for (const job of backend.activeJobs ?? []) {
+      rows.push({
+        state: "active",
+        backend: backend.backend,
+        job,
+        wait: job.waitMs,
+        running: gatewayIsoAge(job.startedAt),
+      });
+    }
+    for (const job of backend.queuedJobs ?? []) {
+      rows.push({
+        state: "queued",
+        backend: backend.backend,
+        job,
+        wait: gatewayIsoAge(job.enqueuedAt),
+        running: Number.NaN,
+      });
+    }
+  }
+  return rows;
+}
+
+function renderGateway() {
+  const gateway = state.gateway;
+  if (!gateway) return;
+  const running = Boolean(gateway.running);
+  const installed = Boolean(gateway.installed);
+  $("gateway-dot").className = `dot ${running ? "online" : "offline"}`;
+  $("gateway-state").textContent = running
+    ? "运行中"
+    : installed
+      ? "已安装，未运行"
+      : "未安装";
+  $("gateway-pid").textContent = gateway.pid ?? "—";
+  $("gateway-version").textContent = gateway.version ?? "—";
+  $("gateway-uptime").textContent = gatewayIsoAge(gateway.startedAt)
+    ? fmtDuration(gatewayIsoAge(gateway.startedAt))
+    : "—";
+  $("gateway-admin").textContent = gateway.adminUrl ?? "—";
+  $("gateway-install").classList.toggle("hidden", installed);
+  $("gateway-restart").classList.toggle("hidden", !installed);
+  $("gateway-uninstall").classList.toggle("hidden", !installed);
+
+  const error = $("gateway-error");
+  if (gateway.error && installed) {
+    error.textContent = `网关未响应：${gateway.error}`;
+    error.classList.remove("hidden");
+  } else if (!installed) {
+    error.textContent =
+      "网关尚未安装为常驻服务。安装后 Ollama / ComfyUI 的外部流量会先从 11435 / 8191 排队进入。";
+    error.classList.remove("hidden");
+  } else {
+    error.classList.add("hidden");
+  }
+
+  const memory = gateway.memory;
+  const memoryBox = $("gateway-memory");
+  if (memory && Number.isFinite(memory.percent)) {
+    const pressureLabel =
+      memory.pressure === "high"
+        ? "紧张"
+        : memory.pressure === "elevated"
+          ? "偏高"
+          : "正常";
+    const loaded = memory.ollama?.loadedModels ?? [];
+    memoryBox.classList.remove("hidden");
+    memoryBox.classList.toggle("high", memory.pressure === "high");
+    memoryBox.classList.toggle("elevated", memory.pressure === "elevated");
+    $("gateway-memory-state").textContent = pressureLabel;
+    $("gateway-memory-state").className =
+      `gateway-memory-level ${memory.pressure ?? "normal"}`;
+    $("gateway-memory-bar").style.width =
+      `${Math.min(100, Math.max(0, memory.percent))}%`;
+    $("gateway-memory-bar").className = memory.pressure ?? "normal";
+    $("gateway-memory-detail").textContent =
+      `已用 ${fmtBytes(memory.usedBytes)} / ${fmtBytes(memory.totalBytes)} · 推理预算 ${fmtBytes(memory.budgetBytes)} · 系统保留 ${fmtBytes(memory.reserveBytes)} · Ollama 已加载 ${loaded.length}/${memory.ollama?.maxLoadedModels ?? "—"}`;
+  } else {
+    memoryBox.classList.add("hidden");
+  }
+
+  const backends = gateway.backends ?? [];
+  $("gateway-backends").innerHTML = backends.length
+    ? backends.map(gatewayBackendHtml).join("")
+    : `<section class="panel"><p class="muted gateway-placeholder">网关未返回后端状态。安装并启动后这里会显示 Ollama 和 ComfyUI 的队列。</p></section>`;
+
+  const rows = gatewayQueueRows(gateway);
+  $("nav-gateway-count").textContent = String(
+    rows.filter((row) => row.state === "active" || row.state === "queued")
+      .length,
+  );
+  $("gateway-queue-body").innerHTML = rows
+    .map(
+      (row) => `<tr>
+        <td><span class="gateway-job-state ${row.state}">${escapeHtml(gatewayStateLabels[row.state] ?? row.state)}</span></td>
+        <td>${escapeHtml(gatewayBackendLabels[row.backend] ?? row.backend)}</td>
+        <td class="mono">${escapeHtml(row.job.method)} ${escapeHtml(row.job.path)}</td>
+        <td class="mono">${escapeHtml(row.job.client ?? "—")}</td>
+        <td class="num">${fmtDuration(row.wait)}</td>
+        <td class="num">${fmtDuration(row.running)}</td>
+        <td class="num actions-col"><button class="btn btn-small" data-gateway-cancel="${escapeHtml(row.job.id)}">取消</button></td>
+      </tr>`,
+    )
+    .join("");
+  $("gateway-queue-body")
+    .closest(".table-wrap")
+    .classList.toggle("hidden", rows.length === 0);
+  $("gateway-queue-empty").classList.toggle("hidden", rows.length > 0);
+
+  const events = (gateway.recent ?? []).slice(0, 30);
+  $("gateway-events-body").innerHTML = events
+    .map(
+      (event) => `<tr>
+        <td class="mono">${escapeHtml(fmtClock(event.finishedAt ?? event.enqueuedAt))}</td>
+        <td>${escapeHtml(gatewayBackendLabels[event.backend] ?? event.backend)}</td>
+        <td><span class="gateway-job-state ${escapeHtml(event.state)}" title="${escapeHtml(event.error ?? "")}">${escapeHtml(gatewayStateLabels[event.state] ?? event.state)}</span></td>
+        <td class="mono gateway-path">${escapeHtml(event.method)} ${escapeHtml(event.path)}${event.error ? `<small class="cell-sub" title="${escapeHtml(event.error)}">${escapeHtml(event.error)}</small>` : ""}</td>
+        <td class="mono">${escapeHtml(event.client ?? "—")}</td>
+        <td class="num">${event.statusCode ?? "—"}</td>
+        <td class="num">${fmtDuration(event.waitMs)}</td>
+        <td class="num">${fmtDuration(event.durationMs)}</td>
+      </tr>`,
+    )
+    .join("");
+  $("gateway-events-body")
+    .closest(".table-wrap")
+    .classList.toggle("hidden", events.length === 0);
+  $("gateway-events-empty").classList.toggle("hidden", events.length > 0);
+}
+
+async function loadGateway({ quiet = false } = {}) {
+  try {
+    state.gateway = await api("/api/gateway/status");
+    renderGateway();
+  } catch (error) {
+    if (!quiet) toast(error.message, true);
+    $("gateway-dot").className = "dot offline";
+    $("gateway-state").textContent = "无法读取";
+    $("gateway-error").textContent = error.message;
+    $("gateway-error").classList.remove("hidden");
+  }
+}
+
+async function gatewayAction(path, button, successMessage) {
+  if (button) button.disabled = true;
+  try {
+    await api(path, {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    toast(successMessage);
+    await loadGateway({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function installGateway(button) {
+  if (
+    !confirm(
+      "安装推理网关为常驻 LaunchAgent？\n\n它会监听 127.0.0.1:11435（Ollama）和 127.0.0.1:8191（ComfyUI），崩溃后自动重启，并随登录启动。",
+    )
+  )
+    return;
+  await gatewayAction("/api/gateway/install", button, "推理网关已安装并启动");
+}
+
+async function uninstallGateway(button) {
+  if (
+    !confirm(
+      "停止并卸载推理网关？\n\n卸载后外部请求将无法再从 11435 / 8191 进入；请先把 SSH 隧道改回直连 11434 / 8190。",
+    )
+  )
+    return;
+  await gatewayAction("/api/gateway/uninstall", button, "推理网关已卸载");
+}
+
+async function cancelGatewayJob(id, button) {
+  if (button) button.disabled = true;
+  try {
+    const result = await api(
+      `/api/gateway/queue/${encodeURIComponent(id)}/cancel`,
+      {
+        method: "POST",
+        headers: { "x-studioops-actor": "web" },
+      },
+    );
+    toast(result.cancelled ? "请求已取消" : "请求已不在队列中");
+    await loadGateway({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -3345,6 +3621,7 @@ function switchView(view, { updateHash = true } = {}) {
   if (view === "containers") loadDocker();
   if (view === "history") loadHistory();
   if (view === "network") loadNetwork();
+  if (view === "gateway") loadGateway();
   if (view === "settings") {
     renderSettingsFacts();
     loadTokenField();
@@ -3503,6 +3780,26 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "error-retry") {
     refreshAll();
+    return;
+  }
+  if (target.id === "gateway-refresh") {
+    loadGateway();
+    return;
+  }
+  if (target.id === "gateway-install") {
+    installGateway(target);
+    return;
+  }
+  if (target.id === "gateway-restart") {
+    gatewayAction("/api/gateway/restart", target, "推理网关已重启");
+    return;
+  }
+  if (target.id === "gateway-uninstall") {
+    uninstallGateway(target);
+    return;
+  }
+  if (target.dataset.gatewayCancel) {
+    cancelGatewayJob(target.dataset.gatewayCancel, target);
     return;
   }
   if (target.id === "drawer-backdrop") {
@@ -3976,6 +4273,7 @@ $("status-agent").textContent = new URL(agentOrigin).host;
 switchView(initialView, { updateHash: false });
 refreshAll({ quiet: true }).catch(() => {});
 loadProcesses();
+loadGateway({ quiet: true });
 connect();
 setInterval(() => {
   if (!document.hidden) loadProcesses();
@@ -3997,3 +4295,7 @@ setInterval(() => {
   if (!document.hidden && state.view === "network")
     loadNetwork({ quiet: true });
 }, 5000);
+setInterval(() => {
+  if (!document.hidden && state.view === "gateway")
+    loadGateway({ quiet: true });
+}, 3000);

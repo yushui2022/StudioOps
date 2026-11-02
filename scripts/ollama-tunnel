@@ -1,0 +1,53 @@
+#!/bin/bash
+# 把 VPS 回环端口反向映射到本机 StudioOps Inference Gateway。
+#
+#   VPS 127.0.0.1:11434 -> 本机 127.0.0.1:11435 -> Gateway -> Ollama 11434
+#   VPS 127.0.0.1:8190  -> 本机 127.0.0.1:8191  -> Gateway -> ComfyUI 8190
+#
+# 前置：~/.ssh/config 里要有 Host vps，且 StudioOps Gateway LaunchAgent 已运行。
+#
+# 用法：
+#   ollama-tunnel                         前台运行，看日志
+#   FORWARDS="11434:11435 8190:8191" ollama-tunnel
+#
+# FORWARDS 每项格式为「远端端口:本机端口」；省略「:本机端口」时两端相同。
+
+set -uo pipefail
+
+HOST="${TUNNEL_HOST:-vps}"
+FORWARDS="${FORWARDS:-11434:11435 8190:8191}"
+
+args=()
+for mapping in $FORWARDS; do
+  remote="${mapping%%:*}"
+  local="${mapping#*:}"
+  if [ "$local" = "$mapping" ]; then
+    local="$remote"
+  fi
+  args+=(-R "127.0.0.1:${remote}:127.0.0.1:${local}")
+done
+
+first="${FORWARDS%% *}"
+first_remote="${first%%:*}"
+first_local="${first#*:}"
+if [ "$first_local" = "$first" ]; then
+  first_local="$first_remote"
+fi
+
+# 避免重复启动（按第一条映射判断）
+if pgrep -f "127.0.0.1:${first_remote}:127.0.0.1:${first_local} ${HOST}" >/dev/null 2>&1; then
+  echo "[tunnel] 已在运行"
+  exit 0
+fi
+
+echo "[tunnel] $(date '+%F %T') 建立隧道 ${HOST} 映射: ${FORWARDS}"
+
+exec ssh -N \
+  -o ServerAliveInterval=20 \
+  -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -o TCPKeepAlive=yes \
+  -o ConnectTimeout=15 \
+  -o BatchMode=yes \
+  "${args[@]}" \
+  "${HOST}"

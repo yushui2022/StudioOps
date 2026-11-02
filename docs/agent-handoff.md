@@ -40,6 +40,7 @@
 | ComfyUI 队列            | 已完成                 | `core/comfyui.ts`、`/api/services/:id/comfyui`、`/api/services/:id/comfyui/cancel`、`apps/web/app.js`                  | 运行/等待/历史；MPS VRAM；中断/取消；comfy-cancel 审计                                                           |
 | Tailscale 身份审计      | 已完成                 | `core/event-store.ts`、`services/agent/src/index.ts`、`apps/web/app.js`                                                | Tauri/本机/远程 actor；Tailscale-User-Login/Name 写入审计；旧 SQLite 自动加列                                    |
 | 网络世界地图            | 已完成                 | `core/network-connections.ts`、`/api/network/connections`、`apps/web/assets/world-map.svg`、`apps/web/app.js`          | lsof ESTABLISHED/LISTEN；公网过滤；入站 GeoIP；离线地图弧线；出站列表；不抓包                                    |
+| 推理网关                | 已完成                 | `services/gateway/src/*`、`core/gateway-service.ts`、`/api/gateway/*`、`apps/web/app.js`                               | 11435/8191 反向代理、队列/并发/超时/取消、内存准入、空闲模型卸载、LaunchAgent 常驻、网关视图和最近事件           |
 | Ollama 模型操作         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`、`/api/services/:id/models/:action`                    | 合并 tags/ps；VRAM/内存/到期；加载/卸载；服务停止隐藏操作；model-load/unload 审计                                |
 | 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                                                          | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                                                              |
 | 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs`     | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent                 |
@@ -82,14 +83,15 @@
 
 ## 本机真实服务状态
 
-| 服务          | 当前登记方式 | 目标                                   | 健康/运行信息                                                      |
-| ------------- | ------------ | -------------------------------------- | ------------------------------------------------------------------ |
-| Ollama        | launchd      | `gui/501/ai.local.ollama`              | 11434，健康检查 200，发现 4 个模型                                 |
-| ComfyUI       | launchd      | `gui/501/ai.local.comfyui`             | 8188，健康检查 200，设备为 mps                                     |
-| Ollama Tunnel | launchd      | `gui/501/ai.local.ollama-tunnel`       | 当前有 PID 和日志，尚未有真实 tunnel 健康检查                      |
-| Docker        | CLI 已安装   | Docker Desktop 2.x / daemon 可启动     | `/api/docker` 显示状态；已用测试容器验证启动/停止/重启并清理       |
-| Tailscale     | 已安装并验收 | `1.104.4`；tailnet `yushui2022.github` | 100.115.137.62；MagicDNS + Serve 已验证；StudioOps 仅 tailnet 开放 |
-| cloudflared   | 已接入       | 版本 2026.10.7                         | quick tunnel 已实测；config/token 命令有单测                       |
+| 服务              | 当前登记方式 | 目标                                      | 健康/运行信息                                                             |
+| ----------------- | ------------ | ----------------------------------------- | ------------------------------------------------------------------------- |
+| Ollama            | launchd      | `gui/501/ai.local.ollama`                 | 11434，健康检查 200，发现 4 个模型                                        |
+| ComfyUI           | launchd      | `gui/501/ai.local.comfyui`                | 8188，健康检查 200，设备为 mps                                            |
+| Ollama Tunnel     | launchd      | `gui/501/ai.local.ollama-tunnel`          | `11434→11435`、`8190→8191`；已实测 VPS 回环和 Docker 网桥经过网关         |
+| Inference Gateway | launchd      | `gui/501/com.studioops.inference-gateway` | 11435/8191/11436；并发 2/1、队列 8、内存预算 52 GB；真实 Sub2API 已过网关 |
+| Docker            | CLI 已安装   | Docker Desktop 2.x / daemon 可启动        | `/api/docker` 显示状态；已用测试容器验证启动/停止/重启并清理              |
+| Tailscale         | 已安装并验收 | `1.104.4`；tailnet `yushui2022.github`    | 100.115.137.62；MagicDNS + Serve 已验证；StudioOps 仅 tailnet 开放        |
+| cloudflared       | 已接入       | 版本 2026.10.7                            | quick tunnel 已实测；config/token 命令有单测                              |
 
 ## Release 验收记录（2026-11-01）
 
@@ -138,13 +140,14 @@
 33. 指标历史验收：Agent 默认 10 秒采样，SQLite 写入原始点和 1m/1h rollup；5m 返回 10 秒点、1h 返回 1 分钟点、24h 返回 5 分钟点；历史视图显示 6 张系统曲线和服务 CPU/内存；重启 Agent 后历史仍在；设置页可保存采样间隔和保留天数。
 34. 告警与通知验收：真实进程被 kill 后进入 pending，超过确认时间后 firing，服务重启后发送恢复通知；同一告警在确认后不重复发送；内存阈值滞后由单测覆盖；设置页显示开关、阈值、活动告警和最近记录；`POST /api/alerts/test` 成功触发 macOS 桌面通知。
 35. 日志实时流验收：WebSocket 订阅先返回最后 2 行，追加文件后 1 秒内只推送新增行；搜索 `line-3` 只显示匹配行并高亮；清空视图不删除日志文件；文件截断后返回 reset；error/warn 行有颜色；关闭页面/切换视图后订阅停止。
-36. Compose 验收：临时 Compose 项目包含 web/worker 两个 node 服务；`up -d` 后项目卡片显示 `2 / 2` 服务和两个 running 容器，日志返回 `web tick`/`worker tick`；`restart` 后仍 running；`down` 后服务数保留 2、运行容器 0、状态 stopped；未影响现有 qq-stack。
-37. LaunchAgent 导入验收：真实环境扫描 7 个用户 agent，列出 4 个 `ai.local.*`、loaded/PID 和命令；已配置的 ollama/comfyui/ollama-tunnel 禁用导入；临时 HOME 中导入 `ai.local.demo`，表单预填 target/plist/log，保存后配置为 launchd 服务并通过白名单校验。
-38. Ollama 模型验收：bge-m3 在 UI 显示 VRAM/内存/到期；卸载后 `/api/ps` 为空、UI 变为“磁盘”并显示加载按钮；重新加载后恢复 VRAM；审计记录 model-unload/model-load；服务停止时按钮由 `state === running` 隐藏。
-39. ComfyUI 队列验收：真实 ComfyUI 返回 1 个运行任务、6 条历史和 mps 显存；服务行显示 MPS VRAM/GPU/温度；模拟 ComfyUI 服务验证运行任务 `/interrupt`、等待任务 `delete`，两次 comfy-cancel 审计成功；未取消真实任务。
-40. Tailscale 身份审计验收：带 `Tailscale-User-Login`/`Tailscale-User-Name` 的远程请求写入审计，`/api/events` 返回 `actor=web`、`remoteUser=friend@example.com`、`remoteName=Friend User`；本机事件仍不带远程身份。
-41. 网络地图验收：真实环境显示服务器位置 Shanghai · CN、0 个公网入站、70+ 个本机外联；入站/出站/全部切换正常；出站 top 8 目的地后台 GeoIP，地图显示金色出站弧线；Tailscale/回环/私网过滤；`lsof` 解析和方向判断有单测。
-42. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
+36. 推理网关验收：网关作为独立 LaunchAgent 运行，`11435/8191/11436` 均监听回环；单元/集成测试覆盖转发、流式、并发、队列满 429、排队超时 503、客户端断开取消、请求超时 504、请求体 413、内存预算和模型槽位；真实环境自动卸载 bge-m3 后加载 qwen 27B；SSH 隧道改为 `11434→11435`、`8190→8191` 后，VPS 回环和 Docker 网桥请求都计入网关；真实 Sub2API `/v1/chat/completions` 返回 200，网关只记录元数据不记录 prompt。
+37. Compose 验收：临时 Compose 项目包含 web/worker 两个 node 服务；`up -d` 后项目卡片显示 `2 / 2` 服务和两个 running 容器，日志返回 `web tick`/`worker tick`；`restart` 后仍 running；`down` 后服务数保留 2、运行容器 0、状态 stopped；未影响现有 qq-stack。
+38. LaunchAgent 导入验收：真实环境扫描 7 个用户 agent，列出 4 个 `ai.local.*`、loaded/PID 和命令；已配置的 ollama/comfyui/ollama-tunnel 禁用导入；临时 HOME 中导入 `ai.local.demo`，表单预填 target/plist/log，保存后配置为 launchd 服务并通过白名单校验。
+39. Ollama 模型验收：bge-m3 在 UI 显示 VRAM/内存/到期；卸载后 `/api/ps` 为空、UI 变为“磁盘”并显示加载按钮；重新加载后恢复 VRAM；审计记录 model-unload/model-load；服务停止时按钮由 `state === running` 隐藏。
+40. ComfyUI 队列验收：真实 ComfyUI 返回 1 个运行任务、6 条历史和 mps 显存；服务行显示 MPS VRAM/GPU/温度；模拟 ComfyUI 服务验证运行任务 `/interrupt`、等待任务 `delete`，两次 comfy-cancel 审计成功；未取消真实任务。
+41. Tailscale 身份审计验收：带 `Tailscale-User-Login`/`Tailscale-User-Name` 的远程请求写入审计，`/api/events` 返回 `actor=web`、`remoteUser=friend@example.com`、`remoteName=Friend User`；本机事件仍不带远程身份。
+42. 网络地图验收：真实环境显示服务器位置 Shanghai · CN、0 个公网入站、70+ 个本机外联；入站/出站/全部切换正常；出站 top 8 目的地后台 GeoIP，地图显示金色出站弧线；Tailscale/回环/私网过滤；`lsof` 解析和方向判断有单测。
+43. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
