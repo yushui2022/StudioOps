@@ -13,8 +13,9 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, RunEvent, WindowEvent,
+    AppHandle, Manager, RunEvent, WindowEvent,
 };
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 /// Initial config copied into the App data directory on first launch. It is only
 /// a starting point; a user edited services.yaml is never overwritten.
@@ -37,6 +38,7 @@ impl AgentProcess {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "打开 StudioOps", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出 StudioOps", true, None::<&str>)?;
@@ -71,15 +73,36 @@ fn main() {
 
                 let supervisor = if studioops_agent_running() {
                     append_agent_log(&data_dir, "reusing the agent already listening on 7227");
-                    start_agent_supervisor(&resource_dir, &data_dir, &config_path, true)
+                    start_agent_supervisor(
+                        &resource_dir,
+                        &data_dir,
+                        &config_path,
+                        app.handle().clone(),
+                        true,
+                    )
                 } else if port_open() {
                     append_agent_log(
                         &data_dir,
                         "port 7227 is already in use by another process; not starting a second agent",
                     );
+                    let dialog_handle = app.handle().clone();
+                    thread::spawn(move || {
+                        thread::sleep(Duration::from_secs(2));
+                        show_error_dialog(
+                            &dialog_handle,
+                            "StudioOps Agent 无法启动",
+                            "端口 7227 已被其他程序占用。\n请先关闭占用程序，或运行 lsof -nP -iTCP:7227 -sTCP:LISTEN 查看原因。",
+                        );
+                    });
                     AgentProcess::idle()
                 } else {
-                    start_agent_supervisor(&resource_dir, &data_dir, &config_path, false)
+                    start_agent_supervisor(
+                        &resource_dir,
+                        &data_dir,
+                        &config_path,
+                        app.handle().clone(),
+                        false,
+                    )
                 };
                 app.manage(supervisor);
             }
@@ -191,6 +214,7 @@ fn start_agent_supervisor(
     resource_dir: &Path,
     data_dir: &Path,
     config_path: &Path,
+    app_handle: AppHandle,
     adopt_existing: bool,
 ) -> AgentProcess {
     let child = Arc::new(Mutex::new(None));
@@ -206,6 +230,8 @@ fn start_agent_supervisor(
 
     thread::spawn(move || {
         let mut backoff = 1;
+        let mut consecutive_failures = 0;
+        let mut notified = false;
         if adopt_existing {
             append_agent_log(&data_dir, "monitoring the existing agent on 7227");
             while !shutdown.load(Ordering::SeqCst) && studioops_agent_running() {
@@ -236,6 +262,18 @@ fn start_agent_supervisor(
                         &data_dir,
                         &format!("agent failed to start: {error}; retrying in {backoff}s"),
                     );
+                    consecutive_failures += 1;
+                    if consecutive_failures >= 3 && !notified {
+                        notified = true;
+                        show_error_dialog(
+                            &app_handle,
+                            "StudioOps Agent 无法启动",
+                            &format!(
+                                "Agent 连续启动失败：{error}\n\n请确认已安装 Node.js 22.5+，或设置 STUDIOOPS_NODE。\n日志：{}",
+                                data_dir.join("agent.log").display()
+                            ),
+                        );
+                    }
                     false
                 }
             };
@@ -289,8 +327,22 @@ fn start_agent_supervisor(
             let lived_for = started.elapsed();
             if lived_for < Duration::from_secs(10) {
                 backoff = (backoff * 2).min(30);
+                consecutive_failures += 1;
+                if consecutive_failures >= 3 && !notified {
+                    notified = true;
+                    show_error_dialog(
+                        &app_handle,
+                        "StudioOps Agent 反复退出",
+                        &format!(
+                            "{exit_reason}\n\n当前会按 {backoff} 秒间隔继续重试。\n日志：{}",
+                            data_dir.join("agent.log").display()
+                        ),
+                    );
+                }
             } else {
                 backoff = 1;
+                consecutive_failures = 0;
+                notified = false;
             }
             append_agent_log(
                 &data_dir,
@@ -301,6 +353,20 @@ fn start_agent_supervisor(
     });
 
     state
+}
+
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn show_error_dialog(app_handle: &AppHandle, title: &str, message: &str) {
+    let app = app_handle.clone();
+    let title = title.to_string();
+    let message = message.to_string();
+    let _ = app_handle.run_on_main_thread(move || {
+        app.dialog()
+            .message(message)
+            .title(title)
+            .kind(MessageDialogKind::Error)
+            .show(|_| {});
+    });
 }
 
 #[cfg_attr(debug_assertions, allow(dead_code))]
