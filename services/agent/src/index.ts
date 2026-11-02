@@ -22,6 +22,7 @@ import {
   saveApiToken,
   type ApiTokenSource,
 } from "./core/api-token.js";
+import { cancelComfyTask, getComfySnapshot } from "./core/comfyui.js";
 import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
@@ -1186,6 +1187,66 @@ app.get("/api/services/:id/models", async (c) => {
       },
       400,
     );
+  }
+});
+app.get("/api/services/:id/comfyui", async (c) => {
+  try {
+    const definition = registry.definition(c.req.param("id"));
+    if (definition.kind !== "comfyui")
+      throw new Error("Queue is only supported for ComfyUI");
+    return json(await getComfySnapshot(definition));
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to read ComfyUI",
+      },
+      400,
+    );
+  }
+});
+app.post("/api/services/:id/comfyui/cancel", async (c) => {
+  const id = c.req.param("id");
+  const actor =
+    c.req.header("x-studioops-actor") === "desktop"
+      ? "desktop"
+      : c.req.header("x-studioops-actor") === "web"
+        ? "web"
+        : "local";
+  try {
+    const body = await readJsonObject(c.req.raw);
+    if (typeof body.promptId !== "string" || !body.promptId.trim())
+      throw new Error("promptId is required");
+    const definition = registry.definition(id);
+    if (definition.kind !== "comfyui")
+      throw new Error("Queue is only supported for ComfyUI");
+    const snapshot = await registry.inspect(id);
+    if (snapshot.state !== "running")
+      throw new Error(`Start ${definition.name} before cancelling tasks`);
+    const cancelled = await cancelComfyTask(definition, body.promptId.trim());
+    const refreshed = await getComfySnapshot(definition);
+    eventStore.record({
+      serviceId: id,
+      action: "comfy-cancel",
+      state: snapshot.state,
+      success: true,
+      actor,
+      at: new Date().toISOString(),
+    });
+    return json({ cancelled, snapshot: refreshed });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to cancel task";
+    eventStore.record({
+      serviceId: id,
+      action: "comfy-cancel",
+      state: "error",
+      success: false,
+      actor,
+      error: message,
+      at: new Date().toISOString(),
+    });
+    return c.json({ error: message }, 400);
   }
 });
 app.post("/api/services/:id/models/:action", async (c) => {

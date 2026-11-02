@@ -29,6 +29,10 @@ import {
   loadApiToken,
   saveApiToken,
 } from "../services/agent/src/core/api-token.js";
+import {
+  comfyBaseUrl,
+  summarizeComfyState,
+} from "../services/agent/src/core/comfyui.js";
 import { changedRuntimeFields } from "../services/agent/src/core/config-diff.js";
 import { ConfigStore } from "../services/agent/src/core/config-store.js";
 import {
@@ -393,6 +397,76 @@ test("config diff marks only runtime fields as restart-required", () => {
       health: { type: "http", endpoint: "http://127.0.0.1:3000/health" },
     }),
     [],
+  );
+});
+
+test("ComfyUI queue summarizes running, pending and history with MPS stats", () => {
+  const snapshot = summarizeComfyState(
+    "http://127.0.0.1:8188",
+    {
+      queue_running: [
+        [
+          5,
+          "run-1",
+          {
+            "1": { class_type: "KSampler", inputs: { prompt: "hello world" } },
+          },
+          { create_time: 1000 },
+        ],
+      ],
+      queue_pending: [
+        [6, "pend-1", { "1": { class_type: "VAEDecode", inputs: {} } }, {}],
+      ],
+    },
+    {
+      "hist-1": {
+        prompt: [
+          4,
+          "hist-1",
+          { "1": { class_type: "SaveImage", inputs: {} } },
+          { create_time: 1000 },
+        ],
+        outputs: { "8": { images: [{ filename: "a.png" }] } },
+        status: {
+          status_str: "success",
+          messages: [
+            ["execution_start", { timestamp: 1000 }],
+            ["execution_success", { timestamp: 3000 }],
+          ],
+        },
+      },
+    },
+    {
+      system: { comfyui_version: "0.43.0", ram_total: 1000, ram_free: 400 },
+      devices: [
+        {
+          name: "mps",
+          type: "mps",
+          vram_total: 1000,
+          vram_free: 300,
+        },
+      ],
+    },
+  );
+  assert.equal(snapshot.running[0]?.state, "running");
+  assert.equal(snapshot.running[0]?.preview, "hello world");
+  assert.equal(snapshot.pending[0]?.state, "pending");
+  assert.equal(snapshot.history[0]?.state, "success");
+  assert.equal(snapshot.history[0]?.durationMs, 2000);
+  assert.equal(snapshot.history[0]?.images, 1);
+  assert.equal(snapshot.device?.vramUsedBytes, 700);
+  assert.equal(snapshot.version, "0.43.0");
+  assert.equal(
+    comfyBaseUrl({
+      id: "comfy",
+      name: "Comfy",
+      kind: "comfyui",
+      adapter: "launchd",
+      target: "gui/501/ai.local.comfyui",
+      port: 8188,
+      allowedActions: ["start", "stop"],
+    }),
+    "http://127.0.0.1:8188",
   );
 });
 

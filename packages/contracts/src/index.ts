@@ -94,7 +94,12 @@ export interface OperationEvent {
   id?: number;
   serviceId: string;
   action:
-    ServiceAction | "terminate" | "config" | "model-load" | "model-unload";
+    | ServiceAction
+    | "terminate"
+    | "config"
+    | "model-load"
+    | "model-unload"
+    | "comfy-cancel";
   state: ServiceState;
   success: boolean;
   actor: "desktop" | "web" | "local";

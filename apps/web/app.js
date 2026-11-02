@@ -29,6 +29,7 @@ const actionLabels = {
   config: "配置变更",
   "model-load": "加载模型",
   "model-unload": "卸载模型",
+  "comfy-cancel": "取消任务",
 };
 
 const stateLabels = {
@@ -82,6 +83,7 @@ const state = {
   metricsSettings: null,
   alerts: null,
   launchdAgents: null,
+  comfyuiQueues: {},
   formServiceId: null,
   lastUpdated: null,
   connected: false,
@@ -1528,6 +1530,147 @@ function loadTokenField() {
 
 /* ---------- drawer ---------- */
 
+function comfyTaskHtml(task, serviceId) {
+  const action =
+    task.state === "running"
+      ? `<button class="btn btn-small btn-danger" data-cancel-comfy="${escapeHtml(serviceId)}" data-prompt-id="${escapeHtml(task.promptId)}" data-running="true">中断</button>`
+      : task.state === "pending"
+        ? `<button class="btn btn-small" data-cancel-comfy="${escapeHtml(serviceId)}" data-prompt-id="${escapeHtml(task.promptId)}" data-running="false">取消</button>`
+        : "";
+  const meta = [
+    task.classTypes.slice(0, 4).join(" · "),
+    task.startedAt ? `开始 ${fmtClock(task.startedAt)}` : "",
+    task.durationMs ? `耗时 ${(task.durationMs / 1000).toFixed(1)}s` : "",
+    task.images ? `${task.images} 张图` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `<div class="comfy-task ${escapeHtml(task.state)}">
+    <div class="comfy-task-head">
+      <strong>${escapeHtml(task.state === "running" ? "运行中" : task.state === "pending" ? "等待中" : task.state === "success" ? "完成" : "失败")} · ${escapeHtml(task.promptId.slice(0, 8))}</strong>
+      <small>#${task.number ?? "—"}</small>
+      ${action}
+    </div>
+    <p>${escapeHtml(task.preview || meta || "无任务描述")}</p>
+    <small>${escapeHtml(meta)}</small>
+  </div>`;
+}
+
+function comfySectionHtml(service) {
+  const snapshot = state.comfyuiQueues[service.id];
+  const silicon = state.system?.silicon;
+  if (!snapshot) {
+    return `<section class="inline-section" id="comfy-section-${escapeHtml(service.id)}">
+      <div class="inline-head"><h3>ComfyUI 队列</h3><span class="muted">加载中…</span></div>
+    </section>`;
+  }
+  if (snapshot.error) {
+    return `<section class="inline-section" id="comfy-section-${escapeHtml(service.id)}">
+      <div class="inline-head"><h3>ComfyUI 队列</h3><button class="link" data-inline-comfy="${escapeHtml(service.id)}">刷新</button></div>
+      <p class="model-empty">${escapeHtml(snapshot.error)}</p>
+    </section>`;
+  }
+  const device = snapshot.device;
+  const memory = device
+    ? `${escapeHtml(device.name.toUpperCase())} · VRAM ${fmtBytes(device.vramUsedBytes)} / ${fmtBytes(device.vramTotalBytes)} · 可用 ${fmtBytes(device.vramFreeBytes)}`
+    : "MPS 设备信息不可用";
+  const mps = [
+    memory,
+    `GPU ${fmtPercent(silicon?.gpuPercent)}`,
+    `温度 ${Number.isFinite(silicon?.cpuTemperatureC) ? `${silicon.cpuTemperatureC.toFixed(1)}°C` : "—"}`,
+  ].join(" · ");
+  const tasks = [
+    ...snapshot.running.map((task) => comfyTaskHtml(task, service.id)),
+    ...snapshot.pending.map((task) => comfyTaskHtml(task, service.id)),
+  ].join("");
+  const history = snapshot.history
+    .slice(0, 6)
+    .map((task) => comfyTaskHtml(task, service.id))
+    .join("");
+  return `<section class="inline-section" id="comfy-section-${escapeHtml(service.id)}">
+    <div class="inline-head">
+      <h3>ComfyUI 队列</h3>
+      <span class="muted" id="inline-comfy-count-${escapeHtml(service.id)}">运行 ${snapshot.running.length} · 等待 ${snapshot.pending.length} · 历史 ${snapshot.history.length}</span>
+      <button class="link" data-inline-comfy="${escapeHtml(service.id)}">刷新</button>
+    </div>
+    <div class="comfy-metrics" id="inline-comfy-metrics-${escapeHtml(service.id)}">${mps}</div>
+    <div class="comfy-queue" id="inline-comfy-${escapeHtml(service.id)}">
+      ${tasks || '<p class="model-empty">当前队列为空</p>'}
+      ${history ? `<div class="comfy-history-head">最近历史</div>${history}` : ""}
+    </div>
+  </section>`;
+}
+
+async function loadInlineComfy(serviceId) {
+  const service = state.services.find((item) => item.id === serviceId);
+  if (!service || service.state !== "running") {
+    state.comfyuiQueues[serviceId] = {
+      error: "启动 ComfyUI 后可查看和取消队列任务",
+      running: [],
+      pending: [],
+      history: [],
+    };
+    renderComfyInline(serviceId);
+    return;
+  }
+  try {
+    state.comfyuiQueues[serviceId] = await api(
+      `/api/services/${encodeURIComponent(serviceId)}/comfyui`,
+    );
+  } catch (error) {
+    state.comfyuiQueues[serviceId] = {
+      error: error.message,
+      running: [],
+      pending: [],
+      history: [],
+    };
+  }
+  renderComfyInline(serviceId);
+}
+
+function renderComfyInline(serviceId) {
+  if (state.expandedServiceId !== serviceId) return;
+  const service = state.services.find((item) => item.id === serviceId);
+  if (!service) return;
+  const wrapper = $(`comfy-section-${serviceId}`);
+  if (!wrapper) return;
+  const replacement = document.createElement("div");
+  replacement.innerHTML = comfySectionHtml(service);
+  wrapper.replaceWith(replacement.firstElementChild);
+}
+
+async function cancelComfyTask(serviceId, promptId, running) {
+  if (
+    !confirm(
+      running
+        ? "中断正在运行的 ComfyUI 任务？当前生成会停止。"
+        : "从队列中取消这个等待任务？",
+    )
+  )
+    return;
+  try {
+    const result = await api(
+      `/api/services/${encodeURIComponent(serviceId)}/comfyui/cancel`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-studioops-actor": "web",
+        },
+        body: JSON.stringify({ promptId }),
+      },
+    );
+    state.comfyuiQueues[serviceId] = result.snapshot;
+    toast(running ? "已中断 ComfyUI 任务" : "已取消等待任务");
+    renderComfyInline(serviceId);
+    await refreshEvents();
+    await loadInference();
+  } catch (error) {
+    toast(error.message, true);
+    await loadInlineComfy(serviceId);
+  }
+}
+
 function modelsToHtml(snapshot, service) {
   if (!snapshot.models.length)
     return '<p class="model-empty">没有已下载的模型</p>';
@@ -1575,6 +1718,8 @@ function inlineDetailHtml(service) {
   const models = state.ollamaModels[service.id];
   const log = state.inlineLogs[service.id];
   const health = service.healthState ?? "unknown";
+  const comfySection =
+    service.kind === "comfyui" ? comfySectionHtml(service) : "";
   const modelSection =
     service.kind === "ollama"
       ? `<section class="inline-section">
@@ -1628,6 +1773,7 @@ function inlineDetailHtml(service) {
             }
             <div class="inline-fact wide"><span>允许动作</span><strong>${escapeHtml(service.allowedActions.join(" · "))}</strong></div>
           </div>
+          ${comfySection}
           ${modelSection}
           ${
             service.adapter === "docker-compose" && service.details?.compose
@@ -1683,6 +1829,7 @@ function toggleServiceDetail(serviceId) {
   state.expandedServiceId = serviceId;
   renderServices();
   if (service.kind === "ollama") loadInlineModels(serviceId);
+  if (service.kind === "comfyui") loadInlineComfy(serviceId);
   loadInlineLog(serviceId);
 }
 
@@ -3301,6 +3448,18 @@ document.addEventListener("click", (event) => {
       (item) => item.id === target.dataset.editService,
     );
     if (service) openServiceForm(service);
+    return;
+  }
+  if (target.dataset.inlineComfy) {
+    loadInlineComfy(target.dataset.inlineComfy);
+    return;
+  }
+  if (target.dataset.cancelComfy) {
+    cancelComfyTask(
+      target.dataset.cancelComfy,
+      target.dataset.promptId,
+      target.dataset.running === "true",
+    );
     return;
   }
   if (target.dataset.loadModel) {

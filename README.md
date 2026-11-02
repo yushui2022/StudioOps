@@ -54,6 +54,7 @@ npm run dev
 - Compose 项目：项目页显示 Compose 服务数、运行容器数和容器状态；支持真实 `up -d`、`logs`、`restart`、`down`，错误会提取 compose stderr。
 - LaunchAgent 发现：设置页扫描 `~/Library/LaunchAgents`，显示 loaded/PID、命令和已配置状态；导入会打开预填表单，保存后仍走 launchd 适配器和动作白名单。
 - Ollama 模型操作：模型列表显示 loaded、VRAM、占用内存和到期时间；服务运行时可加载/卸载模型，操作写入审计；服务停止时隐藏模型操作。
+- ComfyUI 队列：服务行显示运行/等待/历史任务、MPS VRAM/GPU/温度；可中断运行任务或取消等待任务，取消操作写入审计。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
 - 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
