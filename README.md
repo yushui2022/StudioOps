@@ -1,111 +1,390 @@
+<div align="center">
+
+<img src="apps/web/assets/studioops-logo.svg" width="76" alt="StudioOps logo" />
+
 # StudioOps
 
-桌面端优先的 macOS 本地服务器与 AI 服务控制台。
+**A local-first control plane for macOS AI servers.**
 
-当前仓库是从空仓库开始搭建的第一版骨架。它已经包含一个可运行的本地 Agent、共享契约、服务注册表、launchd 适配器边界，以及一个 Web 控制台。桌面端会用 Tauri 2 包装同一套 Web 前端，不再维护两套业务逻辑。
+把 Ollama、ComfyUI、MiniMax H3 视频、launchd 常驻服务、请求队列和内存保护放进一个本地控制台。
 
-## 运行
+[![macOS](https://img.shields.io/badge/platform-macOS%2014%2B-black)](https://www.apple.com/macos/)
+[![Node](https://img.shields.io/badge/Node.js-22.5%2B-339933)](https://nodejs.org/)
+[![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB)](https://tauri.app/)
+[![Tests](https://img.shields.io/badge/tests-71%20passing-brightgreen)](tests/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-要求 Node.js 22.5+（使用内置 `node:sqlite` 保存操作历史）。
+</div>
+
+![StudioOps 推理网关](docs/assets/gateway.png)
+
+> StudioOps 目前是 pre-1.0 项目。它优先解决一台 Mac 上“AI 服务能稳定跑、不会把内存打爆、外部请求能排队”的问题，而不是做一个聊天客户端。
+
+## 为什么做 StudioOps
+
+在 Mac 上跑本地 AI，常见状态是：
+
+- Ollama、ComfyUI、Compose 项目和各种脚本散落在多个终端里
+- 服务没有统一的开机启动、崩溃恢复、日志和健康检查
+- 外部请求直接打模型端口，没有队列、并发限制和超时
+- Ollama 和 ComfyUI 同时加载大模型，把统一内存和 swap 打满
+- 远程访问靠临时 SSH 隧道，缺少审计和安全边界
+- 出问题只能看进程列表，不知道是谁、什么时候、调用了哪个模型
+
+StudioOps 把这些事情收进一个 macOS 原生控制台：
+
+```text
+服务生命周期 + AI 运行时 + 请求网关 + 内存准入 + 可观测性 + 私网访问
+```
+
+## 主要能力
+
+### 服务控制面
+
+- 统一管理 `launchd`、普通进程、Docker Compose、cloudflared
+- 启动 / 停止 / 重启 / 暂停 / 恢复，动作白名单约束
+- 开机启动、KeepAlive、崩溃恢复、日志和健康检查
+- 项目服务可生成独立 LaunchAgent
+- 进程身份持久化，Agent 重启后仍能识别原进程
+- 配置写入前校验、自动备份、热加载和回滚
+
+### AI 运行时与内存保护
+
+- Ollama 模型列表、加载/卸载、VRAM、内存占用和到期时间
+- ComfyUI 队列、历史、MPS VRAM、中断和取消
+- 读取 macOS `vm_stat`，按推理预算和系统保留线做准入
+- Ollama 模型槽位限制，空闲模型自动卸载
+- ComfyUI 图片和 H3 视频分别设置可用内存门槛
+- 内存紧张时拒绝新任务，而不是让系统进入 OOM
+
+### Inference Gateway
+
+外部请求不再直接访问模型端口：
+
+```text
+Ollama:       11435 → 11434
+ComfyUI 图片: 8191  → 8190
+H3 视频:      8192  → 8193 → 8188
+管理 API:     11436
+```
+
+- 每个后端独立的并发、队列上限、排队超时和请求超时
+- 队列满返回 `429`，内存不足返回 `503`
+- 客户端断开时取消排队或中止上游
+- 支持流式响应，不缓冲完整模型输出
+- 持久化模型调用记录：模型、后端、状态、耗时、来源
+- 默认不记录 prompt、请求体或 Authorization
+
+### 可观测性
+
+- 2 秒系统指标、5 秒服务状态 WebSocket 推送
+- SQLite 指标历史：5 分钟 / 1 小时 / 24 小时
+- 服务掉线、操作失败、内存、磁盘、温度告警
+- 实时日志流、搜索、错误高亮和轮转重置
+- 操作审计，记录 actor 和 Tailscale 远程身份
+- 公网入站/出站连接世界地图，不抓包
+
+### 远程访问与安全
+
+- 所有服务默认只监听 `127.0.0.1`
+- 非回环访问必须使用 Bearer Token
+- Tailscale Serve 只对 tailnet 开放，不启用 Funnel
+- 项目可以单独开放 Tailnet 入口
+- 安全审计检查敏感端口、Funnel、Token 和 ACL 风险
+- 服务目标来自受控 YAML，不接受网页提交任意 shell 或路径
+
+### 桌面体验
+
+- Tauri 2 原生窗口，关闭后保留菜单栏
+- Agent 异常退出自动重启
+- 单实例、启动错误弹窗、配置错误横幅
+- 终端风格面板，`1–8` 切视图、`r` 刷新、`/` 搜索、`Esc` 关闭
+- 一张面板里同时看服务、模型、队列、日志、指标和历史
+
+## 架构
+
+```text
+┌──────────────────────┐      ┌──────────────────────┐
+│ Tauri 2 desktop      │      │ Browser / Tailnet    │
+│ 主入口 / 菜单栏       │      │ Web companion        │
+└──────────┬───────────┘      └──────────┬───────────┘
+           └──────────────┬──────────────┘
+                          ▼
+              ┌────────────────────────┐
+              │ Local Agent            │
+              │ Hono API + WebSocket   │
+              │ auth / audit / registry│
+              └────────────┬───────────┘
+                           ▼
+       ┌────────────┬────────────┬────────────┬────────────┐
+       │ launchd    │ Docker     │ AI         │ Tunnel     │
+       │ adapter    │ adapter    │ runtime    │ adapter    │
+       └────────────┴────────────┴────────────┴────────────┘
+
+外部推理流量：
+
+Sub2API / 客户端
+  → SSH / Tailscale
+  → Inference Gateway（队列、并发、超时、内存准入）
+  → Ollama 11434 / ComfyUI 8188 / H3 Video Bridge 8193
+```
+
+## 快速开始
+
+### 环境要求
+
+- macOS 14 Sonoma 或更高
+- Node.js **22.5+**（Agent 使用内置 `node:sqlite`）
+- npm
+- 可选：Rust / Tauri 2 工具链（构建桌面 App）
+- 可选：Ollama、ComfyUI、Docker Desktop
+
+### 启动 Web 控制台
 
 ```bash
 npm install
+cp config/services.example.yaml config/services.yaml
 npm run dev
 ```
 
 打开 <http://127.0.0.1:7227>。
 
-复制 `config/services.example.yaml` 为 `config/services.yaml`，再按实际项目填写。`command`、`cwd`、`composeFile`、launchd label 和健康检查都来自这份受控配置；网页不能临时提交 shell 命令。
+`config/services.yaml` 是本机私有配置，已经被 `.gitignore` 忽略。不要提交真实路径、Token 或账号信息。
 
-当前已接入的真实边界：
-
-- `process`：启动、停止、重启、暂停、恢复、日志和 PID/健康检查。
-- 进程快照：通过 PID/端口读取 CPU、RSS 内存和内存占比，并实时显示在服务卡片。
-- `launchd`：`launchctl print`、`kickstart`、`bootout`/`bootstrap`、可选 `plistFile` 和配置日志。
-- 本机现有 LaunchAgent：Ollama、ComfyUI 和 Ollama Tunnel 均通过真实 `gui/501/...` label 管理。
-- `docker-compose`：项目级 `up -d`、`down`、`restart`、`ps` 和 `logs`。
-- `EventStore`：操作历史保存到 `data/studioops.sqlite`，面板可直接查看最近操作。
-- 配置备份：面板“备份配置”会把 `services.yaml` 复制到 `data/backups/`。
-- 配置编辑：面板可新增、编辑、删除服务；保存前校验 ID、适配器、命令、健康端点和动作白名单。
-- 配置热加载：保存或恢复后立即刷新服务注册表，不需要重启 App。
-- 重启语义：修改运行中服务的命令、端口、环境变量等运行参数时，明确提示需要重启；可选择立即重启，常驻服务则更新 LaunchAgent 后重启。
-- 配置回滚：设置页列出最近备份，可直接恢复；当前配置在覆盖前会自动备份。
-- 桌面端：Tauri 2 窗口随 Agent 启动，关闭窗口后保留在菜单栏，可从菜单栏重新打开或退出；Agent 异常退出会由桌面端自动重启；重复打开 App 只唤醒已有窗口。
-- 启动错误提示：端口 7227 被占用、Agent 连续启动失败时弹出明确对话框；YAML 配置错误在顶部显示错误横幅。
-- 硬件摘要：芯片型号、P/S/GPU 核心数、内存总量，以及实时活跃核心数（P/S 分列）。
-- 主机监控：系统负载、内存、磁盘余量，以及 `macmon` 提供的 Apple Silicon GPU/ANE/功耗/温度；内存占用与 macmon 使用同一口径。
-- 实时推送：WebSocket 每 2 秒推送主机指标，每 5 秒推送服务状态；订阅在连接建立前不会丢失。
-- 服务行内展开：点击任意服务行向下展开状态、配置、Ollama 模型和最近日志，不离开列表。
-- Ollama 模型列表：点击 Ollama 服务行，显示已安装模型、大小、参数量、量化方式和加载状态。
-- 进程图标：应用进程显示对应 `.app` 图标，其他进程用首字母占位；图标提取后缓存在 `data/icons`。
-- 项目视图：Node/Python/自建常驻服务标记 `category: project` 后，在“项目”页单独管理端口、PID、CPU/内存、日志和启停，不和系统进程混在一起。
-- 项目模板：新增项目可从 Node、Vite、Python、uvicorn、PM2、静态站点模板开始，选择项目目录后自动补全名称、ID、日志、命令和健康检查。
-- 自动发现：扫描本机正在监听端口、工作目录在用户目录下的开发进程，自动列在“项目 → 自动发现”，可一键纳入项目。
-- 项目常驻：项目服务可“设为常驻”，生成 `~/Library/LaunchAgents/com.studioops.project.<id>.plist`，由 launchd 在登录/重启后自动拉起。
-- 开机启动开关：常驻项目可独立开启/关闭“开机启动”，只改 plist 的 RunAtLoad，不打断当前运行的服务。
-- 卸载与恢复：设置页列出 `com.studioops.*` LaunchAgent 和托管服务，可先导出 `services.yaml`、SQLite、日志和备份，再停止服务、移除 LaunchAgent 并退出桌面端；默认保留数据，也可用 `scripts/uninstall-studioops.sh` 彻底清理。
-- Tailscale 私网访问：设置页检测 Tailscale 状态、Tailnet IP 和 MagicDNS 名称；可生成访问 Token，并通过 Tailscale Serve 只对 tailnet 开放 StudioOps，不启用 Funnel，不把 7227 绑定到公网。
-- 项目 Tailnet 入口：项目卡片可单独开放/关闭 Tailscale Serve 入口，自动分配 8443 起的 HTTPS 端口，配置保存 `tailscaleServePort`；入口只对 tailnet 可见。
-- 外部访问安全检查：设置页审计监听地址、Token、Funnel、Ollama 11434、项目入口和 ACL 风险；发现 Funnel 或敏感端口暴露时给出高风险提示。
-- 推理网关：Ollama/ComfyUI 外部请求统一从 11435/8191 进入，队列、并发、排队/请求超时、取消和内存准入由独立 LaunchAgent 守护；模型端口只监听本机回环。
-- MiniMax H3 本地验证：M5 Max / 64GB 已跑通 864×480、5 秒、4 步 Turbo 的 H3 文生视频（带 32kHz 立体声），详见 `docs/minimax-h3.md`。
-- 推理网关视频队列：`8192 → 8193 → 8188` 的 H3 后端，独立并发 1、队列 8、60 分钟超时和 30GB 内存门槛；网关面板显示「视频 H3」队列。
-- cloudflared 隧道：支持 quick、config、token 三种模式；服务页显示 running/stopped/error、公网地址、最后错误和日志；quick tunnel 会被安全审计标记为公网高风险。
-- 指标历史：Agent 默认每 10 秒采样系统和服务指标写入 SQLite；历史视图提供 5 分钟、1 小时、24 小时曲线，服务可切换查看 CPU/内存，采样间隔和保留天数可在设置页调整。
-- 告警与通知：服务掉线、操作失败、内存/磁盘/温度阈值；带确认时间、滞后阈值、去重、重复间隔和恢复通知；设置页可开关、调整阈值并发送测试通知，桌面通知走 macOS。
-- 日志实时流：按文件 offset 增量 tail，WebSocket 推送新行；支持搜索、清空视图、error/warn 高亮、初始 100/300/1000 行；文件截断/轮转自动重置，不整文件读取。
-- Compose 项目：项目页显示 Compose 服务数、运行容器数和容器状态；支持真实 `up -d`、`logs`、`restart`、`down`，错误会提取 compose stderr。
-- LaunchAgent 发现：设置页扫描 `~/Library/LaunchAgents`，显示 loaded/PID、命令和已配置状态；导入会打开预填表单，保存后仍走 launchd 适配器和动作白名单。
-- Ollama 模型操作：模型列表显示 loaded、VRAM、占用内存和到期时间；服务运行时可加载/卸载模型，操作写入审计；服务停止时隐藏模型操作。
-- ComfyUI 队列：服务行显示运行/等待/历史任务、MPS VRAM/GPU/温度；可中断运行任务或取消等待任务，取消操作写入审计。
-- Tailscale 身份审计：通过 Tailscale Serve 的 `Tailscale-User-Login` 记录远程操作者，审计表同时显示 actor 和具体 tailnet 用户。
-- 网络世界地图：采集当前公网 TCP 连接，支持入站/出站/全部切换；入站和出站目的地做地理定位并在离线世界地图上画弧线；Tailscale/私网地址过滤，不抓包。
-- 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
-- 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
-- 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
-- 进程浏览：`/api/processes` 返回按 CPU 或内存排序的进程表，面板支持搜索、排序和占用条。
-- Docker：`/api/docker` 显示 daemon 状态和容器列表；daemon 可用时可对容器执行启动、停止、重启。
-- 终端风格面板：总览、服务、项目、进程、容器、日志、历史、设置八个视图；边框式面板标题、分块柱状历史、底部快捷键栏；`1-8` 切视图、`r` 刷新、`/` 搜索、`Esc` 关闭抽屉。
+### 构建桌面 App
 
 ```bash
-npm test
+npm --prefix apps/desktop install
+npm run desktop:dev
+# 或
+npm run desktop:build
+```
+
+构建产物默认在：
+
+```text
+apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app
+```
+
+构建前会同时打包 Agent 和 Gateway：
+
+```bash
+npm run build:services
+```
+
+## 配置示例
+
+```yaml
+services:
+  - id: ollama
+    name: Ollama
+    kind: ollama
+    adapter: launchd
+    target: gui/501/ai.local.ollama
+    allowedActions: [start, stop, restart]
+    health:
+      type: http
+      endpoint: http://127.0.0.1:11434/api/tags
+
+  - id: comfyui
+    name: ComfyUI
+    kind: comfyui
+    adapter: launchd
+    target: gui/501/ai.local.comfyui
+    allowedActions: [start, stop, restart]
+    health:
+      type: http
+      endpoint: http://127.0.0.1:8188/system_stats
+```
+
+支持的适配器：
+
+```text
+launchd / process / docker-compose / cloudflared
+```
+
+支持的 `kind`：
+
+```text
+ollama / comfyui / process / launchd / docker-compose / tunnel / generic
+```
+
+完整字段和模板见 `config/services.example.yaml`。
+
+## Inference Gateway
+
+Gateway 是独立 LaunchAgent，不依赖桌面 App 是否打开。
+
+### 默认策略
+
+| 后端         |  端口 | 并发 | 队列 | 排队超时 | 请求超时 | 请求体 |
+| ------------ | ----: | ---: | ---: | -------: | -------: | -----: |
+| Ollama       | 11435 |    2 |    8 |      60s |    10min |    4MB |
+| ComfyUI 图片 |  8191 |    1 |    8 |    30min |    30min |   32MB |
+| H3 视频      |  8192 |    1 |    8 |    30min |    60min |    2MB |
+
+### 状态与记录
+
+```bash
+curl http://127.0.0.1:11436/health
+curl http://127.0.0.1:11436/status
+curl 'http://127.0.0.1:11436/records?limit=50'
+```
+
+模型调用记录默认写入：
+
+```text
+~/Library/Application Support/com.studioops.desktop/gateway/model-calls.jsonl
+```
+
+记录字段：
+
+```text
+模型 / 后端 / 状态 / 方法 / 路径 / 来源
+状态码 / 等待时间 / 执行耗时 / 错误
+```
+
+不会写入 prompt、messages、图片、请求体或 Authorization。
+
+### 内存准入
+
+Gateway 会读取：
+
+- macOS `vm_stat` 的 active + wired + compressed
+- Ollama `/api/ps` 当前已加载模型
+- 当前 Gateway 活跃任务
+
+默认策略：
+
+```text
+推理预算：总内存 - 12GB
+硬性安全线：至少 2GB 可用
+Ollama：最多 1 个已加载模型
+ComfyUI：至少 24GB 可用
+H3 视频：至少 30GB 可用
+```
+
+内存不够时，新任务返回 `503`，不会先加载模型再失败。
+
+## ComfyUI 与 H3 视频（可选）
+
+StudioOps 可以只做服务器控制，不要求安装 ComfyUI/H3。需要图片或视频时再接入。
+
+- ComfyUI 图片桥：`scripts/comfy_openai_bridge.py`
+- H3 视频桥：`scripts/comfy_video_bridge.py`
+- H3 验证和实测数据：`docs/minimax-h3.md`
+
+H3 模型文件不随仓库分发。64GB M5 Max 实测：
+
+```text
+864×480 / 5 秒 / 4 步:     225 秒
+864×480 / 10 秒 / 4 步:    505 秒
+1344×768 / 5 秒 / 4 步:    681 秒
+```
+
+视频入口目前只监听本机，不会自动暴露到公网。
+
+## 安全模型
+
+- Agent、Gateway 和模型端口默认全部绑定 `127.0.0.1`
+- 通过非回环地址或 Tailscale 访问时必须提供 Token
+- Token 文件权限为 `0600`
+- Tailscale Serve 只开放给 tailnet，不启用 Funnel
+- 所有服务动作经过适配器和白名单
+- 客户端不能提交任意 shell、路径或 launchd label
+- Gateway 只保存请求元数据，不保存 prompt
+- 证书、私钥、`.env`、SQLite、日志和本机 `services.yaml` 不进入 Git
+
+> 如果你发现安全问题，请不要开公开 issue，先通过仓库维护者私下联系。
+
+## 开发
+
+```bash
 npm run typecheck
+npm test
+npm run format:check
+
+# Rust 测试
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
-桌面壳需要 Rust/Tauri 工具链：
+当前测试：**71 个 TypeScript 测试**，覆盖配置、适配器、鉴权、告警、指标、网络地图和 Gateway 队列/内存准入。
+
+### 目录
+
+```text
+services/agent      本机控制层：HTTP API、WebSocket、适配器、服务注册表
+services/gateway    Inference Gateway：代理、队列、内存准入、模型调用记录
+packages/contracts  Agent / Web / Desktop 共用契约
+apps/web            终端风格 Web 控制台
+apps/desktop        Tauri 2 桌面壳
+docs                架构、网关、H3、Tailscale、卸载和交接文档
+scripts             安装/卸载、隧道、ComfyUI/H3 桥
+tests               TypeScript 测试
+```
+
+### 提交前检查
 
 ```bash
-cd apps/desktop
-npm install
-npm run build
+npm run typecheck
+npm test
+npm run format:check
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
-以后也可以在仓库根目录执行 `npm run desktop:dev` 或 `npm run desktop:build`。
+## 当前限制
 
-## 目录
+- 仅支持 macOS；Linux/Windows 不在当前范围内
+- macOS 没有 cgroup 式硬内存限制，内存保护是应用层准入
+- H3 视频模型需要数十 GB 内存和数分钟到数十分钟生成时间
+- Gateway 的按用户 API Key、配额和限流还未完成
+- 没有 CI、代码签名、公证和自动更新
+- 模型文件、真实 `services.yaml`、证书和日志都不在仓库中
+- pre-1.0，配置和 API 仍可能变化
 
-- `services/agent`：本机控制层，HTTP API、WebSocket、适配器和服务注册表。
-- `packages/contracts`：桌面端、Web、Agent 共用的 TypeScript 契约。
-- `apps/web`：控制台页面；由浏览器和 Tauri 2 桌面壳共同复用。
-- `apps/desktop/src-tauri`：桌面壳和 Agent resource 启动逻辑。
-- `docs/architecture.md`：技术架构和分阶段路线。
-- `docs/research/mac-dash.md`：基于 mac-dash 实际源码的复用与取舍记录。
-- `docs/research/adjacent-projects.md`：Dockge、Uptime Kuma、Netdata、OliveTin 等项目的复用边界。
-- `docs/uninstall.md`：卸载、导出与重装后的恢复步骤。
-- `docs/tailscale.md`：Tailscale 安装、登录、私网访问和安全边界。
-- `docs/cloudflared.md`：cloudflared quick/named/token 隧道和公网安全要求。
-- `docs/research/ops-monitoring.md`：指标存储、告警、日志和 SQLite 备份的调研与设计边界。
-- `docs/network-map.md`：网络连接采集、世界地图、过滤规则和隐私边界。
+## Roadmap
 
-## 复用策略
+- [ ] Gateway API Key、配额和每用户限流
+- [ ] 按模型大小做加载前内存预估
+- [ ] Gateway / SSH 隧道健康告警
+- [ ] 视频队列对外映射
+- [ ] CI、签名、公证和自动更新
+- [ ] 数据与配置统一备份
 
-StudioOps 不把所有能力重新实现一遍，也不提前安装一堆后台页面。现在实际复用的只有两个：
+## 贡献
 
-- **mac-dash + launchd**：作为 Agent、动作白名单、WebSocket 和 Tauri 壳的架构参考，并负责 Ollama、ComfyUI、Node/Python 原生项目。
-- **macmon**：读取 Apple Silicon 的 GPU/ANE/功耗/温度。
+欢迎 issue 和 PR。
 
-其余项目按触发条件再加入，不是当前缺口：有公网服务告警需求时再加 Uptime Kuma；Docker 项目较多时再加 Dockge；OliveTin 只作为可选的“按钮层”；Homepage 最后再加，它只是入口页，不负责启停服务。详细边界见 `docs/research/adjacent-projects.md`。
+- 修改前先看 `docs/architecture.md` 和 `docs/agent-handoff.md`
+- 不要提交真实 Token、证书、私钥、模型路径或本机日志
+- 新增服务动作必须经过适配器和白名单
+- 新增 UI 面板保持终端风格：等宽字体、细线边框、`data-title` 边框标题
+- 提交前跑完上面的检查命令
 
-## 安全边界
+## License
 
-Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`，或在设置页生成访问 Token。本机回环和 Tauri 桌面端可直接访问；通过 Tailscale Serve 或非回环地址进入的请求必须携带 Token。远程浏览器在“设置 → 访问 Token”保存后，HTTP 请求和 WebSocket 都会携带它。Tailscale Serve 只开放给 tailnet，不启用 Funnel。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。
+[MIT](LICENSE) © 2026 StudioOps contributors
+
+## 文档
+
+- [技术架构](docs/architecture.md)
+- [Inference Gateway](docs/inference-gateway.md)
+- [MiniMax H3 本地验证](docs/minimax-h3.md)
+- [Tailscale 私网访问](docs/tailscale.md)
+- [cloudflared](docs/cloudflared.md)
+- [网络地图与隐私边界](docs/network-map.md)
+- [卸载与恢复](docs/uninstall.md)
+- [开发交接](docs/agent-handoff.md)
+
+## Acknowledgements
+
+StudioOps 的架构和取舍受这些项目和社区工作影响：
+
+- [mac-dash](https://github.com/talhaorak/mac-dash)：macOS 系统面板和 launchd 管理
+- [macmon](https://github.com/vladkens/macmon)：Apple Silicon GPU/ANE/功耗/温度
+- [Ollama](https://ollama.com/) 与 [ComfyUI](https://www.comfy.org/)：本地模型运行时
+- [MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3)：开源全模态视频模型
+- [llama-swap](https://github.com/mostlygeek/llama-swap) / [LiteLLM](https://www.litellm.ai/)：本地模型切换和 AI Gateway 的参考
+- [Off Grid AI Desktop](https://github.com/off-grid-ai/OGAD)：本地 AI Gateway 和团队 Key 的参考
+
+StudioOps 自身是一个独立项目，不隶属于上述项目。
