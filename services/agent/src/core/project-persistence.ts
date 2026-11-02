@@ -82,7 +82,7 @@ ${Object.entries(environment)
   <key>StandardErrorPath</key>
   <string>${escapeXml(errorFile)}</string>
   <key>RunAtLoad</key>
-  <true/>
+  <${definition.autostart === false ? "false" : "true"}/>
   <key>KeepAlive</key>
   <true/>
   <key>ThrottleInterval</key>
@@ -99,13 +99,17 @@ ${Object.entries(environment)
   };
 }
 
-export async function installProjectPlist(
-  project: ProjectPlist,
-): Promise<void> {
+export function writeProjectPlist(project: ProjectPlist): void {
   mkdirSync(dirname(project.plistPath), { recursive: true });
   const temporary = `${project.plistPath}.tmp-${process.pid}`;
   writeFileSync(temporary, project.content, { encoding: "utf8", mode: 0o600 });
   renameSync(temporary, project.plistPath);
+}
+
+export async function installProjectPlist(
+  project: ProjectPlist,
+): Promise<void> {
+  writeProjectPlist(project);
 
   await launchctl(["bootout", project.target], true);
   await launchctl(["enable", project.target], true);
@@ -115,6 +119,10 @@ export async function installProjectPlist(
     rmSync(project.plistPath, { force: true });
     throw error;
   }
+}
+
+export async function startProjectPlist(label: string): Promise<void> {
+  await launchctl(["kickstart", "-k", `gui/${currentUid()}/${label}`]);
 }
 
 export async function removeProjectPlist(

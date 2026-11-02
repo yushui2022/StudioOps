@@ -42,6 +42,7 @@ export interface ServiceDefinition {
   category?: ServiceCategory;
   persisted?: boolean;
   persistenceLabel?: string;
+  autostart?: boolean;
   adapter: string;
   target: string;
   allowedActions: ServiceAction[];

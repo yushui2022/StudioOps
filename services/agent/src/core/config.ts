@@ -141,6 +141,12 @@ function validateService(
     category: categoryValue as ServiceCategory | undefined,
     persisted: record.persisted === true ? true : undefined,
     persistenceLabel: optionalString(record, "persistenceLabel"),
+    autostart:
+      record.autostart === false
+        ? false
+        : record.autostart === true
+          ? true
+          : undefined,
     allowedActions,
     command: optionalString(record, "command"),
     args: optionalStringArray(record, "args"),

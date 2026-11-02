@@ -614,7 +614,7 @@ function renderProjects() {
         <footer class="project-actions">
           ${
             service.persisted
-              ? `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">更新常驻</button><button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
+              ? `<button class="btn btn-small" data-autostart-project="${escapeHtml(service.id)}" data-autostart-enabled="${service.autostart === false ? "true" : "false"}">开机启动：${service.autostart === false ? "关" : "开"}</button><button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">更新常驻</button><button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
               : `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">设为常驻</button>`
           }
           <button class="btn btn-small" data-log-service="${escapeHtml(service.id)}">日志</button>
@@ -696,6 +696,36 @@ function adoptDiscovered(processInfo) {
   $("config-title").textContent = "纳入项目";
   $("config-delete").classList.add("hidden");
   setFormError("");
+}
+
+async function changeProjectAutostart(serviceId, enabled, button) {
+  const service = state.services.find((item) => item.id === serviceId);
+  const name = service?.name ?? serviceId;
+  if (
+    !confirm(
+      enabled
+        ? `开启 ${name} 的开机启动？\n下次登录会自动启动该服务。`
+        : `关闭 ${name} 的开机启动？\n当前运行的服务会保持运行，但下次登录不会自动启动。`,
+    )
+  )
+    return;
+  if (button) button.disabled = true;
+  try {
+    await api(`/api/projects/${encodeURIComponent(serviceId)}/autostart`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: JSON.stringify({ enabled }),
+    });
+    toast(`${name} 开机启动已${enabled ? "开启" : "关闭"}`);
+    await refreshAll({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function changeProjectPersistence(serviceId, enabled, button) {
@@ -1279,6 +1309,7 @@ function collectServiceForm() {
     service.plistFile = existing.plistFile;
     service.persisted = true;
     service.persistenceLabel = existing.persistenceLabel;
+    service.autostart = existing.autostart;
     service.command = existing.command;
     service.args = existing.args;
     service.cwd = existing.cwd;
@@ -2005,6 +2036,14 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "discovered-refresh") {
     loadDiscovered();
+    return;
+  }
+  if (target.dataset.autostartProject) {
+    changeProjectAutostart(
+      target.dataset.autostartProject,
+      target.dataset.autostartEnabled === "true",
+      target,
+    );
     return;
   }
   if (target.dataset.persistProject) {

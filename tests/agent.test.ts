@@ -349,6 +349,11 @@ test("project plist contains launchd keepalive and escaped environment", async (
   assert.match(plist.content, /<key>RunAtLoad<\/key>\s*<true\/>/);
   assert.match(plist.content, /a&amp;b/);
   assert.match(plist.content, /<string>-e<\/string>/);
+  const noAutostart = await buildProjectPlist(
+    { ...definition, autostart: false },
+    root,
+  );
+  assert.match(noAutostart.content, /<key>RunAtLoad<\/key>\s*<false\/>/);
 });
 
 test("app bundle path is extracted from executable path", () => {

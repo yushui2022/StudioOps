@@ -28,6 +28,8 @@ import {
   buildProjectPlist,
   installProjectPlist,
   removeProjectPlist,
+  startProjectPlist,
+  writeProjectPlist,
 } from "./core/project-persistence.js";
 import { terminateProcess } from "./core/process-control.js";
 import { listProcesses } from "./core/process-list.js";
@@ -297,6 +299,7 @@ app.post("/api/projects/:id/persist", async (c) => {
         logFile: definition.logFile ?? plist.logFile,
         persisted: true,
         persistenceLabel: plist.label,
+        autostart: definition.autostart !== false,
         allowedActions: definition.allowedActions.filter(
           (action) => action !== "pause" && action !== "resume",
         ),
@@ -325,6 +328,40 @@ app.post("/api/projects/:id/persist", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.post("/api/projects/:id/autostart", async (c) => {
+  const id = c.req.param("id");
+  try {
+    const body = await readJsonObject(c.req.raw);
+    if (typeof body.enabled !== "boolean")
+      throw new Error("enabled must be a boolean");
+    const definition = registry.definition(id);
+    if (!definition.persisted)
+      throw new Error("Enable persistence before changing autostart");
+    const nextDefinition = { ...definition, autostart: body.enabled };
+    const plist = await buildProjectPlist(nextDefinition, dataDir);
+    writeProjectPlist(plist);
+    const services = configStore.update(id, {
+      ...nextDefinition,
+      adapter: "launchd",
+      target: plist.target,
+      plistFile: plist.plistPath,
+      logFile: definition.logFile ?? plist.logFile,
+      persisted: true,
+      persistenceLabel: plist.label,
+      allowedActions: definition.allowedActions.filter(
+        (action) => action !== "pause" && action !== "resume",
+      ),
+    });
+    await applyServices(services);
+    recordConfigEvent(c, id, true);
+    return json({ autostart: body.enabled, services });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to change autostart";
+    recordConfigEvent(c, id, false, message);
+    return c.json({ error: message }, 400);
+  }
+});
 app.delete("/api/projects/:id/persist", async (c) => {
   const id = c.req.param("id");
   try {
@@ -339,6 +376,7 @@ app.delete("/api/projects/:id/persist", async (c) => {
       plistFile: undefined,
       persisted: undefined,
       persistenceLabel: undefined,
+      autostart: undefined,
       allowedActions: ["start", "stop", "restart", "pause", "resume"],
     });
     await applyServices(services);

@@ -42,6 +42,7 @@ npm run dev
 - 项目模板：新增项目可从 Node、Vite、Python、uvicorn、PM2、静态站点模板开始，选择项目目录后自动补全名称、ID、日志、命令和健康检查。
 - 自动发现：扫描本机正在监听端口、工作目录在用户目录下的开发进程，自动列在“项目 → 自动发现”，可一键纳入项目。
 - 项目常驻：项目服务可“设为常驻”，生成 `~/Library/LaunchAgents/com.studioops.project.<id>.plist`，由 launchd 在登录/重启后自动拉起。
+- 开机启动开关：常驻项目可独立开启/关闭“开机启动”，只改 plist 的 RunAtLoad，不打断当前运行的服务。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
 - 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
