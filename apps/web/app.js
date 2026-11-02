@@ -15,6 +15,7 @@ const viewMeta = {
   processes: { title: "进程" },
   containers: { title: "容器" },
   logs: { title: "日志" },
+  history: { title: "历史" },
   settings: { title: "设置" },
 };
 
@@ -69,6 +70,10 @@ const state = {
   logServiceId: null,
   logLines: [],
   logAuto: false,
+  historyRange: "5m",
+  historyData: null,
+  historyServiceId: null,
+  metricsSettings: null,
   formServiceId: null,
   lastUpdated: null,
   connected: false,
@@ -991,6 +996,253 @@ function renderDocker() {
       : docker.cliInstalled
         ? "启动 Docker Desktop 或 colima，然后点击“重新检查”。"
         : "安装 Docker Desktop 或 colima 后，这里会显示容器并可启停。";
+}
+
+/* ---------- metrics history ---------- */
+
+const historyMetrics = [
+  {
+    metric: "cpu.percent",
+    label: "CPU",
+    unit: "%",
+    color: "green",
+    min: 0,
+    max: 100,
+  },
+  {
+    metric: "gpu.percent",
+    label: "GPU",
+    unit: "%",
+    color: "green",
+    min: 0,
+    max: 100,
+  },
+  {
+    metric: "memory.percent",
+    label: "内存",
+    unit: "%",
+    color: "amber",
+    min: 0,
+    max: 100,
+  },
+  {
+    metric: "disk.free.percent",
+    label: "磁盘余量",
+    unit: "%",
+    color: "green",
+    min: 0,
+    max: 100,
+  },
+  { metric: "power.watts", label: "功耗", unit: "W", color: "amber" },
+  { metric: "temp.cpu.c", label: "CPU 温度", unit: "°C", color: "red" },
+];
+
+function formatMetricValue(value, unit) {
+  if (!Number.isFinite(value)) return "—";
+  if (unit === "%") return `${value.toFixed(1)}%`;
+  if (unit === "bytes") return fmtBytes(value);
+  if (unit === "W") return `${value.toFixed(1)} W`;
+  if (unit === "°C") return `${value.toFixed(1)} °C`;
+  if (unit === "rpm") return `${value.toFixed(0)} rpm`;
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function historyChartHtml(series, options) {
+  const points = series?.points ?? [];
+  if (!points.length) {
+    return `<article class="history-card">
+      <header><span>${escapeHtml(options.label)}</span><strong>—</strong></header>
+      <div class="history-empty">暂无数据</div>
+    </article>`;
+  }
+  const width = 320;
+  const height = 90;
+  const pad = 6;
+  const values = points.map((point) => point.value);
+  const minValue = options.min ?? Math.min(...values);
+  const maxValue = options.max ?? Math.max(...values);
+  const span = maxValue - minValue || 1;
+  const lastTs = points.at(-1)?.ts;
+  const firstTs = points[0]?.ts;
+  const timeSpan = lastTs && firstTs ? lastTs - firstTs || 1 : 1;
+  const path = points
+    .map((point, index) => {
+      const x = pad + ((point.ts - firstTs) / timeSpan) * (width - pad * 2);
+      const y =
+        height - pad - ((point.value - minValue) / span) * (height - pad * 2);
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const area = `${path} L${width - pad},${height - pad} L${pad},${height - pad} Z`;
+  const latest = values.at(-1);
+  return `<article class="history-card">
+    <header>
+      <span>${escapeHtml(options.label)}</span>
+      <strong>${escapeHtml(formatMetricValue(latest, options.unit))}</strong>
+    </header>
+    <svg class="history-svg ${options.color ?? "green"}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="${escapeHtml(options.label)} 曲线">
+      <path class="history-area ${options.color ?? "green"}" d="${area}" />
+      <path class="history-line ${options.color ?? "green"}" d="${path}" vector-effect="non-scaling-stroke" />
+    </svg>
+    <footer>
+      <span>低 ${escapeHtml(formatMetricValue(minValue, options.unit))}</span>
+      <span>高 ${escapeHtml(formatMetricValue(maxValue, options.unit))}</span>
+    </footer>
+  </article>`;
+}
+
+function findMetricSeries(data, scope, scopeId, metric) {
+  return data.series.find(
+    (series) =>
+      series.scope === scope &&
+      series.scopeId === scopeId &&
+      series.metric === metric,
+  );
+}
+
+function renderHistory() {
+  const data = state.historyData;
+  if (!data) return;
+  const rangeLabels = { "5m": "5 分钟", "1h": "1 小时", "24h": "24 小时" };
+  $("history-meta").textContent =
+    `${rangeLabels[data.range] ?? data.range} · ${data.series.length} 个序列 · ${fmtClock(new Date(data.to).toISOString())}`;
+  $("history-system").innerHTML = historyMetrics
+    .map((definition) =>
+      historyChartHtml(
+        findMetricSeries(data, "system", "local", definition.metric),
+        definition,
+      ),
+    )
+    .join("");
+
+  const serviceSeries = data.series.filter(
+    (series) => series.scope === "service",
+  );
+  const serviceIds = [
+    ...new Set(serviceSeries.map((series) => series.scopeId)),
+  ];
+  const select = $("history-service");
+  if (!serviceIds.length) {
+    select.innerHTML = '<option value="">暂无服务数据</option>';
+    $("history-service-meta").textContent = "启动服务并等待采样后显示";
+    $("history-service-charts").innerHTML = "";
+    return;
+  }
+  const selected =
+    state.historyServiceId && serviceIds.includes(state.historyServiceId)
+      ? state.historyServiceId
+      : serviceIds[0];
+  state.historyServiceId = selected;
+  select.innerHTML = serviceIds
+    .map((id) => {
+      const service = state.services.find((item) => item.id === id);
+      return `<option value="${escapeHtml(id)}">${escapeHtml(service?.name ?? id)}</option>`;
+    })
+    .join("");
+  select.value = selected;
+  const service = state.services.find((item) => item.id === selected);
+  $("history-service-meta").textContent =
+    `${service?.name ?? selected} · ${serviceSeries.filter((series) => series.scopeId === selected).length} 个指标`;
+  $("history-service-charts").innerHTML = [
+    {
+      metric: "cpu.percent",
+      label: "服务 CPU",
+      unit: "%",
+      color: "green",
+      min: 0,
+      max: 100,
+    },
+    {
+      metric: "memory.bytes",
+      label: "服务内存",
+      unit: "bytes",
+      color: "amber",
+    },
+  ]
+    .map((definition) =>
+      historyChartHtml(
+        findMetricSeries(data, "service", selected, definition.metric),
+        definition,
+      ),
+    )
+    .join("");
+}
+
+async function loadHistory({ quiet = false } = {}) {
+  if (!quiet && state.view !== "history") return;
+  try {
+    state.historyData = await api(
+      `/api/metrics/history?range=${encodeURIComponent(state.historyRange)}`,
+    );
+    renderHistory();
+  } catch (error) {
+    if (!quiet) toast(error.message, true);
+  }
+}
+
+function setHistoryRange(range) {
+  if (!["5m", "1h", "24h"].includes(range)) return;
+  state.historyRange = range;
+  document
+    .querySelectorAll("#history-range [data-history-range]")
+    .forEach((button) =>
+      button.classList.toggle("active", button.dataset.historyRange === range),
+    );
+  loadHistory();
+}
+
+async function loadMetricsSettings() {
+  try {
+    const settings = await api("/api/metrics/settings");
+    state.metricsSettings = settings;
+    $("metrics-interval").value = String(settings.intervalMs / 1000);
+    $("metrics-raw-days").value = String(
+      Math.round(settings.rawRetentionMs / 86400000),
+    );
+    $("metrics-minute-days").value = String(
+      Math.round(settings.minuteRetentionMs / 86400000),
+    );
+    $("metrics-hour-days").value = String(
+      Math.round(settings.hourRetentionMs / 86400000),
+    );
+  } catch (error) {
+    const result = $("metrics-result");
+    result.textContent = error.message;
+    result.classList.remove("hidden");
+  }
+}
+
+async function saveMetricsSettings() {
+  const button = $("metrics-save");
+  button.disabled = true;
+  try {
+    const settings = await api("/api/metrics/settings", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: JSON.stringify({
+        intervalMs: Number($("metrics-interval").value) * 1000,
+        rawRetentionDays: Number($("metrics-raw-days").value),
+        minuteRetentionDays: Number($("metrics-minute-days").value),
+        hourRetentionDays: Number($("metrics-hour-days").value),
+      }),
+    });
+    state.metricsSettings = settings;
+    const result = $("metrics-result");
+    result.textContent = "指标设置已保存";
+    result.classList.remove("hidden");
+    toast("指标历史设置已保存");
+    if (state.view === "history") loadHistory({ quiet: true });
+  } catch (error) {
+    const result = $("metrics-result");
+    result.textContent = error.message;
+    result.classList.remove("hidden");
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 /* ---------- settings ---------- */
@@ -2360,10 +2612,12 @@ function switchView(view, { updateHash = true } = {}) {
   }
   if (view === "processes") loadProcesses();
   if (view === "containers") loadDocker();
+  if (view === "history") loadHistory();
   if (view === "settings") {
     renderSettingsFacts();
     loadTokenField();
     loadBackups();
+    loadMetricsSettings();
     loadRemoteAccess();
     loadSecurityAudit();
     loadUninstallPreview();
@@ -2571,6 +2825,22 @@ document.addEventListener("click", (event) => {
     loadBackups();
     return;
   }
+  if (target.dataset.historyRange) {
+    setHistoryRange(target.dataset.historyRange);
+    return;
+  }
+  if (target.id === "history-refresh") {
+    loadHistory();
+    return;
+  }
+  if (target.id === "metrics-save") {
+    saveMetricsSettings();
+    return;
+  }
+  if (target.id === "metrics-reload") {
+    loadMetricsSettings();
+    return;
+  }
   if (target.id === "security-refresh") {
     loadSecurityAudit();
     return;
@@ -2721,7 +2991,8 @@ document.addEventListener("keydown", (event) => {
     4: "processes",
     5: "containers",
     6: "logs",
-    7: "settings",
+    7: "history",
+    8: "settings",
   };
   if (viewKeys[event.key]) {
     switchView(viewKeys[event.key]);
@@ -2746,7 +3017,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "?") {
-    toast("1-6 切换视图 · r 刷新 · / 搜索 · Esc 关闭抽屉");
+    toast("1-8 切换视图 · r 刷新 · / 搜索 · Esc 关闭抽屉");
   }
 });
 
@@ -2758,6 +3029,11 @@ $("service-search").addEventListener("input", (event) => {
 $("service-filter").addEventListener("change", (event) => {
   state.serviceFilter = event.target.value;
   renderServices();
+});
+
+$("history-service").addEventListener("change", (event) => {
+  state.historyServiceId = event.target.value;
+  renderHistory();
 });
 
 $("project-search").addEventListener("input", (event) => {
@@ -2886,3 +3162,7 @@ setInterval(() => {
 setInterval(() => {
   if (!document.hidden && state.logAuto && state.logServiceId) loadLogs();
 }, 4000);
+setInterval(() => {
+  if (!document.hidden && state.view === "history")
+    loadHistory({ quiet: true });
+}, 10000);

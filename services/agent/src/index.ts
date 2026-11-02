@@ -28,6 +28,12 @@ import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { listDiscoveredProcesses } from "./core/discovery.js";
 import { EventStore } from "./core/event-store.js";
 import { listInferenceProcesses } from "./core/inference.js";
+import { MetricsSampler } from "./core/metrics-sampler.js";
+import {
+  MetricsStore,
+  type MetricRange,
+  type MetricScope,
+} from "./core/metrics-store.js";
 import { getOllamaModels } from "./core/ollama.js";
 import { ProcessIconStore } from "./core/process-icons.js";
 import { listProjectTemplates } from "./core/project-templates.js";
@@ -96,6 +102,7 @@ try {
 }
 const eventStore = new EventStore(dataDir);
 const iconStore = new ProcessIconStore(dataDir);
+const metricsStore = new MetricsStore(dataDir);
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
@@ -924,6 +931,49 @@ app.post("/api/projects/:id/tailscale", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/metrics/history", (c) => {
+  const range = (c.req.query("range") ?? "5m") as MetricRange;
+  if (!["5m", "1h", "24h"].includes(range))
+    return c.json({ error: "range must be 5m, 1h or 24h" }, 400);
+  const scopeValue = c.req.query("scope");
+  if (scopeValue && scopeValue !== "system" && scopeValue !== "service")
+    return c.json({ error: "scope must be system or service" }, 400);
+  return json(
+    metricsStore.history(range, {
+      scope: scopeValue as MetricScope | undefined,
+      scopeId: c.req.query("scopeId"),
+    }),
+  );
+});
+app.get("/api/metrics/settings", (c) => json(metricsStore.getSettings()));
+app.put("/api/metrics/settings", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const settings = metricsStore.updateSettings({
+      intervalMs:
+        body.intervalMs === undefined ? undefined : Number(body.intervalMs),
+      rawRetentionDays:
+        body.rawRetentionDays === undefined
+          ? undefined
+          : Number(body.rawRetentionDays),
+      minuteRetentionDays:
+        body.minuteRetentionDays === undefined
+          ? undefined
+          : Number(body.minuteRetentionDays),
+      hourRetentionDays:
+        body.hourRetentionDays === undefined
+          ? undefined
+          : Number(body.hourRetentionDays),
+    });
+    recordConfigEvent(c, "metrics-settings", true);
+    return json(settings);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Invalid metrics settings";
+    recordConfigEvent(c, "metrics-settings", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
 app.get("/api/config", (c) =>
   json({
     filePath: configStore.filePath,
@@ -1199,6 +1249,16 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
     `StudioOps agent listening at http://${info.address}:${info.port}`,
   );
 });
+
+const metricsSampler = new MetricsSampler(
+  metricsStore,
+  {
+    system: getSystemSnapshot,
+    services: () => registry.list(),
+  },
+  (error) => console.error("[metrics]", error),
+);
+metricsSampler.start();
 
 const wss = new WebSocketServer({ server: server as never, path: "/ws" });
 wss.on("connection", async (client, request) => {

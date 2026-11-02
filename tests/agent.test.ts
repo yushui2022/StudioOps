@@ -54,6 +54,8 @@ import {
   ollamaBaseUrl,
   summarizeOllamaModels,
 } from "../services/agent/src/core/ollama.js";
+import { buildMetricSamples } from "../services/agent/src/core/metrics-sampler.js";
+import { MetricsStore } from "../services/agent/src/core/metrics-store.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { auditRemoteAccess } from "../services/agent/src/core/security-audit.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
@@ -374,6 +376,109 @@ test("config diff marks only runtime fields as restart-required", () => {
       health: { type: "http", endpoint: "http://127.0.0.1:3000/health" },
     }),
     [],
+  );
+});
+
+test("metrics store writes raw samples, rollups and prunes old data", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-metrics-"));
+  const now = Date.UTC(2026, 10, 2, 12, 0, 0);
+  const store = new MetricsStore(root, {
+    intervalMs: 10_000,
+    rawRetentionMs: 60_000,
+    minuteRetentionMs: 3_600_000,
+    hourRetentionMs: 86_400_000,
+  });
+  store.insert([
+    {
+      ts: now,
+      scope: "system",
+      scopeId: "local",
+      metric: "cpu.percent",
+      value: 20,
+      unit: "%",
+    },
+    {
+      ts: now + 10_000,
+      scope: "system",
+      scopeId: "local",
+      metric: "cpu.percent",
+      value: 30,
+      unit: "%",
+    },
+  ]);
+  const counts = store.count();
+  assert.equal(counts.raw, 2);
+  assert.equal(counts.minute, 1);
+  assert.equal(counts.hour, 1);
+  const history = store.history("5m", { now: now + 10_000 });
+  assert.equal(history.series[0]?.metric, "cpu.percent");
+  assert.equal(history.series[0]?.points.length, 2);
+  assert.equal(history.series[0]?.points[1]?.value, 30);
+
+  store.prune(now + 120_000);
+  assert.equal(store.count().raw, 0);
+  store.close();
+});
+
+test("metrics settings persist and metric samples map system and services", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-metrics-settings-"));
+  const first = new MetricsStore(root);
+  assert.equal(first.getSettings().intervalMs, 10_000);
+  first.updateSettings({
+    intervalMs: 15_000,
+    rawRetentionDays: 2,
+    minuteRetentionDays: 10,
+    hourRetentionDays: 100,
+  });
+  first.close();
+  const second = new MetricsStore(root);
+  assert.equal(second.getSettings().intervalMs, 15_000);
+  assert.equal(second.getSettings().rawRetentionMs, 2 * 86_400_000);
+  second.close();
+
+  const samples = buildMetricSamples(
+    {
+      hostname: "test",
+      platform: "darwin",
+      arch: "arm64",
+      uptimeSeconds: 100,
+      load: [1, 2, 3],
+      memory: { totalBytes: 1000, usedBytes: 500, freeBytes: 500 },
+      disk: { totalBytes: 2000, freeBytes: 500 },
+      silicon: { cpuPercent: 25, gpuPercent: 10 },
+      updatedAt: new Date().toISOString(),
+    },
+    [
+      {
+        id: "demo",
+        name: "Demo",
+        kind: "process",
+        adapter: "process",
+        target: "/tmp",
+        state: "running",
+        cpuPercent: 5,
+        memoryBytes: 100,
+        healthState: "healthy",
+        allowedActions: ["start", "stop"],
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+    1234,
+  );
+  assert.ok(
+    samples.some(
+      (sample) =>
+        sample.scope === "system" && sample.metric === "memory.percent",
+    ),
+  );
+  assert.ok(
+    samples.some(
+      (sample) =>
+        sample.scope === "service" &&
+        sample.scopeId === "demo" &&
+        sample.metric === "health.up" &&
+        sample.value === 1,
+    ),
   );
 });
 

@@ -48,12 +48,13 @@ npm run dev
 - 项目 Tailnet 入口：项目卡片可单独开放/关闭 Tailscale Serve 入口，自动分配 8443 起的 HTTPS 端口，配置保存 `tailscaleServePort`；入口只对 tailnet 可见。
 - 外部访问安全检查：设置页审计监听地址、Token、Funnel、Ollama 11434、项目入口和 ACL 风险；发现 Funnel 或敏感端口暴露时给出高风险提示。
 - cloudflared 隧道：支持 quick、config、token 三种模式；服务页显示 running/stopped/error、公网地址、最后错误和日志；quick tunnel 会被安全审计标记为公网高风险。
+- 指标历史：Agent 默认每 10 秒采样系统和服务指标写入 SQLite；历史视图提供 5 分钟、1 小时、24 小时曲线，服务可切换查看 CPU/内存，采样间隔和保留天数可在设置页调整。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
 - 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
 - 进程浏览：`/api/processes` 返回按 CPU 或内存排序的进程表，面板支持搜索、排序和占用条。
 - Docker：`/api/docker` 显示 daemon 状态和容器列表；daemon 可用时可对容器执行启动、停止、重启。
-- 终端风格面板：总览、服务、进程、容器、日志、设置六个视图；边框式面板标题、分块柱状历史、底部快捷键栏；`1-6` 切视图、`r` 刷新、`/` 搜索、`Esc` 关闭抽屉。
+- 终端风格面板：总览、服务、项目、进程、容器、日志、历史、设置八个视图；边框式面板标题、分块柱状历史、底部快捷键栏；`1-8` 切视图、`r` 刷新、`/` 搜索、`Esc` 关闭抽屉。
 
 ```bash
 npm test

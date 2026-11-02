@@ -65,6 +65,14 @@
             </svg>
             <span class="nav-label">日志</span>
           </button>
+          <button class="nav-item" data-view="history">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 19h16v-2H4v2Zm2-4h3V9H6v6Zm5 0h3V5h-3v10Zm5 0h3v-4h-3v4Z"
+              />
+            </svg>
+            <span class="nav-label">历史</span>
+          </button>
         </nav>
 
         <div class="sidebar-spacer"></div>
@@ -575,6 +583,37 @@
             </div>
           </section>
 
+          <section class="view hidden" data-view-panel="history">
+            <div class="history-toolbar panel" data-title="指标历史">
+              <div class="history-controls">
+                <div class="segmented" id="history-range">
+                  <button class="btn btn-small active" data-history-range="5m">
+                    5 分钟
+                  </button>
+                  <button class="btn btn-small" data-history-range="1h">
+                    1 小时
+                  </button>
+                  <button class="btn btn-small" data-history-range="24h">
+                    24 小时
+                  </button>
+                </div>
+                <span class="muted" id="history-meta">—</span>
+                <button class="btn btn-small" id="history-refresh">刷新</button>
+              </div>
+            </div>
+            <div class="history-grid" id="history-system"></div>
+            <section class="panel" data-title="服务指标">
+              <div class="history-controls history-service-controls">
+                <select id="history-service" class="select"></select>
+                <span class="muted" id="history-service-meta">—</span>
+              </div>
+              <div
+                class="history-grid history-service-grid"
+                id="history-service-charts"
+              ></div>
+            </section>
+          </section>
+
           <section class="view hidden" data-view-panel="settings">
             <div class="settings-grid">
               <section class="panel" data-title="配置文件">
@@ -643,6 +682,54 @@
                 </div>
                 <p class="token-hint" id="token-hint">
                   仅保存在当前浏览器；本机桌面访问不需要。
+                </p>
+              </section>
+
+              <section class="panel panel-wide" data-title="指标历史">
+                <div class="metrics-settings-grid">
+                  <label class="field">
+                    <span>采样间隔（秒）</span>
+                    <input
+                      id="metrics-interval"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>原始数据保留（天）</span>
+                    <input
+                      id="metrics-raw-days"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>1 分钟聚合保留（天）</span>
+                    <input
+                      id="metrics-minute-days"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>1 小时聚合保留（天）</span>
+                    <input
+                      id="metrics-hour-days"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                </div>
+                <div class="panel-actions">
+                  <button class="btn btn-small" id="metrics-save">保存</button>
+                  <button class="btn btn-small" id="metrics-reload">
+                    重新读取
+                  </button>
+                </div>
+                <p class="uninstall-result hidden" id="metrics-result"></p>
+                <p class="uninstall-hint">
+                  原始采样用于 5 分钟曲线，1 分钟聚合用于 1 小时。历史记录写入
+                  SQLite，重启后保留。
                 </p>
               </section>
 
@@ -788,7 +875,7 @@
 
         <footer class="statusbar">
           <div class="status-left">
-            <span><b>1-7</b> 视图</span>
+            <span><b>1-8</b> 视图</span>
             <span><b>r</b> 刷新</span>
             <span><b>/</b> 搜索</span>
             <span><b>esc</b> 关闭</span>
