@@ -20,6 +20,24 @@ services:
       type: http
       endpoint: http://127.0.0.1:3000/health
 
+  # quick tunnel 会生成临时公网地址，演示后请停止。
+  - id: public-demo
+    name: Public Demo
+    kind: tunnel
+    group: 网络
+    category: network
+    adapter: cloudflared
+    target: quick
+    port: 3000
+    tunnelMode: quick
+    logFile: data/logs/public-demo.log
+    allowedActions: [start, stop, restart]
+    # 固定域名请改用 config 模式：
+    # tunnelMode: config
+    # tunnelConfig: ~/.cloudflared/config.yml
+    # tunnelName: demo
+    # publicUrl: https://demo.example.com
+
   - id: ollama
     name: Ollama
     kind: ollama

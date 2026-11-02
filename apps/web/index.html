@@ -854,6 +854,7 @@
                   <option value="process">process</option>
                   <option value="launchd">launchd</option>
                   <option value="docker-compose">docker-compose</option>
+                  <option value="cloudflared">cloudflared</option>
                 </select>
               </label>
             </div>
@@ -929,10 +930,6 @@
                 />
               </label>
               <label class="field">
-                <span>日志文件</span>
-                <input id="form-log-file" class="text-input" />
-              </label>
-              <label class="field">
                 <span>环境变量（KEY=VALUE，每行一个）</span>
                 <textarea id="form-env" class="text-input" rows="2"></textarea>
               </label>
@@ -942,6 +939,48 @@
                   id="form-pid-file"
                   class="text-input"
                   placeholder="留空时自动记录到 data/pids"
+                />
+              </label>
+            </div>
+            <label class="field">
+              <span>日志文件</span>
+              <input id="form-log-file" class="text-input" />
+            </label>
+            <div id="fields-cloudflared" class="hidden">
+              <label class="field">
+                <span>隧道模式</span>
+                <select id="form-tunnel-mode" class="select">
+                  <option value="quick">quick（临时公网地址）</option>
+                  <option value="config">config（Cloudflare 配置文件）</option>
+                  <option value="token">token（环境变量 Token）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>隧道名称（可选）</span>
+                <input id="form-tunnel-name" class="text-input" />
+              </label>
+              <label class="field">
+                <span>配置文件（config 模式）</span>
+                <input
+                  id="form-tunnel-config"
+                  class="text-input"
+                  placeholder="~/.cloudflared/config.yml"
+                />
+              </label>
+              <label class="field">
+                <span>Token 环境变量（token 模式）</span>
+                <input
+                  id="form-token-env"
+                  class="text-input"
+                  placeholder="TUNNEL_TOKEN"
+                />
+              </label>
+              <label class="field">
+                <span>公网地址（可选）</span>
+                <input
+                  id="form-public-url"
+                  class="text-input"
+                  placeholder="https://demo.example.com"
                 />
               </label>
             </div>

@@ -11,6 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  cloudflaredArgs,
+  parseCloudflaredLog,
+  tunnelModeOf,
+} from "../services/agent/src/adapters/cloudflared.js";
 import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-compose.js";
 import { launchctlArgsFor } from "../services/agent/src/adapters/launchd.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
@@ -22,7 +27,10 @@ import {
 } from "../services/agent/src/core/api-token.js";
 import { changedRuntimeFields } from "../services/agent/src/core/config-diff.js";
 import { ConfigStore } from "../services/agent/src/core/config-store.js";
-import { loadConfig } from "../services/agent/src/core/config.js";
+import {
+  loadConfig,
+  parseServices,
+} from "../services/agent/src/core/config.js";
 import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
 import { EventStore } from "../services/agent/src/core/event-store.js";
 import { spawn } from "node:child_process";
@@ -215,6 +223,26 @@ test("docker adapter keeps command construction separate from shell", () => {
   assert.equal(adapter.id, "docker-compose");
 });
 
+test("cloudflared target stays a logical tunnel identifier", () => {
+  const services = parseServices(
+    {
+      services: [
+        {
+          id: "quick",
+          name: "Quick",
+          kind: "tunnel",
+          adapter: "cloudflared",
+          target: "quick",
+          tunnelMode: "quick",
+          allowedActions: ["start", "stop"],
+        },
+      ],
+    },
+    "/tmp/studioops/services.yaml",
+  );
+  assert.equal(services[0]?.target, "quick");
+});
+
 test("launchd stop boots the job out and start kickstarts it", () => {
   assert.deepEqual(launchctlArgsFor("stop", "gui/501/ai.local.ollama"), [
     "bootout",
@@ -346,6 +374,70 @@ test("config diff marks only runtime fields as restart-required", () => {
       health: { type: "http", endpoint: "http://127.0.0.1:3000/health" },
     }),
     [],
+  );
+});
+
+test("cloudflared builds quick, config and token commands", () => {
+  const base: ServiceDefinition = {
+    id: "tunnel-test",
+    name: "Tunnel Test",
+    kind: "tunnel",
+    adapter: "cloudflared",
+    target: "quick",
+    port: 3000,
+    allowedActions: ["start", "stop"],
+  };
+  assert.equal(tunnelModeOf(base), "quick");
+  assert.deepEqual(cloudflaredArgs(base), [
+    "tunnel",
+    "--no-autoupdate",
+    "--url",
+    "http://127.0.0.1:3000",
+  ]);
+
+  const root = mkdtempSync(join(tmpdir(), "studioops-cloudflared-"));
+  const configPath = join(root, "config.yml");
+  writeFileSync(configPath, "tunnel: demo\n");
+  const named = {
+    ...base,
+    tunnelMode: "config" as const,
+    tunnelConfig: configPath,
+    tunnelName: "demo",
+  };
+  assert.equal(tunnelModeOf(named), "config");
+  assert.deepEqual(cloudflaredArgs(named), [
+    "tunnel",
+    "--no-autoupdate",
+    "--config",
+    configPath,
+    "run",
+    "demo",
+  ]);
+
+  const token = {
+    ...base,
+    tunnelMode: "token" as const,
+    tokenEnv: "MY_TUNNEL_TOKEN",
+  };
+  assert.equal(tunnelModeOf(token), "token");
+  assert.deepEqual(cloudflaredArgs(token), [
+    "tunnel",
+    "--no-autoupdate",
+    "run",
+  ]);
+});
+
+test("cloudflared log parser extracts quick tunnel URL and last error", () => {
+  const parsed = parseCloudflaredLog([
+    "2026-11-02T10:00:00Z INF Starting tunnel",
+    "2026-11-02T10:00:01Z INF |  https://calm-river-demo.trycloudflare.com  |",
+    "2026-11-02T10:00:02Z ERR failed to connect to origin",
+  ]);
+  assert.equal(parsed.publicUrl, "https://calm-river-demo.trycloudflare.com");
+  assert.match(parsed.lastError ?? "", /failed to connect/);
+  assert.equal(
+    parseCloudflaredLog(["INF no error"], "https://demo.example.com").publicUrl,
+    "https://demo.example.com",
   );
 });
 
@@ -616,6 +708,40 @@ test("security audit does not mistake the StudioOps 7227 entry for a project", (
   assert.ok(
     !audit.findings.some((finding) => finding.code === "project-entries"),
   );
+});
+
+test("security audit marks running quick tunnels as critical", () => {
+  const audit = auditRemoteAccess({
+    host: "127.0.0.1",
+    port: 7227,
+    tokenRequired: true,
+    tailscale: {
+      installed: true,
+      running: true,
+      online: true,
+      ips: ["100.64.0.5"],
+    },
+    serve: parseTailscaleServeStatus("No serve config", 7227),
+    funnel: parseTailscaleFunnelStatus("No serve config"),
+    services: [
+      {
+        id: "quick",
+        name: "Quick",
+        kind: "tunnel",
+        adapter: "cloudflared",
+        target: "quick",
+        tunnelMode: "quick",
+        publicUrl: "https://demo.trycloudflare.com",
+        state: "running",
+        allowedActions: ["start", "stop"],
+      },
+    ],
+  });
+  const finding = audit.findings.find(
+    (item) => item.code === "cloudflared-quick-public",
+  );
+  assert.ok(finding);
+  assert.equal(finding.level, "critical");
 });
 
 test("security audit warns that project entries bypass the API token", () => {

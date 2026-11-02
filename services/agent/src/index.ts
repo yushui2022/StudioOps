@@ -12,6 +12,7 @@ import type {
   ServiceDefinition,
   Topic,
 } from "../../../packages/contracts/src/index.js";
+import { CloudflaredAdapter } from "./adapters/cloudflared.js";
 import { DockerComposeAdapter } from "./adapters/docker-compose.js";
 import { LaunchdAdapter } from "./adapters/launchd.js";
 import { ProcessAdapter } from "./adapters/process.js";
@@ -80,10 +81,11 @@ const registry = new ServiceRegistry();
 registry.registerAdapter(new LaunchdAdapter());
 registry.registerAdapter(new ProcessAdapter(dataDir));
 registry.registerAdapter(new DockerComposeAdapter());
+registry.registerAdapter(new CloudflaredAdapter(dataDir));
 const configStore = new ConfigStore({
   rootDir,
   dataDir,
-  adapterIds: ["launchd", "process", "docker-compose"],
+  adapterIds: ["launchd", "process", "docker-compose", "cloudflared"],
 });
 let configError: string | undefined;
 try {
@@ -572,7 +574,7 @@ app.post("/api/uninstall/cleanup", async (c) => {
 
     if (stopServices) {
       for (const definition of configStore.services) {
-        if (definition.adapter !== "process") continue;
+        if (!["process", "cloudflared"].includes(definition.adapter)) continue;
         try {
           const snapshot = await registry.inspect(definition.id);
           if (snapshot.state !== "running" && snapshot.state !== "paused")
@@ -777,7 +779,7 @@ app.get("/api/security/audit", async (c) => {
     tailscale,
     serve,
     funnel,
-    services: configStore.services,
+    services: await registry.list(),
   });
   return json({
     ...audit,

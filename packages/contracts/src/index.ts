@@ -57,6 +57,11 @@ export interface ServiceDefinition {
   logFile?: string;
   port?: number;
   tailscaleServePort?: number;
+  tunnelMode?: "quick" | "config" | "token";
+  tunnelName?: string;
+  tunnelConfig?: string;
+  tokenEnv?: string;
+  publicUrl?: string;
   health?: {
     type: "http" | "tcp" | "process" | "none";
     endpoint?: string;

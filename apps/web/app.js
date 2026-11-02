@@ -420,6 +420,13 @@ function serviceDetailLine(service) {
     return `${service.details.modelCount} 个模型`;
   if (service.kind === "comfyui" && service.details?.devices?.length)
     return `设备 ${service.details.devices.join(", ")}`;
+  if (service.kind === "tunnel")
+    return (
+      service.publicUrl ||
+      service.lastError ||
+      service.description ||
+      service.target
+    );
   return service.description || service.target;
 }
 
@@ -1111,6 +1118,13 @@ function inlineDetailHtml(service) {
             <div class="inline-fact"><span>适配器</span><strong>${escapeHtml(service.adapter)}</strong></div>
             <div class="inline-fact"><span>更新时间</span><strong>${escapeHtml(fmtClock(service.updatedAt))}</strong></div>
             <div class="inline-fact wide"><span>目标</span><strong>${escapeHtml(service.target)}</strong></div>
+            ${
+              service.kind === "tunnel"
+                ? `<div class="inline-fact wide"><span>公网入口</span><strong>${escapeHtml(service.publicUrl ?? "等待 cloudflared 分配")}</strong></div>
+                   <div class="inline-fact wide"><span>最后错误</span><strong>${escapeHtml(service.lastError ?? "无")}</strong></div>
+                   <div class="inline-fact wide"><span>隧道模式</span><strong>${escapeHtml(service.details?.tunnelMode ?? service.tunnelMode ?? "—")}</strong></div>`
+                : ""
+            }
             <div class="inline-fact wide"><span>允许动作</span><strong>${escapeHtml(service.allowedActions.join(" · "))}</strong></div>
           </div>
           ${modelSection}
@@ -1195,6 +1209,7 @@ function updateFormVisibility() {
   $("fields-process").classList.toggle("hidden", adapter !== "process");
   $("fields-compose").classList.toggle("hidden", adapter !== "docker-compose");
   $("fields-launchd").classList.toggle("hidden", adapter !== "launchd");
+  $("fields-cloudflared").classList.toggle("hidden", adapter !== "cloudflared");
 }
 
 function setFormError(message) {
@@ -1220,11 +1235,16 @@ function resetServiceForm() {
     "form-port",
     "form-compose-file",
     "form-project-name",
+    "form-tunnel-name",
+    "form-tunnel-config",
+    "form-token-env",
+    "form-public-url",
     "form-health-endpoint",
   ])
     $(id).value = "";
   $("form-kind").value = "process";
   $("form-adapter").value = "process";
+  $("form-tunnel-mode").value = "quick";
   $("form-category").value = "";
   $("form-health-type").value = "none";
   document
@@ -1265,6 +1285,11 @@ function openServiceForm(service) {
     $("form-port").value = service.port ?? "";
     $("form-compose-file").value = service.composeFile ?? "";
     $("form-project-name").value = service.projectName ?? "";
+    $("form-tunnel-mode").value = service.tunnelMode ?? "quick";
+    $("form-tunnel-name").value = service.tunnelName ?? "";
+    $("form-tunnel-config").value = service.tunnelConfig ?? "";
+    $("form-token-env").value = service.tokenEnv ?? "";
+    $("form-public-url").value = service.publicUrl ?? "";
     $("form-health-type").value = service.health?.type ?? "none";
     $("form-health-endpoint").value = service.health?.endpoint ?? "";
     document
@@ -1355,14 +1380,14 @@ function collectServiceForm() {
   if (!id) throw new Error("服务 ID 不能为空");
   if (!name) throw new Error("服务名称不能为空");
   const target = $("form-target").value.trim();
-  if (!target) throw new Error("目标不能为空");
+  if (!target && adapter !== "cloudflared") throw new Error("目标不能为空");
 
   const service = {
     id,
     name,
     kind: $("form-kind").value,
     adapter,
-    target,
+    target: target || "cloudflared",
     allowedActions: [
       ...document.querySelectorAll("#config-form .check-row input:checked"),
     ].map((input) => input.value),
@@ -1377,6 +1402,25 @@ function collectServiceForm() {
   };
   for (const [key, value] of Object.entries(optional))
     if (String(value).trim()) service[key] = String(value).trim();
+
+  if (adapter === "cloudflared") {
+    service.kind = "tunnel";
+    service.tunnelMode = $("form-tunnel-mode").value;
+    if ($("form-tunnel-name").value.trim())
+      service.tunnelName = $("form-tunnel-name").value.trim();
+    if ($("form-tunnel-config").value.trim())
+      service.tunnelConfig = $("form-tunnel-config").value.trim();
+    if ($("form-token-env").value.trim())
+      service.tokenEnv = $("form-token-env").value.trim();
+    if ($("form-public-url").value.trim())
+      service.publicUrl = $("form-public-url").value.trim();
+    const port = Number($("form-port").value);
+    if (service.tunnelMode === "quick" && !Number.isInteger(port) && target)
+      if (!/^https?:\/\//.test(target))
+        throw new Error("quick 模式需要端口，或 target 使用 http(s) URL");
+    if (service.tunnelMode === "config" && !service.tunnelConfig)
+      throw new Error("config 模式需要填写配置文件路径");
+  }
 
   const existing = state.formServiceId
     ? state.services.find((item) => item.id === state.formServiceId)
@@ -2738,7 +2782,29 @@ $("log-auto").addEventListener("change", (event) => {
   if (state.logAuto) loadLogs();
 });
 
-$("form-adapter").addEventListener("change", updateFormVisibility);
+$("form-adapter").addEventListener("change", () => {
+  if ($("form-adapter").value === "cloudflared") {
+    if ($("form-kind").value === "process") $("form-kind").value = "tunnel";
+    if (!$("form-group").value.trim()) $("form-group").value = "网络";
+    if (!$("form-category").value) $("form-category").value = "network";
+    if (!$("form-target").value.trim()) $("form-target").value = "quick";
+    if (!$("form-log-file").value.trim() && state.config?.dataDir) {
+      const id = $("form-id").value.trim() || "tunnel";
+      $("form-log-file").value = `${state.config.dataDir}/logs/${id}.log`;
+    }
+  }
+  updateFormVisibility();
+});
+$("form-kind").addEventListener("change", () => {
+  if (
+    $("form-kind").value === "tunnel" &&
+    $("form-adapter").value !== "cloudflared"
+  ) {
+    $("form-adapter").value = "cloudflared";
+    if (!$("form-target").value.trim()) $("form-target").value = "quick";
+  }
+  updateFormVisibility();
+});
 
 $("form-template").addEventListener("change", (event) => {
   applyProjectTemplate(event.target.value);

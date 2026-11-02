@@ -28,7 +28,7 @@ export interface SecurityAuditInput {
   tailscale: TailscaleInfo;
   serve: TailscaleServeInfo;
   funnel: TailscaleFunnelInfo;
-  services: ServiceDefinition[];
+  services: Array<ServiceDefinition & { state?: string }>;
 }
 
 const STUDIOOPS_PORT = 7227;
@@ -212,6 +212,41 @@ export function auditRemoteAccess(
       "serve-unknown",
       "无法完整读取 Tailscale Serve 状态",
       input.serve.error,
+    );
+  }
+
+  const cloudflaredTunnels = input.services.filter(
+    (service) => service.adapter === "cloudflared",
+  );
+  const runningTunnels = cloudflaredTunnels.filter(
+    (service) => service.state === "running",
+  );
+  const quickTunnels = runningTunnels.filter((service) => {
+    const mode =
+      service.tunnelMode ??
+      (service.tunnelConfig ? "config" : service.tokenEnv ? "token" : "quick");
+    return mode === "quick";
+  });
+  if (quickTunnels.length > 0) {
+    push(
+      "critical",
+      "cloudflared-quick-public",
+      "cloudflared quick tunnel 正在公网运行",
+      `${quickTunnels.map((service) => service.publicUrl ?? service.name).join("、")} 是无账号、无身份验证的临时公网地址，请演示后立即停止。`,
+    );
+  } else if (runningTunnels.length > 0) {
+    push(
+      "warning",
+      "cloudflared-public",
+      "cloudflared 公网隧道正在运行",
+      `${runningTunnels.map((service) => service.publicUrl ?? service.name).join("、")} 对公网开放；请确认已配置 Cloudflare Access 或项目自身登录。`,
+    );
+  } else if (cloudflaredTunnels.length > 0) {
+    push(
+      "warning",
+      "cloudflared-configured",
+      "已配置 cloudflared 公网隧道但当前未运行",
+      "启动前请确认 Cloudflare Access、项目登录和入口域名。",
     );
   }
 

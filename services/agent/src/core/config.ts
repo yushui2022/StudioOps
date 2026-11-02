@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { parse } from "yaml";
 import type {
   ServiceAction,
@@ -133,7 +134,9 @@ function validateService(
     kind,
     adapter,
     target:
-      adapter === "launchd" || target.includes("://")
+      adapter === "launchd" ||
+      adapter === "cloudflared" ||
+      target.includes("://")
         ? target
         : resolveTarget(target, rootDirFrom(filePath)),
     description: optionalString(record, "description"),
@@ -159,6 +162,11 @@ function validateService(
     logFile: optionalPath(record, "logFile", rootDirFrom(filePath)),
     port: optionalPort(record, "port"),
     tailscaleServePort: optionalPort(record, "tailscaleServePort"),
+    tunnelMode: tunnelMode(record, id),
+    tunnelName: optionalString(record, "tunnelName"),
+    tunnelConfig: optionalPath(record, "tunnelConfig", rootDirFrom(filePath)),
+    tokenEnv: optionalString(record, "tokenEnv"),
+    publicUrl: optionalString(record, "publicUrl"),
     health: health
       ? {
           type: (health.type as "http" | "tcp" | "process" | "none") ?? "none",
@@ -246,7 +254,21 @@ function optionalPath(
 ): string | undefined {
   const value = optionalString(record, key);
   if (!value) return undefined;
-  return isAbsolute(value) ? value : resolve(rootDir, value);
+  const expanded = value.startsWith("~/")
+    ? join(homedir(), value.slice(2))
+    : value;
+  return isAbsolute(expanded) ? expanded : resolve(rootDir, expanded);
+}
+
+function tunnelMode(
+  record: Record<string, unknown>,
+  id: string,
+): "quick" | "config" | "token" | undefined {
+  const value = record.tunnelMode;
+  if (value === undefined) return undefined;
+  if (value !== "quick" && value !== "config" && value !== "token")
+    throw new Error(`Unsupported tunnelMode for service ${id}`);
+  return value;
 }
 
 function optionalPort(
