@@ -65,10 +65,13 @@ export async function findTailscaleBinary(
   const run = options.run ?? execFileAsync;
   const candidates = [
     process.env.STUDIOOPS_TAILSCALE,
-    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-    "/opt/homebrew/bin/tailscale",
+    // The Homebrew / manual wrapper launches the GUI CLI in the right session.
+    // Calling the app bundle binary directly from a launchd-spawned Agent can
+    // fail with "The Tailscale GUI failed to start".
     "/usr/local/bin/tailscale",
+    "/opt/homebrew/bin/tailscale",
     "/usr/bin/tailscale",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
   ].filter((candidate): candidate is string => Boolean(candidate));
   for (const candidate of candidates) {
     if (candidate.startsWith("/") && existsSync(candidate)) return candidate;
