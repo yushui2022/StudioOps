@@ -40,10 +40,12 @@ import {
 import { terminateProcess } from "./core/process-control.js";
 import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
+import { auditRemoteAccess } from "./core/security-audit.js";
 import { getSystemSnapshot } from "./core/system.js";
 import {
   TAILSCALE_DOWNLOAD_URL,
   findTailscaleServeProxy,
+  readTailscaleFunnelInfo,
   readTailscaleInfo,
   readTailscaleServeInfo,
   setTailscaleServe,
@@ -762,6 +764,31 @@ app.post("/api/remote-access/serve", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/security/audit", async (c) => {
+  const tailscale = await readTailscaleInfo();
+  const [serve, funnel] = await Promise.all([
+    readTailscaleServeInfo({ port, binary: tailscale.binary }),
+    readTailscaleFunnelInfo({ binary: tailscale.binary }),
+  ]);
+  const audit = auditRemoteAccess({
+    host,
+    port,
+    tokenRequired: Boolean(configuredToken),
+    tailscale,
+    serve,
+    funnel,
+    services: configStore.services,
+  });
+  return json({
+    ...audit,
+    host,
+    port,
+    tokenRequired: Boolean(configuredToken),
+    tailscale,
+    serve,
+    funnel,
+  });
+});
 app.get("/api/tailscale/projects", async (c) => {
   const tailscale = await readTailscaleInfo();
   const serve = await readTailscaleServeInfo({
@@ -791,6 +818,12 @@ app.post("/api/projects/:id/tailscale", async (c) => {
         "Only project services with a listening port can use Tailscale",
       );
     const localPort = definition.port as number;
+    if (body.enabled && localPort === 11434)
+      throw new Error(
+        "Ollama 11434 不应通过 Tailscale Serve 暴露；请改用 Tailscale ACL 或专用代理",
+      );
+    if (body.enabled && localPort === port)
+      throw new Error("Agent 端口只能由 StudioOps 管理入口使用");
     if (body.enabled && !configuredToken)
       throw new Error("启用 Tailnet 项目入口前需要先生成访问 Token");
     const tailscale = await readTailscaleInfo();

@@ -696,6 +696,23 @@
                 </p>
               </section>
 
+              <section class="panel panel-wide" data-title="外部访问安全检查">
+                <div class="security-summary" id="security-summary">
+                  检查中…
+                </div>
+                <div class="security-findings" id="security-findings"></div>
+                <div class="panel-actions">
+                  <button class="btn btn-small" id="security-refresh">
+                    重新检查
+                  </button>
+                </div>
+                <p class="uninstall-hint">
+                  Tailscale ACL 无法通过本机 CLI 验证；请到 Tailscale
+                  管理后台确认设备范围。StudioOps 不会启用 Funnel，也不会把 7227
+                  或 11434 绑定到公网。
+                </p>
+              </section>
+
               <section class="panel panel-wide" data-title="卸载与恢复">
                 <dl class="fact-list">
                   <div>

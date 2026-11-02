@@ -57,6 +57,7 @@ const state = {
   uninstall: null,
   remoteAccess: null,
   projectTailnet: null,
+  securityAudit: null,
   serviceSearch: "",
   serviceFilter: "all",
   projectSearch: "",
@@ -1731,6 +1732,7 @@ async function generateAccessToken({ confirmRotation = true } = {}) {
     reconnectSocket();
     await refreshAll({ quiet: true });
     await loadRemoteAccess();
+    loadSecurityAudit();
     toast("访问 Token 已生成");
     return true;
   } catch (error) {
@@ -1805,6 +1807,7 @@ async function toggleTailscaleServe(button) {
       serve: result.serve,
     };
     renderRemoteAccess();
+    loadSecurityAudit();
     showTailscaleResult(
       enable
         ? `已开放：${result.serve.tailnetUrl ?? "Tailscale Serve 入口"}（仅 tailnet）`
@@ -1818,6 +1821,42 @@ async function toggleTailscaleServe(button) {
   } finally {
     renderRemoteAccess();
   }
+}
+
+const securityLevelLabels = {
+  ok: "正常",
+  warning: "警告",
+  critical: "高风险",
+};
+
+async function loadSecurityAudit() {
+  try {
+    state.securityAudit = await api("/api/security/audit");
+    renderSecurityAudit();
+  } catch (error) {
+    const summary = $("security-summary");
+    summary.textContent = error.message;
+    summary.className = "security-summary critical";
+  }
+}
+
+function renderSecurityAudit() {
+  const audit = state.securityAudit;
+  if (!audit) return;
+  const summary = $("security-summary");
+  summary.className = `security-summary ${audit.level}`;
+  summary.textContent = `${securityLevelLabels[audit.level] ?? audit.level} · 严重 ${audit.counts.critical} · 警告 ${audit.counts.warning} · 正常 ${audit.counts.ok}`;
+  $("security-findings").innerHTML = audit.findings
+    .map(
+      (finding) => `<div class="security-finding ${finding.level}">
+        <span class="security-level">${escapeHtml(securityLevelLabels[finding.level] ?? finding.level)}</span>
+        <div>
+          <strong>${escapeHtml(finding.title)}</strong>
+          <p>${escapeHtml(finding.detail)}</p>
+        </div>
+      </div>`,
+    )
+    .join("");
 }
 
 async function loadUninstallPreview() {
@@ -2282,6 +2321,7 @@ function switchView(view, { updateHash = true } = {}) {
     loadTokenField();
     loadBackups();
     loadRemoteAccess();
+    loadSecurityAudit();
     loadUninstallPreview();
   }
   if (view === "logs") {
@@ -2485,6 +2525,10 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "backup-refresh") {
     loadBackups();
+    return;
+  }
+  if (target.id === "security-refresh") {
+    loadSecurityAudit();
     return;
   }
   if (target.id === "tailscale-refresh") {

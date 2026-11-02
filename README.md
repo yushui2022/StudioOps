@@ -46,6 +46,7 @@ npm run dev
 - 卸载与恢复：设置页列出 `com.studioops.*` LaunchAgent 和托管服务，可先导出 `services.yaml`、SQLite、日志和备份，再停止服务、移除 LaunchAgent 并退出桌面端；默认保留数据，也可用 `scripts/uninstall-studioops.sh` 彻底清理。
 - Tailscale 私网访问：设置页检测 Tailscale 状态、Tailnet IP 和 MagicDNS 名称；可生成访问 Token，并通过 Tailscale Serve 只对 tailnet 开放 StudioOps，不启用 Funnel，不把 7227 绑定到公网。
 - 项目 Tailnet 入口：项目卡片可单独开放/关闭 Tailscale Serve 入口，自动分配 8443 起的 HTTPS 端口，配置保存 `tailscaleServePort`；入口只对 tailnet 可见。
+- 外部访问安全检查：设置页审计监听地址、Token、Funnel、Ollama 11434、项目入口和 ACL 风险；发现 Funnel 或敏感端口暴露时给出高风险提示。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
 - 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。

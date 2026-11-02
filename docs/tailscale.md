@@ -69,6 +69,26 @@ https://orlandomac-studio.tailf34c26.ts.net:8443/
 - 不要给不受信任的 tailnet 用户开放项目
 - 修改项目本地端口时会清理旧 Serve 入口，避免指向错误端口
 
+## 安全审计
+
+“设置 → 外部访问安全检查”会检查：
+
+- Agent 是否只监听 `127.0.0.1`
+- 访问 Token 是否启用
+- Tailscale 是否运行
+- Funnel 是否被开启
+- StudioOps 管理入口是否只对 tailnet 开放
+- Ollama `11434` 是否被 Serve/Funnel 暴露
+- 项目 Tailnet 入口数量和 Token 绕过风险
+
+高风险项包括：
+
+- Agent 绑定非回环地址但没有 Token
+- Tailscale Funnel 开启
+- Ollama 11434 被 Tailscale Serve 暴露
+
+Tailscale ACL 无法通过本机 CLI 验证，所以设置页会保留一条提醒：需要到 Tailscale 管理后台确认设备范围。
+
 ## 安全边界
 
 - 只对 tailnet 开放，公网无法直接访问

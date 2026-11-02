@@ -46,6 +46,7 @@
 | 项目服务模板            | 已完成                 | `services/agent/src/core/project-templates.ts`、`/api/project-templates`、`apps/web/app.js`                        | 7 个模板；选目录自动补全名称/ID/日志/命令/端口/健康检查                                                          |
 | 项目开机启动开关        | 已完成                 | `core/project-persistence.ts`、`/api/projects/:id/autostart`、`apps/web/app.js`                                    | 常驻项目独立控制 RunAtLoad；只重写 plist，不重启当前服务                                                         |
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                      | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                                              |
+| 外部访问安全检查        | 已完成                 | `core/security-audit.ts`、`/api/security/audit`、`apps/web/app.js`、`apps/web/index.html`                          | 审计回环绑定、Token、Funnel、Ollama 11434、项目入口和 ACL 提醒；高风险在设置页展示                               |
 | 项目 Tailnet 入口       | 已完成                 | `core/tailscale.ts`、`/api/tailscale/projects`、`/api/projects/:id/tailscale`、`apps/web/app.js`                   | 项目卡片开放/关闭；自动分配 HTTPS 端口；配置保存 tailscaleServePort；旧端口入口自动清理                          |
 | Tailscale 私网访问      | 已完成                 | `core/tailscale.ts`、`core/api-token.ts`、`/api/remote-access`、`/api/security/token`、`apps/web/app.js`           | 状态、Tailnet IP、MagicDNS、Serve 开关；Token 文件 0600；本机免 Token、远程强制 Token；仅 tailnet，不启用 Funnel |
 | 卸载与恢复              | 已完成                 | `services/agent/src/core/uninstall.ts`、`/api/uninstall/*`、`apps/web/app.js`、`scripts/uninstall-studioops.sh`    | 导出配置/数据；停止托管进程；清理 com.studioops.* LaunchAgent；重置常驻配置；退出桌面端                          |
@@ -124,7 +125,8 @@
 28. 单实例验收：首次启动 App 后执行 `open -n /Applications/StudioOps.app`，桌面进程保持 1 个、Agent 保持 1 个，第二次启动只聚焦已有窗口。
 29. Tailscale 验收：假 CLI 覆盖 Running 状态、Serve 配置、无 Token 拒绝、Token 权限 0600、导出不包含 `api-token`；随后在本机安装 Tailscale 1.104.4 并登录，真实 Serve 已开放 `https://orlandomac-studio.tailf34c26.ts.net/`；tailnet 无 Token 访问 `/api/config` 返回 401，带 Token 返回 200，本地回环访问不需要 Token；远程页面登录后可正常加载。浏览器系统代理需要绕过 `*.ts.net`。
 30. 项目 Tailnet 验收：临时项目 4398 在项目页点“开放 Tailnet”，自动分配 8443 并生成 `https://orlandomac-studio.tailf34c26.ts.net:8443/`；真实 curl 返回 200，Tailscale Serve 同时保留 StudioOps 443；关闭后 8443 入口消失、443 不受影响；配置写入 tailscaleServePort。
-31. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
+31. 外部访问安全检查验收：设置页显示 6 项正常、1 条 ACL 无法本机验证警告；真实环境无 Funnel、无 11434 暴露；项目 11434 入口被 API 以 400 拒绝；模拟 Funnel 和 Ollama 暴露时审计返回 critical。
+32. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

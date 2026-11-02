@@ -41,6 +41,13 @@ export interface TailscaleServeInfo {
   error?: string;
 }
 
+export interface TailscaleFunnelInfo {
+  enabled: boolean;
+  hosts: string[];
+  proxies: TailscaleServeProxy[];
+  error?: string;
+}
+
 interface RunnerOptions {
   binary?: string;
   run?: Runner;
@@ -230,6 +237,12 @@ export function tailscaleProxyServePort(proxy: TailscaleServeProxy): number {
   return hostPort(proxy.host);
 }
 
+export function tailscaleProxyTargetPort(
+  proxy: TailscaleServeProxy,
+): number | undefined {
+  return targetPortOf(proxy.target);
+}
+
 export function suggestTailscaleServePort(
   serve: TailscaleServeInfo,
   start = 8443,
@@ -303,6 +316,63 @@ export async function setTailscaleServe(options: {
         `Tailscale Serve 未生效（HTTPS ${servePort} → ${options.targetPort}）。请确认 Tailnet 已启用 HTTPS 证书和 MagicDNS。`,
     );
   return after;
+}
+
+export async function readTailscaleFunnelInfo(
+  options: RunnerOptions = {},
+): Promise<TailscaleFunnelInfo> {
+  const run = options.run ?? execFileAsync;
+  const binary = await findTailscaleBinary({ ...options, run });
+  if (!binary)
+    return {
+      enabled: false,
+      hosts: [],
+      proxies: [],
+      error: "Tailscale 未安装",
+    };
+  try {
+    const result = await run(binary, ["funnel", "status", "--json"], {
+      timeout: 5000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return parseTailscaleFunnelStatus(result.stdout);
+  } catch (error) {
+    const message = errorMessage(error);
+    if (/no serve config|not configured/i.test(message))
+      return { enabled: false, hosts: [], proxies: [] };
+    return {
+      enabled: false,
+      hosts: [],
+      proxies: [],
+      error: message,
+    };
+  }
+}
+
+export function parseTailscaleFunnelStatus(raw: string): TailscaleFunnelInfo {
+  const text = raw.trim();
+  if (!text || /no serve config/i.test(text))
+    return { enabled: false, hosts: [], proxies: [] };
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return {
+      enabled: false,
+      hosts: [],
+      proxies: [],
+      error: "无法解析 Tailscale Funnel 状态",
+    };
+  }
+  const proxies: TailscaleServeProxy[] = [];
+  collectProxies(data, undefined, proxies);
+  const allow = asRecord((data as Record<string, unknown>).AllowFunnel);
+  const hosts = allow
+    ? Object.entries(allow)
+        .filter(([, value]) => value === true)
+        .map(([host]) => host)
+    : [];
+  return { enabled: hosts.length > 0, hosts, proxies };
 }
 
 function collectProxies(

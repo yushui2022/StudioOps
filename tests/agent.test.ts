@@ -47,10 +47,12 @@ import {
   summarizeOllamaModels,
 } from "../services/agent/src/core/ollama.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
+import { auditRemoteAccess } from "../services/agent/src/core/security-audit.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
 import { getSystemSnapshot } from "../services/agent/src/core/system.js";
 import {
   findTailscaleServeProxy,
+  parseTailscaleFunnelStatus,
   parseTailscaleServeStatus,
   parseTailscaleStatus,
   setTailscaleServe,
@@ -496,6 +498,184 @@ test("Tailscale Serve status finds only the StudioOps proxy", () => {
     proxies: [],
     tailnetUrl: undefined,
   });
+});
+
+test("security audit flags Funnel and Ollama exposure", () => {
+  const tailscale = {
+    installed: true,
+    running: true,
+    online: true,
+    ips: ["100.64.0.5"],
+    dnsName: "studio.example-tailnet.ts.net",
+  };
+  const safe = auditRemoteAccess({
+    host: "127.0.0.1",
+    port: 7227,
+    tokenRequired: true,
+    tailscale,
+    serve: parseTailscaleServeStatus(
+      JSON.stringify({
+        Web: {
+          "studio.example-tailnet.ts.net:443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:7227" } },
+          },
+        },
+      }),
+      7227,
+    ),
+    funnel: parseTailscaleFunnelStatus("No serve config"),
+    services: [
+      {
+        id: "ollama",
+        name: "Ollama",
+        kind: "ollama",
+        adapter: "launchd",
+        target: "gui/501/ai.local.ollama",
+        port: 11434,
+        allowedActions: ["start", "stop"],
+      },
+    ],
+  });
+  assert.equal(safe.level, "warning");
+  assert.equal(safe.counts.critical, 0);
+  assert.ok(safe.findings.some((finding) => finding.code === "agent-loopback"));
+  assert.ok(safe.findings.some((finding) => finding.code === "ollama-local"));
+  assert.ok(
+    safe.findings.some((finding) => finding.code === "studioops-entry"),
+  );
+
+  const dangerous = auditRemoteAccess({
+    host: "0.0.0.0",
+    port: 7227,
+    tokenRequired: false,
+    tailscale,
+    serve: parseTailscaleServeStatus(
+      JSON.stringify({
+        Web: {
+          "studio.example-tailnet.ts.net:8443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:11434" } },
+          },
+        },
+      }),
+      7227,
+    ),
+    funnel: parseTailscaleFunnelStatus(
+      JSON.stringify({
+        AllowFunnel: { "studio.example-tailnet.ts.net:8443": true },
+        Web: {
+          "studio.example-tailnet.ts.net:8443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:11434" } },
+          },
+        },
+      }),
+    ),
+    services: [],
+  });
+  assert.equal(dangerous.level, "critical");
+  assert.ok(
+    dangerous.findings.some((finding) => finding.code === "funnel-enabled"),
+  );
+  assert.ok(
+    dangerous.findings.some((finding) => finding.code === "ollama-exposed"),
+  );
+  assert.ok(
+    dangerous.findings.some(
+      (finding) => finding.code === "agent-public-binding",
+    ),
+  );
+});
+
+test("security audit does not mistake the StudioOps 7227 entry for a project", () => {
+  const audit = auditRemoteAccess({
+    host: "127.0.0.1",
+    port: 7382,
+    tokenRequired: true,
+    tailscale: {
+      installed: true,
+      running: true,
+      online: true,
+      ips: ["100.64.0.5"],
+      dnsName: "studio.example-tailnet.ts.net",
+    },
+    serve: parseTailscaleServeStatus(
+      JSON.stringify({
+        Web: {
+          "studio.example-tailnet.ts.net:443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:7227" } },
+          },
+        },
+      }),
+      7227,
+    ),
+    funnel: parseTailscaleFunnelStatus("No serve config"),
+    services: [],
+  });
+  assert.ok(
+    audit.findings.some((finding) => finding.code === "studioops-entry"),
+  );
+  assert.ok(
+    !audit.findings.some((finding) => finding.code === "project-entries"),
+  );
+});
+
+test("security audit warns that project entries bypass the API token", () => {
+  const audit = auditRemoteAccess({
+    host: "127.0.0.1",
+    port: 7227,
+    tokenRequired: true,
+    tailscale: {
+      installed: true,
+      running: true,
+      online: true,
+      ips: ["100.64.0.5"],
+      dnsName: "studio.example-tailnet.ts.net",
+    },
+    serve: parseTailscaleServeStatus(
+      JSON.stringify({
+        Web: {
+          "studio.example-tailnet.ts.net:8443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:3000" } },
+          },
+        },
+      }),
+      3000,
+    ),
+    funnel: parseTailscaleFunnelStatus("No serve config"),
+    services: [
+      {
+        id: "demo",
+        name: "Demo",
+        kind: "process",
+        category: "project",
+        adapter: "process",
+        target: "/tmp/demo",
+        port: 3000,
+        tailscaleServePort: 8443,
+        allowedActions: ["start", "stop"],
+      },
+    ],
+  });
+  const finding = audit.findings.find(
+    (item) => item.code === "project-entries",
+  );
+  assert.ok(finding);
+  assert.match(finding.detail, /不经过 StudioOps Token/);
+});
+
+test("Tailscale Funnel status reads AllowFunnel entries", () => {
+  const funnel = parseTailscaleFunnelStatus(
+    JSON.stringify({
+      AllowFunnel: { "studio.example-tailnet.ts.net:8443": true },
+      Web: {
+        "studio.example-tailnet.ts.net:8443": {
+          Handlers: { "/": { Proxy: "http://127.0.0.1:3000" } },
+        },
+      },
+    }),
+  );
+  assert.equal(funnel.enabled, true);
+  assert.deepEqual(funnel.hosts, ["studio.example-tailnet.ts.net:8443"]);
+  assert.equal(funnel.proxies.length, 1);
 });
 
 test("Tailscale Serve maps project ports and suggests a free HTTPS port", () => {

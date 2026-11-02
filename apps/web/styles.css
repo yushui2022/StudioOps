@@ -1882,6 +1882,81 @@ select {
   grid-column: 1 / -1;
 }
 
+.security-summary {
+  margin: 0 13px 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-2);
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.security-summary.ok {
+  border-color: #2f4336;
+  color: #a9c6b1;
+}
+
+.security-summary.warning {
+  border-color: #4a3d26;
+  color: var(--amber);
+}
+
+.security-summary.critical {
+  border-color: #4a2f2c;
+  color: #d9a39c;
+}
+
+.security-findings {
+  display: grid;
+  gap: 1px;
+  padding: 0 13px 8px;
+}
+
+.security-finding {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.security-finding:last-child {
+  border-bottom: 0;
+}
+
+.security-level {
+  color: var(--muted);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+}
+
+.security-finding.ok .security-level {
+  color: var(--green);
+}
+
+.security-finding.warning .security-level {
+  color: var(--amber);
+}
+
+.security-finding.critical .security-level {
+  color: var(--red);
+}
+
+.security-finding strong {
+  display: block;
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.security-finding p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .uninstall-actions {
   flex-wrap: wrap;
   align-items: center;
