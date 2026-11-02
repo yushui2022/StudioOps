@@ -226,6 +226,20 @@ export class MemoryGuard implements MemoryAdmission {
     const minimumFreeBytes = Number(
       process.env.STUDIOOPS_GATEWAY_MEMORY_MIN_FREE_BYTES ?? 2 * 1024 ** 3,
     );
+    const comfyMinimumFreeBytes = Number(
+      process.env.STUDIOOPS_GATEWAY_COMFY_MIN_FREE_BYTES ?? 24 * 1024 ** 3,
+    );
+    if (
+      request?.backend === "comfyui" &&
+      snapshot.freeBytes < comfyMinimumFreeBytes
+    ) {
+      return {
+        allowed: false,
+        code: "memory",
+        reason: `内存准入：ComfyUI 需要至少 ${formatBytes(comfyMinimumFreeBytes)} 可用内存，当前仅 ${formatBytes(snapshot.freeBytes)}；请先卸载空闲 Ollama 模型或等待其他任务结束`,
+        snapshot,
+      };
+    }
     const critical =
       snapshot.percent >= 96 || snapshot.freeBytes < minimumFreeBytes;
     if (!critical && (warm || snapshot.usedBytes < snapshot.budgetBytes))

@@ -809,3 +809,54 @@ test("gateway persists model call records without request bodies", async () => {
     await harness.close();
   }
 });
+
+test("memory guard keeps free memory headroom for ComfyUI", async () => {
+  const fetchImpl = (async () =>
+    new Response(JSON.stringify({ models: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  const tight = new MemoryGuard({
+    ollamaUpstream: new URL("http://127.0.0.1:11434"),
+    reserveBytes: 12 * 1024 ** 3,
+    readMemory: async () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 45 * 1024 ** 3,
+      freeBytes: 19 * 1024 ** 3,
+    }),
+    fetchImpl,
+  });
+  await tight.start();
+  tight.stop();
+  const denied = await tight.admit({
+    backend: "comfyui",
+    method: "POST",
+    path: "/v1/images/generations",
+  });
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.code, "memory");
+  assert.match(denied.reason ?? "", /ComfyUI 需要至少/);
+
+  const roomy = new MemoryGuard({
+    ollamaUpstream: new URL("http://127.0.0.1:11434"),
+    reserveBytes: 12 * 1024 ** 3,
+    readMemory: async () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 34 * 1024 ** 3,
+      freeBytes: 30 * 1024 ** 3,
+    }),
+    fetchImpl,
+  });
+  await roomy.start();
+  roomy.stop();
+  assert.equal(
+    (
+      await roomy.admit({
+        backend: "comfyui",
+        method: "POST",
+        path: "/v1/images/generations",
+      })
+    ).allowed,
+    true,
+  );
+});

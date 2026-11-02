@@ -356,7 +356,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/health", (c) =>
-  json({ status: "ok", service: "studioops-agent", version: "0.1.5" }),
+  json({ status: "ok", service: "studioops-agent", version: "0.1.6" }),
 );
 app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
@@ -1154,7 +1154,7 @@ app.get("/api/config", (c) =>
     tokenRequired: Boolean(configuredToken),
     tokenSource,
     dataDir,
-    version: "0.1.5",
+    version: "0.1.6",
   }),
 );
 app.get("/api/config/services", (c) => json(configStore.services));

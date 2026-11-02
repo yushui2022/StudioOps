@@ -49,6 +49,7 @@ macOS 没有 Linux cgroup 那样的硬内存限制，所以网关在应用层做
 - 默认给推理预留 `52GB`，给系统保留 `12GB`；已用内存达到预算时拒绝新的模型请求。
 - 每 5 秒读取 Ollama `/api/ps`，默认最多加载 `1` 个模型。
 - 请求新模型而槽位已满时，网关会尝试卸载没有正在执行请求的空闲模型；卸载失败才拒绝。
+- ComfyUI 额外要求至少 24GiB 可用内存；不足时直接拒绝，避免同时加载 Ollama 大模型和 Qwen Image。
 - 只对会分配模型的请求做准入：Ollama 的 `POST /api/generate|chat|embed|embeddings|pull|create|copy` 和 OpenAI 兼容路径 `POST /v1/chat/completions|completions|embeddings`，ComfyUI 的 `POST /prompt|api/prompt|queue|v1/images/generations`。`/api/tags`、`/api/ps`、状态查询始终放行。
 
 ## 模型调用记录
@@ -89,6 +90,25 @@ macOS 没有 Linux cgroup 那样的硬内存限制，所以网关在应用层做
 | `STUDIOOPS_GATEWAY_MEMORY_BUDGET_BYTES`  | 总内存 − 保留           |
 | `STUDIOOPS_GATEWAY_MEMORY_RESERVE_BYTES` | `12884901888`（12 GiB） |
 | `STUDIOOPS_GATEWAY_MAX_LOADED_MODELS`    | `1`                     |
+
+## ComfyUI 适配
+
+链路：
+
+```text
+VPS 127.0.0.1:8190
+  → SSH 隧道
+  → Mac 127.0.0.1:8191 Gateway
+  → 127.0.0.1:8190 comfy_openai_bridge.py
+  → 127.0.0.1:8188 ComfyUI
+```
+
+- Bridge 对外提供 OpenAI Images API：`/v1/images/generations`、`/v1/images/edits`、`/v1/models`。
+- Gateway 按 ComfyUI 单独限制：并发 1、队列 8、排队/请求超时 30 分钟、请求体 32MB。
+- 模型名从请求 JSON 的 `model` 字段记录，例如 `gpt-image-qwen-2.1`。
+- ComfyUI 生成任务仍可在服务页的 ComfyUI 队列/历史中看到；Bridge 已登记为「ComfyUI Bridge」常驻服务。
+
+真实测试：从香港 VPS 经 `172.20.0.1:8190` 发起 `gpt-image-qwen-2.1` 1024×1024 出图，58.7 秒返回 1 张 871KB PNG；网关记录耗时 54.7 秒。
 
 ## 常驻与更新
 

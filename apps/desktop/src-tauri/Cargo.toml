@@ -1,6 +1,6 @@
 [package]
 name = "studioops-desktop"
-version = "0.1.5"
+version = "0.1.6"
 description = "StudioOps desktop shell"
 authors = ["StudioOps"]
 edition = "2021"
