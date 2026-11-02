@@ -639,11 +639,28 @@
                 <span>服务器 <strong id="network-server">—</strong></span>
                 <span>公网入站 <strong id="network-inbound">0</strong></span>
                 <span>本机外联 <strong id="network-outbound">0</strong></span>
+                <div class="segmented" id="network-direction">
+                  <button
+                    class="btn btn-small active"
+                    data-network-direction="inbound"
+                  >
+                    入站
+                  </button>
+                  <button
+                    class="btn btn-small"
+                    data-network-direction="outbound"
+                  >
+                    出站
+                  </button>
+                  <button class="btn btn-small" data-network-direction="all">
+                    全部
+                  </button>
+                </div>
                 <button class="btn btn-small" id="network-refresh">刷新</button>
               </div>
               <p class="network-note">
-                只显示公网地址；Tailscale、回环和私有网段会被过滤。入站 IP 通过
-                ipwho.is 解析国家/城市，不保存请求内容。
+                只显示公网地址；Tailscale、回环和私有网段会被过滤。绿色为入站，
+                金色为出站；IP 通过 ipwho.is 解析国家/城市，不保存请求内容。
               </p>
             </div>
             <div class="world-map-panel panel" data-title="实时世界连接">

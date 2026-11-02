@@ -2060,8 +2060,16 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-.network-summary .btn {
+.network-summary > .btn {
+  margin-left: 0;
+}
+
+.network-summary .segmented {
   margin-left: auto;
+}
+
+.network-summary .segmented .btn {
+  margin-left: 0;
 }
 
 .network-note {
@@ -2103,10 +2111,19 @@ select {
   opacity: 0.72;
 }
 
+.world-map-arc.outbound {
+  stroke: var(--amber);
+  opacity: 0.34;
+}
+
 .world-map-point {
   fill: var(--green);
   stroke: #0d1524;
   stroke-width: 1;
+}
+
+.world-map-point.outbound {
+  fill: var(--amber);
 }
 
 .world-map-server {
@@ -2217,7 +2234,8 @@ select {
     display: none;
   }
 
-  .network-summary .btn {
+  .network-summary > .btn,
+  .network-summary .segmented {
     margin-left: 0;
   }
 }

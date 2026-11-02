@@ -155,6 +155,7 @@ class GeoResolver {
   private server:
     | { location: NetworkLocation; publicIp?: string; expiresAt: number }
     | undefined;
+  private pending = new Map<string, Promise<NetworkLocation | undefined>>();
 
   async serverLocation(): Promise<{
     location?: NetworkLocation;
@@ -171,21 +172,38 @@ class GeoResolver {
     }
   }
 
-  async resolve(address: string): Promise<NetworkLocation | undefined> {
+  cached(address: string): NetworkLocation | undefined {
     const cached = this.cache.get(address);
-    if (cached && cached.expiresAt > Date.now()) return cached.location;
+    return cached && cached.expiresAt > Date.now()
+      ? cached.location
+      : undefined;
+  }
+
+  async resolve(address: string): Promise<NetworkLocation | undefined> {
+    const cached = this.cached(address);
+    if (cached) return cached;
+    const existing = this.pending.get(address);
+    if (existing) return existing;
+    const request = (async () => {
+      try {
+        const data = await geoRequest(
+          `https://ipwho.is/${encodeURIComponent(address)}`,
+        );
+        if (!data) return undefined;
+        this.cache.set(address, {
+          location: data.location,
+          expiresAt: Date.now() + 7 * 86_400_000,
+        });
+        return data.location;
+      } catch {
+        return undefined;
+      }
+    })();
+    this.pending.set(address, request);
     try {
-      const data = await geoRequest(
-        `https://ipwho.is/${encodeURIComponent(address)}`,
-      );
-      if (!data) return undefined;
-      this.cache.set(address, {
-        location: data.location,
-        expiresAt: Date.now() + 7 * 86_400_000,
-      });
-      return data.location;
-    } catch {
-      return undefined;
+      return await request;
+    } finally {
+      this.pending.delete(address);
     }
   }
 }
@@ -254,6 +272,18 @@ export class NetworkMonitor {
       for (const connection of inbound) {
         connection.location = await this.geo.resolve(connection.remoteAddress);
       }
+      // Resolve only the busiest outbound destinations. This keeps the map
+      // useful without sending every ephemeral connection IP to a geo service.
+      const outboundByIp = new Map<string, number>();
+      for (const connection of outbound)
+        outboundByIp.set(
+          connection.remoteAddress,
+          (outboundByIp.get(connection.remoteAddress) ?? 0) + 1,
+        );
+      const busiestOutbound = [...outboundByIp.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 8)
+        .map(([address]) => address);
       this.current = {
         capturedAt: new Date(now).toISOString(),
         inbound,
@@ -261,6 +291,11 @@ export class NetworkMonitor {
         serverLocation: server.location,
         publicIp: server.publicIp,
       };
+      for (const address of busiestOutbound) {
+        const location = this.geo.cached(address);
+        if (location) this.applyOutboundLocation(address, location);
+      }
+      void this.enrichOutbound(busiestOutbound);
       return this.snapshot();
     } catch (error) {
       this.current = {
@@ -272,6 +307,23 @@ export class NetworkMonitor {
       return this.snapshot();
     } finally {
       this.busy = false;
+    }
+  }
+
+  private async enrichOutbound(addresses: string[]): Promise<void> {
+    for (const address of addresses) {
+      if (this.geo.cached(address)) continue;
+      const location = await this.geo.resolve(address);
+      if (location) this.applyOutboundLocation(address, location);
+    }
+  }
+
+  private applyOutboundLocation(
+    address: string,
+    location: NetworkLocation,
+  ): void {
+    for (const connection of this.current.outbound) {
+      if (connection.remoteAddress === address) connection.location = location;
     }
   }
 

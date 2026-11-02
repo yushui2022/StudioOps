@@ -82,6 +82,7 @@ const state = {
   historyData: null,
   historyServiceId: null,
   network: null,
+  networkDirection: "inbound",
   networkBusy: false,
   metricsSettings: null,
   alerts: null,
@@ -1071,52 +1072,82 @@ function renderWorldMap(data) {
   const overlay = $("network-map");
   const empty = $("network-empty");
   if (!overlay || !empty) return;
+  const direction = state.networkDirection;
   const server = data.serverLocation
     ? worldPoint(data.serverLocation.latitude, data.serverLocation.longitude)
     : undefined;
   const activeInbound = data.inbound ?? [];
+  const activeOutbound = data.outbound ?? [];
   const inbound = activeInbound.filter((connection) => connection.location);
-  const arcs = server
-    ? inbound
-        .map((connection) => {
-          const source = worldPoint(
-            connection.location.latitude,
-            connection.location.longitude,
-          );
-          return `<path class="world-map-arc" d="${networkArc(source, server)}"><title>${escapeHtml(
-            `${connection.process} · ${connection.location.city ?? connection.location.country}`,
-          )}</title></path>
-          <circle class="world-map-point" cx="${source.x.toFixed(1)}" cy="${source.y.toFixed(1)}" r="3.2"><title>${escapeHtml(
-            `${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
-          )}</title></circle>`;
-        })
-        .join("")
-    : "";
+  const outbound = activeOutbound.filter((connection) => connection.location);
+  const inboundArcs =
+    server && direction !== "outbound"
+      ? inbound
+          .map((connection) => {
+            const source = worldPoint(
+              connection.location.latitude,
+              connection.location.longitude,
+            );
+            return `<path class="world-map-arc inbound" d="${networkArc(source, server)}"><title>${escapeHtml(
+              `${connection.process} · ${connection.location.city ?? connection.location.country}`,
+            )}</title></path>
+            <circle class="world-map-point inbound" cx="${source.x.toFixed(1)}" cy="${source.y.toFixed(1)}" r="3.2"><title>${escapeHtml(
+              `${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
+            )}</title></circle>`;
+          })
+          .join("")
+      : "";
+  const outboundArcs =
+    server && direction !== "inbound"
+      ? outbound
+          .map((connection) => {
+            const target = worldPoint(
+              connection.location.latitude,
+              connection.location.longitude,
+            );
+            return `<path class="world-map-arc outbound" d="${networkArc(server, target)}"><title>${escapeHtml(
+              `${connection.process} → ${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
+            )}</title></path>
+            <circle class="world-map-point outbound" cx="${target.x.toFixed(1)}" cy="${target.y.toFixed(1)}" r="2.8"><title>${escapeHtml(
+              `${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
+            )}</title></circle>`;
+          })
+          .join("")
+      : "";
   const marker = server
     ? `<circle class="world-map-server" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="4.5" />
        <circle class="world-map-server-ring" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="9" />`
     : "";
-  overlay.innerHTML = arcs + marker;
+  overlay.innerHTML = inboundArcs + outboundArcs + marker;
   if (!data.serverLocation) {
     empty.textContent = "服务器公网位置尚未解析";
     empty.classList.remove("hidden");
-  } else if (!activeInbound.length) {
-    empty.textContent = "暂无公网入站连接";
-    empty.classList.remove("hidden");
-  } else if (!inbound.length) {
-    empty.textContent = "检测到入站连接，地理定位暂不可用";
-    empty.classList.remove("hidden");
+  } else if (direction === "inbound") {
+    empty.textContent = activeInbound.length
+      ? "检测到入站连接，地理定位暂不可用"
+      : "暂无公网入站连接";
+    empty.classList.toggle("hidden", inbound.length > 0);
+  } else if (direction === "outbound") {
+    empty.textContent = activeOutbound.length
+      ? "出站连接暂未完成地理定位"
+      : "暂无公网出站连接";
+    empty.classList.toggle("hidden", outbound.length > 0);
   } else {
-    empty.classList.add("hidden");
+    empty.textContent = "暂无带地理位置的公网连接";
+    empty.classList.toggle("hidden", inbound.length + outbound.length > 0);
   }
 }
 
 function renderNetworkList(data) {
+  const direction = state.networkDirection;
+  const source =
+    direction === "inbound"
+      ? (data.inbound ?? [])
+      : direction === "outbound"
+        ? (data.outbound ?? [])
+        : [...(data.inbound ?? []), ...(data.outbound ?? [])];
   const grouped = new Map();
-  for (const connection of [
-    ...(data.inbound ?? []),
-    ...(data.outbound ?? []),
-  ]) {
+  for (const connection of source) {
     const key = `${connection.direction}:${connection.process}:${connection.remoteAddress}:${connection.remotePort}`;
     const existing = grouped.get(key);
     if (existing) {
@@ -1136,8 +1167,7 @@ function renderNetworkList(data) {
   });
   const list = $("network-list");
   if (!rows.length) {
-    list.innerHTML =
-      '<p class="network-empty">当前没有公网连接。Tailscale 和私有网段不会显示在这里。</p>';
+    list.innerHTML = `<p class="network-empty">${direction === "inbound" ? "当前没有公网入站连接。" : direction === "outbound" ? "当前没有公网出站连接。" : "当前没有公网连接。"} Tailscale 和私有网段不会显示在这里。</p>`;
     return;
   }
   list.innerHTML = rows
@@ -3562,6 +3592,21 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "metrics-reload") {
     loadMetricsSettings();
+    return;
+  }
+  if (target.dataset.networkDirection) {
+    const direction = target.dataset.networkDirection;
+    if (!["inbound", "outbound", "all"].includes(direction)) return;
+    state.networkDirection = direction;
+    document
+      .querySelectorAll("[data-network-direction]")
+      .forEach((button) =>
+        button.classList.toggle(
+          "active",
+          button.dataset.networkDirection === direction,
+        ),
+      );
+    renderNetwork();
     return;
   }
   if (target.id === "network-refresh") {

@@ -143,7 +143,7 @@
 38. Ollama 模型验收：bge-m3 在 UI 显示 VRAM/内存/到期；卸载后 `/api/ps` 为空、UI 变为“磁盘”并显示加载按钮；重新加载后恢复 VRAM；审计记录 model-unload/model-load；服务停止时按钮由 `state === running` 隐藏。
 39. ComfyUI 队列验收：真实 ComfyUI 返回 1 个运行任务、6 条历史和 mps 显存；服务行显示 MPS VRAM/GPU/温度；模拟 ComfyUI 服务验证运行任务 `/interrupt`、等待任务 `delete`，两次 comfy-cancel 审计成功；未取消真实任务。
 40. Tailscale 身份审计验收：带 `Tailscale-User-Login`/`Tailscale-User-Name` 的远程请求写入审计，`/api/events` 返回 `actor=web`、`remoteUser=friend@example.com`、`remoteName=Friend User`；本机事件仍不带远程身份。
-41. 网络地图验收：真实环境显示服务器位置 Shanghai · CN、0 个公网入站、60+ 个本机外联；网络视图显示离线世界地图、服务器标记和空状态；Tailscale/回环/私网过滤；`lsof` 解析和方向判断有单测。
+41. 网络地图验收：真实环境显示服务器位置 Shanghai · CN、0 个公网入站、70+ 个本机外联；入站/出站/全部切换正常；出站 top 8 目的地后台 GeoIP，地图显示金色出站弧线；Tailscale/回环/私网过滤；`lsof` 解析和方向判断有单测。
 42. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
