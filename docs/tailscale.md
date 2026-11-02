@@ -57,7 +57,7 @@ Token 文件不会进入导出的配置归档。
 4. 项目卡片会显示类似：
 
 ```text
-https://orlandomac-studio.tailf34c26.ts.net:8443/
+https://<your-mac>.<your-tailnet>.ts.net:8443/
 ```
 
 5. 点“关闭 Tailnet”只移除这个 Serve 入口，本机端口和服务不受影响。

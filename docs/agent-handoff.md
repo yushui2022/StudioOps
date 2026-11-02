@@ -133,8 +133,8 @@
 26. 重启语义验收：运行中的服务只改名称时 `restartRequired=false`；改端口时返回 `changedFields=["port"]` 和 `restartRequired=true`；前端弹出“立即重启/更新常驻”提示。
 27. 开机启动开关验收：常驻项目关闭开机启动后 plist 的 RunAtLoad 变 false，当前服务仍保持运行；重新开启后变为 true；取消常驻后 plist 和 launchd 都能回收。
 28. 单实例验收：首次启动 App 后执行 `open -n /Applications/StudioOps.app`，桌面进程保持 1 个、Agent 保持 1 个，第二次启动只聚焦已有窗口。
-29. Tailscale 验收：假 CLI 覆盖 Running 状态、Serve 配置、无 Token 拒绝、Token 权限 0600、导出不包含 `api-token`；随后在本机安装 Tailscale 1.104.4 并登录，真实 Serve 已开放 `https://orlandomac-studio.tailf34c26.ts.net/`；tailnet 无 Token 访问 `/api/config` 返回 401，带 Token 返回 200，本地回环访问不需要 Token；远程页面登录后可正常加载。浏览器系统代理需要绕过 `*.ts.net`。
-30. 项目 Tailnet 验收：临时项目 4398 在项目页点“开放 Tailnet”，自动分配 8443 并生成 `https://orlandomac-studio.tailf34c26.ts.net:8443/`；真实 curl 返回 200，Tailscale Serve 同时保留 StudioOps 443；关闭后 8443 入口消失、443 不受影响；配置写入 tailscaleServePort。
+29. Tailscale 验收：假 CLI 覆盖 Running 状态、Serve 配置、无 Token 拒绝、Token 权限 0600、导出不包含 `api-token`；随后在本机安装 Tailscale 1.104.4 并登录，真实 Serve 已开放 `https://<your-mac>.<your-tailnet>.ts.net/`；tailnet 无 Token 访问 `/api/config` 返回 401，带 Token 返回 200，本地回环访问不需要 Token；远程页面登录后可正常加载。浏览器系统代理需要绕过 `*.ts.net`。
+30. 项目 Tailnet 验收：临时项目 4398 在项目页点“开放 Tailnet”，自动分配 8443 并生成 `https://<your-mac>.<your-tailnet>.ts.net:8443/`；真实 curl 返回 200，Tailscale Serve 同时保留 StudioOps 443；关闭后 8443 入口消失、443 不受影响；配置写入 tailscaleServePort。
 31. 外部访问安全检查验收：设置页显示 6 项正常、1 条 ACL 无法本机验证警告；真实环境无 Funnel、无 11434 暴露；项目 11434 入口被 API 以 400 拒绝；模拟 Funnel 和 Ollama 暴露时审计返回 critical。
 32. cloudflared 验收：临时 HTTP 服务 4397 通过 quick tunnel 启动，日志解析出 `https://head-sending-material-nursery.trycloudflare.com`，真实公网 curl 返回 200；服务页显示 running 和公网地址；停止后 cloudflared 子进程和 PID 文件回收；config/token 命令构造由单测覆盖；模拟 PATH 中无 cloudflared 时服务状态为 error 并返回安装提示。named tunnel 真实域名联调需要 Cloudflare 账号和域名，尚未执行。
 33. 指标历史验收：Agent 默认 10 秒采样，SQLite 写入原始点和 1m/1h rollup；5m 返回 10 秒点、1h 返回 1 分钟点、24h 返回 5 分钟点；历史视图显示 6 张系统曲线和服务 CPU/内存；重启 Agent 后历史仍在；设置页可保存采样间隔和保留天数。

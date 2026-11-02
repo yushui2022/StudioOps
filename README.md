@@ -295,7 +295,7 @@ H3 模型文件不随仓库分发。64GB M5 Max 实测：
 - Gateway 只保存请求元数据，不保存 prompt
 - 证书、私钥、`.env`、SQLite、日志和本机 `services.yaml` 不进入 Git
 
-> 如果你发现安全问题，请不要开公开 issue，先通过仓库维护者私下联系。
+> 如果你发现安全问题，请不要开公开 issue，先通过仓库维护者私下联系。详见 [SECURITY.md](SECURITY.md)。
 
 ## 开发
 
