@@ -53,6 +53,20 @@ HTTP 200
 
 这验证了 `8192 → 8193 视频桥 → 8188 ComfyUI` 的队列、内存门槛和模型调用记录。
 
+## 768p 高画质对比
+
+同一提示词，使用 H3 原生 768p 短边：
+
+```text
+分辨率:    1344 × 768
+时长:      5.165 秒 / 124 帧
+步数:      4 步 Turbo
+文件:      H3_milk_hq_00001_.mp4，3.8 MB
+耗时:      680.7 秒（11 分 20 秒）
+```
+
+画质相比 864×480 明显提升：人物面部、奶瓶标签、货架和背景细节更完整，「每日鲜奶」文字也更清晰。代价是 5 秒视频约 11 分钟，10 秒 768p 预计超过 20 分钟且内存压力更大。8 步 Turbo LoRA 已下载，可进一步换画质，但耗时约再翻倍。
+
 ## 使用的模型
 
 Abiray 的 ComfyUI 兼容 GGUF；不要用 unsloth 的 text encoder GGUF，它缺少 `general.architecture` 元数据，`CLIPLoaderGGUF` 会报 “This gguf file is incompatible with llama.cpp”。
