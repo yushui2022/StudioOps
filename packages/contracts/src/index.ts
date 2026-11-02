@@ -93,7 +93,8 @@ export interface ServiceLog {
 export interface OperationEvent {
   id?: number;
   serviceId: string;
-  action: ServiceAction | "terminate" | "config";
+  action:
+    ServiceAction | "terminate" | "config" | "model-load" | "model-unload";
   state: ServiceState;
   success: boolean;
   actor: "desktop" | "web" | "local";
@@ -191,6 +192,9 @@ export interface OllamaModel {
   quantization?: string;
   loaded: boolean;
   expiresAt?: string;
+  vramBytes?: number;
+  loadedBytes?: number;
+  capabilities?: string[];
 }
 
 export interface OllamaModelsSnapshot {

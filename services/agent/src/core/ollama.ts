@@ -81,6 +81,17 @@ export function summarizeOllamaModels(
           typeof runningModel?.expires_at === "string"
             ? runningModel.expires_at
             : undefined,
+        vramBytes: numberOrUndefined(runningModel?.size_vram),
+        loadedBytes: numberOrUndefined(runningModel?.size),
+        capabilities: Array.isArray(model.capabilities)
+          ? model.capabilities.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : Array.isArray(runningModel?.capabilities)
+            ? runningModel.capabilities.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : undefined,
       };
     })
     .filter((model) => model.name)
@@ -95,6 +106,70 @@ export function summarizeOllamaModels(
     loadedCount: models.filter((model) => model.loaded).length,
     capturedAt: new Date().toISOString(),
   };
+}
+
+export type OllamaModelAction = "load" | "unload";
+
+export interface OllamaModelActionRequest {
+  url: string;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Ollama has no dedicated load endpoint. Completion models are loaded through
+ * /api/generate with an empty prompt; embedding-only models use /api/embed.
+ * Unloading uses the same endpoint with keep_alive: 0.
+ */
+export function ollamaModelActionRequest(
+  baseUrl: string,
+  model: OllamaModel,
+  action: OllamaModelAction,
+): OllamaModelActionRequest {
+  const embedding = model.capabilities?.includes("embedding") === true;
+  const keepAlive = action === "unload" ? 0 : "5m";
+  return embedding
+    ? {
+        url: `${baseUrl}/api/embed`,
+        body: { model: model.name, input: [], keep_alive: keepAlive },
+      }
+    : {
+        url: `${baseUrl}/api/generate`,
+        body: {
+          model: model.name,
+          prompt: "",
+          stream: false,
+          keep_alive: keepAlive,
+        },
+      };
+}
+
+export async function runOllamaModelAction(
+  definition: ServiceDefinition,
+  model: OllamaModel,
+  action: OllamaModelAction,
+): Promise<void> {
+  const request = ollamaModelActionRequest(
+    ollamaBaseUrl(definition),
+    model,
+    action,
+  );
+  const response = await fetch(request.url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request.body),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Ollama ${action} ${model.name} failed: ${response.status} ${body.slice(0, 300)}`,
+    );
+  }
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
 }
 
 async function fetchJson(url: string): Promise<unknown> {

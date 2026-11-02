@@ -42,7 +42,11 @@ import {
   type MetricRange,
   type MetricScope,
 } from "./core/metrics-store.js";
-import { getOllamaModels } from "./core/ollama.js";
+import {
+  getOllamaModels,
+  runOllamaModelAction,
+  type OllamaModelAction,
+} from "./core/ollama.js";
 import { ProcessIconStore } from "./core/process-icons.js";
 import { listProjectTemplates } from "./core/project-templates.js";
 import {
@@ -1182,6 +1186,63 @@ app.get("/api/services/:id/models", async (c) => {
       },
       400,
     );
+  }
+});
+app.post("/api/services/:id/models/:action", async (c) => {
+  const id = c.req.param("id");
+  const rawAction = c.req.param("action");
+  const action =
+    rawAction === "load" || rawAction === "unload"
+      ? (rawAction as OllamaModelAction)
+      : undefined;
+  const actor =
+    c.req.header("x-studioops-actor") === "desktop"
+      ? "desktop"
+      : c.req.header("x-studioops-actor") === "web"
+        ? "web"
+        : "local";
+  const eventAction = action === "load" ? "model-load" : "model-unload";
+  try {
+    if (!action) throw new Error("Model action must be load or unload");
+    const body = await readJsonObject(c.req.raw);
+    if (typeof body.name !== "string" || !body.name.trim())
+      throw new Error("Model name is required");
+    const name = body.name.trim();
+    const definition = registry.definition(id);
+    if (definition.kind !== "ollama")
+      throw new Error("Models are only supported for Ollama");
+    const snapshot = await registry.inspect(id);
+    if (snapshot.state !== "running")
+      throw new Error(`Start ${definition.name} before managing models`);
+    const current = await getOllamaModels(definition);
+    const model = current.models.find((item) => item.name === name);
+    if (!model) throw new Error(`Unknown model: ${name}`);
+    if (action === "load" && model.loaded) return json(current);
+    if (action === "unload" && !model.loaded) return json(current);
+    await runOllamaModelAction(definition, model, action);
+    const updated = await getOllamaModels(definition);
+    eventStore.record({
+      serviceId: id,
+      action: eventAction,
+      state: snapshot.state,
+      success: true,
+      actor,
+      at: new Date().toISOString(),
+    });
+    return json(updated);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Model action failed";
+    eventStore.record({
+      serviceId: id,
+      action: eventAction,
+      state: "error",
+      success: false,
+      actor,
+      error: message,
+      at: new Date().toISOString(),
+    });
+    return c.json({ error: message }, 400);
   }
 });
 app.get("/api/services/:id/logs", async (c) => {

@@ -56,6 +56,7 @@ import {
 } from "../services/agent/src/core/process-list.js";
 import {
   ollamaBaseUrl,
+  ollamaModelActionRequest,
   summarizeOllamaModels,
 } from "../services/agent/src/core/ollama.js";
 import {
@@ -393,6 +394,52 @@ test("config diff marks only runtime fields as restart-required", () => {
     }),
     [],
   );
+});
+
+test("Ollama models expose VRAM, memory and model actions", () => {
+  const snapshot = summarizeOllamaModels(
+    "http://127.0.0.1:11434",
+    {
+      models: [
+        {
+          name: "bge-m3:latest",
+          size: 1157,
+          details: { family: "bert", parameter_size: "566.70M" },
+          capabilities: ["embedding"],
+        },
+      ],
+    },
+    {
+      models: [
+        {
+          name: "bge-m3:latest",
+          size: 689,
+          size_vram: 512,
+          expires_at: "2026-11-02T12:00:00Z",
+        },
+      ],
+    },
+  );
+  const model = snapshot.models[0];
+  assert.equal(model?.loaded, true);
+  assert.equal(model?.vramBytes, 512);
+  assert.equal(model?.loadedBytes, 689);
+  assert.deepEqual(model?.capabilities, ["embedding"]);
+  const embedding = ollamaModelActionRequest(
+    "http://127.0.0.1:11434",
+    model!,
+    "unload",
+  );
+  assert.equal(embedding.url, "http://127.0.0.1:11434/api/embed");
+  assert.equal(embedding.body.keep_alive, 0);
+  const completion = ollamaModelActionRequest(
+    "http://127.0.0.1:11434",
+    { ...model!, capabilities: ["completion"] },
+    "load",
+  );
+  assert.equal(completion.url, "http://127.0.0.1:11434/api/generate");
+  assert.equal(completion.body.keep_alive, "5m");
+  assert.equal(completion.body.stream, false);
 });
 
 test("launchd discovery parses loaded labels and suggests service ids", () => {

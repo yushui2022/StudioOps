@@ -27,6 +27,8 @@ const actionLabels = {
   resume: "继续",
   terminate: "终止进程",
   config: "配置变更",
+  "model-load": "加载模型",
+  "model-unload": "卸载模型",
 };
 
 const stateLabels = {
@@ -1526,16 +1528,25 @@ function loadTokenField() {
 
 /* ---------- drawer ---------- */
 
-function modelsToHtml(snapshot) {
+function modelsToHtml(snapshot, service) {
   if (!snapshot.models.length)
     return '<p class="model-empty">没有已下载的模型</p>';
+  const canManage = service?.state === "running";
   return snapshot.models
     .map((model) => {
+      const memory = model.loaded
+        ? [
+            model.vramBytes ? `VRAM ${fmtBytes(model.vramBytes)}` : "",
+            model.loadedBytes ? `内存 ${fmtBytes(model.loadedBytes)}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : `磁盘 ${fmtBytes(model.sizeBytes)}`;
       const meta = [
         model.family,
         model.parameterSize,
         model.quantization,
-        fmtBytes(model.sizeBytes),
+        memory,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -1543,12 +1554,18 @@ function modelsToHtml(snapshot) {
         model.loaded && model.expiresAt
           ? ` · 到期 ${fmtClock(model.expiresAt)}`
           : "";
+      const action = canManage
+        ? model.loaded
+          ? `<button class="btn btn-small" data-unload-model="${escapeHtml(service.id)}" data-model-name="${escapeHtml(model.name)}">卸载</button>`
+          : `<button class="btn btn-small" data-load-model="${escapeHtml(service.id)}" data-model-name="${escapeHtml(model.name)}">加载</button>`
+        : "";
       return `<div class="model-row">
         <div>
           <strong title="${escapeHtml(model.name)}">${escapeHtml(model.name)}</strong>
           <small>${escapeHtml(meta)}${escapeHtml(expires)}</small>
         </div>
         ${model.loaded ? '<span class="model-badge">loaded</span>' : ""}
+        ${action}
       </div>`;
     })
     .join("");
@@ -1572,7 +1589,7 @@ function inlineDetailHtml(service) {
            </div>
            <div class="model-list" id="inline-models-${escapeHtml(service.id)}">${
              models
-               ? modelsToHtml(models)
+               ? modelsToHtml(models, service)
                : '<p class="model-empty">加载中…</p>'
            }</div>
          </section>`
@@ -1669,6 +1686,32 @@ function toggleServiceDetail(serviceId) {
   loadInlineLog(serviceId);
 }
 
+async function changeOllamaModel(serviceId, modelName, action, button) {
+  if (button) button.disabled = true;
+  try {
+    await api(
+      `/api/services/${encodeURIComponent(serviceId)}/models/${action}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-studioops-actor": "web",
+        },
+        body: JSON.stringify({ name: modelName }),
+      },
+    );
+    toast(`${modelName} ${action === "load" ? "已加载" : "已卸载"}`);
+    delete state.ollamaModels[serviceId];
+    await loadInlineModels(serviceId);
+    await loadInference();
+    await refreshEvents();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadInlineModels(serviceId) {
   try {
     const data = await api(
@@ -1678,7 +1721,8 @@ async function loadInlineModels(serviceId) {
     if (state.expandedServiceId !== serviceId) return;
     const target = $(`inline-models-${serviceId}`);
     const count = $(`inline-model-count-${serviceId}`);
-    if (target) target.innerHTML = modelsToHtml(data);
+    const service = state.services.find((item) => item.id === serviceId);
+    if (target) target.innerHTML = modelsToHtml(data, service);
     if (count)
       count.textContent = `已加载 ${data.loadedCount} / 共 ${data.models.length}`;
   } catch (error) {
@@ -3257,6 +3301,24 @@ document.addEventListener("click", (event) => {
       (item) => item.id === target.dataset.editService,
     );
     if (service) openServiceForm(service);
+    return;
+  }
+  if (target.dataset.loadModel) {
+    changeOllamaModel(
+      target.dataset.loadModel,
+      target.dataset.modelName,
+      "load",
+      target,
+    );
+    return;
+  }
+  if (target.dataset.unloadModel) {
+    changeOllamaModel(
+      target.dataset.unloadModel,
+      target.dataset.modelName,
+      "unload",
+      target,
+    );
     return;
   }
   if (target.dataset.inlineModels) {

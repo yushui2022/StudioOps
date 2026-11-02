@@ -2993,6 +2993,12 @@ select {
   white-space: nowrap;
 }
 
+.model-row .btn {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 9px;
+}
+
 .model-badge {
   flex: 0 0 auto;
   padding: 1px 5px;
