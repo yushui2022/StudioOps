@@ -56,6 +56,7 @@ npm run dev
 - Ollama 模型操作：模型列表显示 loaded、VRAM、占用内存和到期时间；服务运行时可加载/卸载模型，操作写入审计；服务停止时隐藏模型操作。
 - ComfyUI 队列：服务行显示运行/等待/历史任务、MPS VRAM/GPU/温度；可中断运行任务或取消等待任务，取消操作写入审计。
 - Tailscale 身份审计：通过 Tailscale Serve 的 `Tailscale-User-Login` 记录远程操作者，审计表同时显示 actor 和具体 tailnet 用户。
+- 网络世界地图：采集当前公网 TCP 连接，入站公网 IP 做地理定位并在离线世界地图上画弧线；出站连接单独列出，Tailscale/私网地址过滤，不抓包。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
 - 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
@@ -91,6 +92,7 @@ npm run build
 - `docs/tailscale.md`：Tailscale 安装、登录、私网访问和安全边界。
 - `docs/cloudflared.md`：cloudflared quick/named/token 隧道和公网安全要求。
 - `docs/research/ops-monitoring.md`：指标存储、告警、日志和 SQLite 备份的调研与设计边界。
+- `docs/network-map.md`：网络连接采集、世界地图、过滤规则和隐私边界。
 
 ## 复用策略
 

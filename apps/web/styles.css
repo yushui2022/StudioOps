@@ -2036,6 +2036,192 @@ select {
   color: var(--amber);
 }
 
+/* ---------- network map ---------- */
+
+.network-toolbar {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+}
+
+.network-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.network-summary strong {
+  color: var(--text-soft);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.network-summary .btn {
+  margin-left: auto;
+}
+
+.network-note {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.world-map-panel {
+  padding: 10px 13px 13px;
+}
+
+.world-map-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  background: #0d1524;
+}
+
+.world-map-base {
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 0.9;
+}
+
+.world-map-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.world-map-arc {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 1.1;
+  opacity: 0.72;
+}
+
+.world-map-point {
+  fill: var(--green);
+  stroke: #0d1524;
+  stroke-width: 1;
+}
+
+.world-map-server {
+  fill: var(--amber);
+  stroke: #0d1524;
+  stroke-width: 1.2;
+}
+
+.world-map-server-ring {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 1;
+  opacity: 0.36;
+}
+
+.world-map-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: 5px 9px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border-soft);
+  background: rgba(13, 21, 36, 0.86);
+  color: var(--muted);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.network-list {
+  display: grid;
+  max-height: 300px;
+  overflow: auto;
+  padding: 0 13px 8px;
+}
+
+.network-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(120px, 0.35fr) 36px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.network-row:last-child {
+  border-bottom: 0;
+}
+
+.network-dir {
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.network-dir.inbound {
+  color: var(--green);
+}
+
+.network-main {
+  min-width: 0;
+}
+
+.network-main strong {
+  display: block;
+  color: var(--text-soft);
+  font-size: 9.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.network-main small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 8.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.network-place {
+  color: var(--muted);
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.network-count {
+  color: var(--amber);
+  font-size: 8.5px;
+  text-align: right;
+}
+
+.network-empty {
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 9.5px;
+}
+
+@media (max-width: 760px) {
+  .network-row {
+    grid-template-columns: 36px minmax(0, 1fr) 32px;
+  }
+
+  .network-place {
+    display: none;
+  }
+
+  .network-summary .btn {
+    margin-left: 0;
+  }
+}
+
 /* ---------- metrics history ---------- */
 
 .history-toolbar {

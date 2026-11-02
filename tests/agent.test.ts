@@ -73,6 +73,12 @@ import {
   suggestServiceId,
 } from "../services/agent/src/core/launchd-discovery.js";
 import { buildMetricSamples } from "../services/agent/src/core/metrics-sampler.js";
+import {
+  isPublicAddress,
+  parseConnections,
+  parseLsofFields,
+  parseSocketName,
+} from "../services/agent/src/core/network-connections.js";
 import { MetricsStore } from "../services/agent/src/core/metrics-store.js";
 import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { auditRemoteAccess } from "../services/agent/src/core/security-audit.js";
@@ -403,6 +409,30 @@ test("config diff marks only runtime fields as restart-required", () => {
     }),
     [],
   );
+});
+
+test("network collector parses lsof sockets and separates inbound/outbound", () => {
+  const established = [
+    "p123",
+    "cnode",
+    "n192.168.31.5:3000->8.8.8.8:54321",
+    "n127.0.0.1:5000->127.0.0.1:6000",
+    "n192.168.31.5:55000->1.1.1.1:443",
+  ].join("\n");
+  const listening = ["p123", "cnode", "n*:3000"].join("\n");
+  const connections = parseConnections(established, listening, 1000);
+  assert.equal(connections.length, 2);
+  assert.equal(connections[0]?.direction, "inbound");
+  assert.equal(connections[0]?.remoteAddress, "8.8.8.8");
+  assert.equal(connections[1]?.direction, "outbound");
+  assert.equal(parseLsofFields(established)[0]?.names.length, 3);
+  assert.deepEqual(parseSocketName("[fd7a::1]:7227"), {
+    address: "fd7a::1",
+    port: 7227,
+  });
+  assert.equal(isPublicAddress("8.8.8.8"), true);
+  assert.equal(isPublicAddress("100.64.0.5"), false);
+  assert.equal(isPublicAddress("fd7a:115c:a1e0::5"), false);
 });
 
 test("ComfyUI queue summarizes running, pending and history with MPS stats", () => {

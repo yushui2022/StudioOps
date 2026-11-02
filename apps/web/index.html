@@ -72,6 +72,14 @@
               />
             </svg>
             <span class="nav-label">历史</span>
+            <button class="nav-item" data-view="network">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 2c1.4 0 2.8 1.7 3.5 4H8.5C9.2 6.7 10.6 5 12 5ZM5.2 9h2.6a17 17 0 0 0 0 6H5.2a7.3 7.3 0 0 1 0-6Zm3.3 0h7a17 17 0 0 1 0 6h-7a17 17 0 0 1 0-6ZM12 19c-1.4 0-2.8-1.7-3.5-4h7C14.8 17.3 13.4 19 12 19Z"
+                />
+              </svg>
+              <span class="nav-label">网络</span>
+            </button>
           </button>
         </nav>
 
@@ -625,6 +633,42 @@
             </section>
           </section>
 
+          <section class="view hidden" data-view-panel="network">
+            <div class="network-toolbar panel" data-title="公网访问">
+              <div class="network-summary">
+                <span>服务器 <strong id="network-server">—</strong></span>
+                <span>公网入站 <strong id="network-inbound">0</strong></span>
+                <span>本机外联 <strong id="network-outbound">0</strong></span>
+                <button class="btn btn-small" id="network-refresh">刷新</button>
+              </div>
+              <p class="network-note">
+                只显示公网地址；Tailscale、回环和私有网段会被过滤。入站 IP 通过
+                ipwho.is 解析国家/城市，不保存请求内容。
+              </p>
+            </div>
+            <div class="world-map-panel panel" data-title="实时世界连接">
+              <div class="world-map-stage">
+                <img
+                  class="world-map-base"
+                  src="/assets/world-map.svg"
+                  alt=""
+                />
+                <svg
+                  class="world-map-overlay"
+                  id="network-map"
+                  viewBox="0 0 1000 500"
+                  preserveAspectRatio="xMidYMid meet"
+                ></svg>
+                <p class="world-map-empty" id="network-empty">
+                  暂无公网入站连接
+                </p>
+              </div>
+            </div>
+            <section class="panel" data-title="当前公网连接">
+              <div class="network-list" id="network-list"></div>
+            </section>
+          </section>
+
           <section class="view hidden" data-view-panel="settings">
             <div class="settings-grid">
               <section class="panel" data-title="配置文件">
@@ -979,7 +1023,7 @@
 
         <footer class="statusbar">
           <div class="status-left">
-            <span><b>1-8</b> 视图</span>
+            <span><b>1-9</b> 视图</span>
             <span><b>r</b> 刷新</span>
             <span><b>/</b> 搜索</span>
             <span><b>esc</b> 关闭</span>

@@ -16,6 +16,7 @@ const viewMeta = {
   containers: { title: "容器" },
   logs: { title: "日志" },
   history: { title: "历史" },
+  network: { title: "网络" },
   settings: { title: "设置" },
 };
 
@@ -80,6 +81,8 @@ const state = {
   historyRange: "5m",
   historyData: null,
   historyServiceId: null,
+  network: null,
+  networkBusy: false,
   metricsSettings: null,
   alerts: null,
   launchdAgents: null,
@@ -1043,6 +1046,152 @@ function renderDocker() {
       : docker.cliInstalled
         ? "启动 Docker Desktop 或 colima，然后点击“重新检查”。"
         : "安装 Docker Desktop 或 colima 后，这里会显示容器并可启停。";
+}
+
+/* ---------- network connections ---------- */
+
+const WORLD_WIDTH = 1000;
+const WORLD_HEIGHT = 500;
+
+function worldPoint(latitude, longitude) {
+  return {
+    x: ((longitude + 180) / 360) * WORLD_WIDTH,
+    y: ((90 - latitude) / 180) * WORLD_HEIGHT,
+  };
+}
+
+function networkArc(from, to) {
+  const midX = (from.x + to.x) / 2;
+  const midY =
+    Math.min(from.y, to.y) - Math.max(24, Math.abs(from.x - to.x) * 0.18);
+  return `M${from.x.toFixed(1)},${from.y.toFixed(1)} Q${midX.toFixed(1)},${midY.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}`;
+}
+
+function renderWorldMap(data) {
+  const overlay = $("network-map");
+  const empty = $("network-empty");
+  if (!overlay || !empty) return;
+  const server = data.serverLocation
+    ? worldPoint(data.serverLocation.latitude, data.serverLocation.longitude)
+    : undefined;
+  const activeInbound = data.inbound ?? [];
+  const inbound = activeInbound.filter((connection) => connection.location);
+  const arcs = server
+    ? inbound
+        .map((connection) => {
+          const source = worldPoint(
+            connection.location.latitude,
+            connection.location.longitude,
+          );
+          return `<path class="world-map-arc" d="${networkArc(source, server)}"><title>${escapeHtml(
+            `${connection.process} · ${connection.location.city ?? connection.location.country}`,
+          )}</title></path>
+          <circle class="world-map-point" cx="${source.x.toFixed(1)}" cy="${source.y.toFixed(1)}" r="3.2"><title>${escapeHtml(
+            `${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
+          )}</title></circle>`;
+        })
+        .join("")
+    : "";
+  const marker = server
+    ? `<circle class="world-map-server" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="4.5" />
+       <circle class="world-map-server-ring" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="9" />`
+    : "";
+  overlay.innerHTML = arcs + marker;
+  if (!data.serverLocation) {
+    empty.textContent = "服务器公网位置尚未解析";
+    empty.classList.remove("hidden");
+  } else if (!activeInbound.length) {
+    empty.textContent = "暂无公网入站连接";
+    empty.classList.remove("hidden");
+  } else if (!inbound.length) {
+    empty.textContent = "检测到入站连接，地理定位暂不可用";
+    empty.classList.remove("hidden");
+  } else {
+    empty.classList.add("hidden");
+  }
+}
+
+function renderNetworkList(data) {
+  const grouped = new Map();
+  for (const connection of [
+    ...(data.inbound ?? []),
+    ...(data.outbound ?? []),
+  ]) {
+    const key = `${connection.direction}:${connection.process}:${connection.remoteAddress}:${connection.remotePort}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.lastSeenAt = connection.lastSeenAt;
+    } else {
+      grouped.set(key, {
+        ...connection,
+        count: 1,
+      });
+    }
+  }
+  const rows = [...grouped.values()].sort((left, right) => {
+    if (left.direction !== right.direction)
+      return left.direction === "inbound" ? -1 : 1;
+    return right.count - left.count;
+  });
+  const list = $("network-list");
+  if (!rows.length) {
+    list.innerHTML =
+      '<p class="network-empty">当前没有公网连接。Tailscale 和私有网段不会显示在这里。</p>';
+    return;
+  }
+  list.innerHTML = rows
+    .slice(0, 40)
+    .map(
+      (connection) => `<div class="network-row">
+        <span class="network-dir ${connection.direction}">${connection.direction === "inbound" ? "入站" : "出站"}</span>
+        <div class="network-main">
+          <strong>${escapeHtml(connection.process)}${connection.pid ? ` · ${connection.pid}` : ""}</strong>
+          <small>本地 :${connection.localPort} → ${escapeHtml(connection.remoteAddress)}:${connection.remotePort}</small>
+        </div>
+        <span class="network-place">${escapeHtml(
+          connection.location
+            ? [connection.location.city, connection.location.country]
+                .filter(Boolean)
+                .join(", ")
+            : "—",
+        )}</span>
+        <span class="network-count">${connection.count > 1 ? `x${connection.count}` : ""}</span>
+      </div>`,
+    )
+    .join("");
+}
+
+function renderNetwork() {
+  const data = state.network;
+  if (!data) return;
+  const location = data.serverLocation;
+  $("network-server").textContent = location
+    ? `${location.city ?? location.region ?? location.country} · ${location.countryCode ?? ""}`
+    : "未知";
+  $("network-inbound").textContent = String(data.inbound?.length ?? 0);
+  $("network-outbound").textContent = String(data.outbound?.length ?? 0);
+  renderWorldMap(data);
+  renderNetworkList(data);
+  if (data.error) toast(data.error, true);
+}
+
+async function loadNetwork({ refresh = false, quiet = false } = {}) {
+  if (state.networkBusy) return;
+  state.networkBusy = true;
+  try {
+    state.network = refresh
+      ? await api("/api/network/refresh", {
+          method: "POST",
+          headers: { "x-studioops-actor": "web" },
+        })
+      : await api("/api/network/connections");
+    renderNetwork();
+  } catch (error) {
+    if (!quiet) toast(error.message, true);
+  } finally {
+    state.networkBusy = false;
+  }
 }
 
 /* ---------- metrics history ---------- */
@@ -3152,6 +3301,7 @@ function switchView(view, { updateHash = true } = {}) {
   if (view === "processes") loadProcesses();
   if (view === "containers") loadDocker();
   if (view === "history") loadHistory();
+  if (view === "network") loadNetwork();
   if (view === "settings") {
     renderSettingsFacts();
     loadTokenField();
@@ -3414,6 +3564,10 @@ document.addEventListener("click", (event) => {
     loadMetricsSettings();
     return;
   }
+  if (target.id === "network-refresh") {
+    loadNetwork({ refresh: true });
+    return;
+  }
   if (target.id === "security-refresh") {
     loadSecurityAudit();
     return;
@@ -3601,7 +3755,8 @@ document.addEventListener("keydown", (event) => {
     5: "containers",
     6: "logs",
     7: "history",
-    8: "settings",
+    8: "network",
+    9: "settings",
   };
   if (viewKeys[event.key]) {
     switchView(viewKeys[event.key]);
@@ -3626,7 +3781,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "?") {
-    toast("1-8 切换视图 · r 刷新 · / 搜索 · Esc 关闭抽屉");
+    toast("1-9 切换视图 · r 刷新 · / 搜索 · Esc 关闭抽屉");
   }
 });
 
@@ -3780,3 +3935,7 @@ setInterval(() => {
   if (!document.hidden && state.view === "history")
     loadHistory({ quiet: true });
 }, 10000);
+setInterval(() => {
+  if (!document.hidden && state.view === "network")
+    loadNetwork({ quiet: true });
+}, 5000);

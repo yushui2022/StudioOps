@@ -36,6 +36,7 @@ import {
 } from "./core/alerts.js";
 import { listInferenceProcesses } from "./core/inference.js";
 import { listLaunchdAgents } from "./core/launchd-discovery.js";
+import { NetworkMonitor } from "./core/network-connections.js";
 import { LogStreamer } from "./core/log-stream.js";
 import { MetricsSampler } from "./core/metrics-sampler.js";
 import {
@@ -119,6 +120,7 @@ const metricsStore = new MetricsStore(dataDir);
 const alertStore = new AlertStore(dataDir);
 const alertEngine = new AlertEngine(alertStore, sendMacNotification);
 const logStreamer = new LogStreamer((id) => registry.definition(id).logFile);
+const networkMonitor = new NetworkMonitor();
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
@@ -806,6 +808,10 @@ app.post("/api/remote-access/serve", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/network/connections", (c) => json(networkMonitor.snapshot()));
+app.post("/api/network/refresh", async (c) =>
+  json(await networkMonitor.refresh()),
+);
 app.get("/api/launchd/agents", async (c) =>
   json(await listLaunchdAgents({ services: configStore.services })),
 );
@@ -1470,6 +1476,7 @@ const metricsSampler = new MetricsSampler(
   (system, services, ts) => alertEngine.evaluate(system, services, ts),
 );
 metricsSampler.start();
+networkMonitor.start();
 
 const wss = new WebSocketServer({ server: server as never, path: "/ws" });
 wss.on("connection", async (client, request) => {
