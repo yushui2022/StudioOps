@@ -94,9 +94,66 @@ const clients = new Map<WebSocket, Set<Topic>>();
 let systemPollBusy = false;
 let servicesPollBusy = false;
 
+function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return true;
+  const value = host.trim().toLowerCase();
+  if (value.startsWith("[")) return value.startsWith("[::1]");
+  const hostname = value.split(":")[0];
+  return ["127.0.0.1", "localhost", "::1"].includes(hostname);
+}
+
+function isTrustedLocalOrigin(origin: string): boolean {
+  if (
+    origin === "tauri://localhost" ||
+    origin === "http://tauri.localhost" ||
+    origin === "https://tauri.localhost"
+  )
+    return true;
+  try {
+    return isLoopbackHost(new URL(origin).host);
+  } catch {
+    return false;
+  }
+}
+
+function headerValue(
+  value: string | string[] | undefined | null,
+): string | undefined {
+  return Array.isArray(value) ? value[0] : (value ?? undefined);
+}
+
+function headersNeedToken(headers: {
+  host?: string | string[] | null | undefined;
+  origin?: string | string[] | null | undefined;
+  "tailscale-user-login"?: string | string[] | null | undefined;
+}): boolean {
+  const host = headerValue(headers.host);
+  if (host && !isLoopbackHost(host)) return true;
+  if (headerValue(headers["tailscale-user-login"])) return true;
+  const origin = headerValue(headers.origin);
+  if (origin && !isTrustedLocalOrigin(origin)) return true;
+  return false;
+}
+
+function requestNeedsToken(request: Request): boolean {
+  return headersNeedToken({
+    host: request.headers.get("host"),
+    origin: request.headers.get("origin"),
+    "tailscale-user-login": request.headers.get("tailscale-user-login"),
+  });
+}
+
+function hasValidToken(headers: Headers, queryToken = ""): boolean {
+  return (
+    headers.get("authorization") === `Bearer ${configuredToken}` ||
+    (Boolean(queryToken) && queryToken === configuredToken)
+  );
+}
+
 function isAuthorized(request: Request): boolean {
   if (!configuredToken) return true;
-  return request.headers.get("authorization") === `Bearer ${configuredToken}`;
+  if (!requestNeedsToken(request)) return true;
+  return hasValidToken(request.headers);
 }
 
 function actorFor(c: Context): "desktop" | "web" | "local" {
@@ -524,6 +581,14 @@ app.get("/api/security/token", (c) =>
     filePath: initialToken.filePath,
   }),
 );
+app.get("/api/security/token/value", (c) => {
+  if (requestNeedsToken(c.req.raw))
+    return c.json({ error: "Token 只能在本地读取" }, 401);
+  if (!configuredToken) return c.json({ error: "尚未生成访问 Token" }, 400);
+  if (tokenSource === "env")
+    return c.json({ error: "Token 由 STUDIOOPS_TOKEN 管理" }, 400);
+  return json({ token: configuredToken });
+});
 app.post("/api/security/token", (c) => {
   try {
     if (tokenSource === "env")
@@ -859,10 +924,14 @@ wss.on("connection", async (client, request) => {
   }
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const queryToken = requestUrl.searchParams.get("token") ?? "";
+  const needsToken = headersNeedToken(request.headers);
   if (
     configuredToken &&
-    request.headers.authorization !== `Bearer ${configuredToken}` &&
-    queryToken !== configuredToken
+    needsToken &&
+    !hasValidToken(
+      new Headers(request.headers as Record<string, string>),
+      queryToken,
+    )
   ) {
     client.close(1008, "Unauthorized");
     return;

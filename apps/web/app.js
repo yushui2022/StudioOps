@@ -1528,9 +1528,25 @@ async function restoreBackup(name) {
   }
 }
 
+async function syncLocalAccessToken() {
+  if (localStorage.getItem("studioops.token")) return;
+  const remote = state.remoteAccess;
+  if (!remote?.studioops?.tokenRequired) return;
+  if (remote.studioops.tokenSource === "env") return;
+  try {
+    const result = await api("/api/security/token/value");
+    localStorage.setItem("studioops.token", result.token);
+    $("token-input").value = result.token;
+    reconnectSocket();
+  } catch {
+    // Remote clients cannot read the local token; they must enter it manually.
+  }
+}
+
 async function loadRemoteAccess() {
   try {
     state.remoteAccess = await api("/api/remote-access");
+    await syncLocalAccessToken();
     renderRemoteAccess();
   } catch (error) {
     $("tailscale-state").textContent = error.message;
@@ -1644,10 +1660,18 @@ async function generateAccessToken({ confirmRotation = true } = {}) {
 }
 
 async function copyAccessToken() {
-  const token = localStorage.getItem("studioops.token");
+  let token = localStorage.getItem("studioops.token");
   if (!token) {
-    toast("当前浏览器没有访问 Token", true);
-    return;
+    try {
+      const result = await api("/api/security/token/value");
+      token = result.token;
+      localStorage.setItem("studioops.token", token);
+      $("token-input").value = token;
+      reconnectSocket();
+    } catch (error) {
+      toast(error.message, true);
+      return;
+    }
   }
   try {
     await navigator.clipboard.writeText(token);

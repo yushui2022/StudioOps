@@ -90,4 +90,4 @@ StudioOps 不把所有能力重新实现一遍，也不提前安装一堆后台�
 
 ## 安全边界
 
-Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`，或在设置页生成访问 Token。远程浏览器在“设置 → 访问 Token”保存后，HTTP 请求和 WebSocket 都会携带它。Tailscale Serve 只开放给 tailnet，不启用 Funnel；管理面板仍保留 Token 鉴权。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。
+Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`，或在设置页生成访问 Token。本机回环和 Tauri 桌面端可直接访问；通过 Tailscale Serve 或非回环地址进入的请求必须携带 Token。远程浏览器在“设置 → 访问 Token”保存后，HTTP 请求和 WebSocket 都会携带它。Tailscale Serve 只开放给 tailnet，不启用 Funnel。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。

@@ -53,7 +53,8 @@ Token 文件不会进入导出的配置归档。
 - 不启用 Tailscale Funnel
 - Agent 继续监听 `127.0.0.1:7227`
 - Tailscale Serve 只代理 7227，不暴露 Ollama 11434 或其他项目端口
-- 访问 Token 仍然启用，作为 tailnet 之外的第二层保护
+- 本机回环和 Tauri 桌面端不要求 Token；通过 Tailscale Serve 进入的请求必须携带 Token
+- 访问 Token 作为 tailnet 之外的第二层保护
 - Tailscale ACL 建议只允许自己的设备访问 Mac
 - 不要把 Token 写进 `services.yaml` 或提交到仓库
 
