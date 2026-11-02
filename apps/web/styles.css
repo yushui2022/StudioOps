@@ -3862,3 +3862,30 @@ select {
     flex: 1 1 100%;
   }
 }
+
+/* ---------- compute user ---------- */
+
+.compute-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.compute-grid .panel {
+  min-width: 0;
+}
+
+.compute-metrics {
+  margin: 10px 13px;
+}
+
+@media (max-width: 1080px) {
+  .compute-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.view[data-view-panel="compute"] .table-wrap {
+  padding-top: 8px;
+}

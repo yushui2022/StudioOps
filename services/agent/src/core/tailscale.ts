@@ -85,6 +85,44 @@ export async function findTailscaleBinary(
   }
 }
 
+export interface TailscaleSshStatus {
+  enabled: boolean;
+  binary?: string;
+  error?: string;
+}
+
+export async function readTailscaleSshStatus(
+  options: RunnerOptions = {},
+): Promise<TailscaleSshStatus> {
+  const run = options.run ?? execFileAsync;
+  const binary = await findTailscaleBinary({ ...options, run });
+  if (!binary) return { enabled: false, error: "Tailscale 未安装" };
+  try {
+    const result = await run(binary, ["debug", "prefs"], {
+      timeout: 5000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const data = JSON.parse(result.stdout) as { RunSSH?: unknown };
+    return { enabled: data.RunSSH === true, binary };
+  } catch (error) {
+    return { enabled: false, binary, error: errorMessage(error) };
+  }
+}
+
+export async function setTailscaleSsh(
+  enabled: boolean,
+  options: RunnerOptions = {},
+): Promise<TailscaleSshStatus> {
+  const run = options.run ?? execFileAsync;
+  const binary = await findTailscaleBinary({ ...options, run });
+  if (!binary) throw new Error("Tailscale 未安装");
+  await run(binary, ["set", enabled ? "--ssh" : "--ssh=false"], {
+    timeout: 20_000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return readTailscaleSshStatus({ ...options, binary, run });
+}
+
 export async function readTailscaleInfo(
   options: RunnerOptions = {},
 ): Promise<TailscaleInfo> {

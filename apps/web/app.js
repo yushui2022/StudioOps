@@ -18,6 +18,7 @@ const viewMeta = {
   history: { title: "历史" },
   network: { title: "网络" },
   gateway: { title: "推理网关" },
+  compute: { title: "算力" },
   settings: { title: "设置" },
 };
 
@@ -88,6 +89,7 @@ const state = {
   gateway: null,
   gatewayRecords: [],
   gatewayRecordsError: "",
+  compute: null,
   gatewayRecordSearch: "",
   metricsSettings: null,
   alerts: null,
@@ -1588,6 +1590,190 @@ async function loadGatewayRecords({ quiet = false } = {}) {
     if (!quiet) toast(error.message, true);
   }
   renderGatewayRecords();
+}
+
+/* ---------- compute user ---------- */
+
+function renderCompute() {
+  const data = state.compute;
+  if (!data) return;
+  const account = data.account ?? {};
+  const ssh = data.ssh ?? {};
+  const tailscale = ssh.tailscale ?? {};
+  const warnings = data.warnings ?? [];
+  $("compute-dot").className = `dot ${account.exists ? "online" : "offline"}`;
+  $("compute-state").textContent = account.exists
+    ? warnings.length
+      ? "需关注"
+      : "就绪"
+    : "未创建";
+  $("compute-user").textContent = data.username ?? "—";
+  $("compute-uid").textContent = account.uid ?? "—";
+  $("compute-tailscale-ssh").textContent = tailscale.sshEnabled
+    ? "已启用"
+    : "关闭";
+  $("compute-remote-login").textContent =
+    ssh.remoteLogin === "enabled" ? "已启用" : "关闭";
+  $("compute-ssh-toggle").textContent = tailscale.sshEnabled
+    ? "关闭 Tailscale SSH"
+    : "启用 Tailscale SSH";
+  $("compute-ssh-toggle").classList.toggle("hidden", !account.exists);
+
+  const command = tailscale.ip
+    ? `ssh ${data.username}@${tailscale.ip}`
+    : "Tailscale 未在线";
+  $("compute-ssh-command").textContent = command;
+  $("compute-copy-ssh").disabled = !tailscale.ip;
+
+  $("compute-account-user").textContent = data.username ?? "—";
+  $("compute-account-type").textContent = account.exists
+    ? account.admin
+      ? "管理员"
+      : "标准用户"
+    : "不存在";
+  $("compute-account-home").textContent = account.home ?? "—";
+  $("compute-account-mode").textContent = account.homeMode ?? "—";
+  const ownerHome = data.ownerHome ?? {};
+  $("compute-owner-home").textContent = ownerHome.path
+    ? `${ownerHome.path} · ${ownerHome.mode ?? "未知"} ${
+        ownerHome.protected ? "已保护" : "同组可能可读"
+      }`
+    : "—";
+
+  $("compute-process-count").textContent = data.processCount ?? 0;
+  $("compute-cpu").textContent = fmtPercent(data.totalCpuPercent ?? 0);
+  $("compute-memory").textContent = fmtBytes(data.totalMemoryBytes ?? 0);
+  $("compute-disk").textContent = fmtBytes(data.diskBytes);
+  $("compute-resource-note").textContent = `Tailscale ${
+    tailscale.online ? "在线" : "离线"
+  } · ${tailscale.dnsName ?? "—"} · ${
+    tailscale.sshEnabled ? "Tailscale SSH 已开" : "Tailscale SSH 关闭"
+  } · macOS Remote Login ${ssh.remoteLogin === "enabled" ? "已开" : "关闭"}`;
+
+  const warningBox = $("compute-warnings");
+  warningBox.textContent = warnings.join(" · ");
+  warningBox.classList.toggle("hidden", warnings.length === 0);
+
+  const sessions = data.sessions ?? [];
+  $("compute-sessions-body").innerHTML = sessions
+    .map(
+      (session) => `<tr>
+        <td>${escapeHtml(session.user)}</td>
+        <td class="mono">${escapeHtml(session.tty)}</td>
+        <td class="mono">${escapeHtml(session.from ?? "本机")}</td>
+        <td class="mono">${escapeHtml(session.loginAt)}</td>
+      </tr>`,
+    )
+    .join("");
+  $("compute-sessions-body")
+    .closest(".table-wrap")
+    .classList.toggle("hidden", sessions.length === 0);
+  $("compute-sessions-empty").classList.toggle("hidden", sessions.length > 0);
+
+  const processes = data.processes ?? [];
+  $("compute-processes-body").innerHTML = processes
+    .map(
+      (processInfo) => `<tr>
+        <td class="num mono">${processInfo.pid}</td>
+        <td class="mono gateway-path" title="${escapeHtml(processInfo.command)}">${escapeHtml(processInfo.command)}</td>
+        <td class="num">${fmtPercent(processInfo.cpuPercent)}</td>
+        <td class="num">${fmtBytes(processInfo.memoryBytes)}</td>
+        <td class="mono">${escapeHtml(processInfo.elapsed)}</td>
+      </tr>`,
+    )
+    .join("");
+  $("compute-processes-body")
+    .closest(".table-wrap")
+    .classList.toggle("hidden", processes.length === 0);
+  $("compute-processes-empty").classList.toggle("hidden", processes.length > 0);
+
+  const auditRows = [
+    ...(data.loginHistory ?? []).map((line) => ({
+      type: "登录历史",
+      content: line,
+      at: "—",
+    })),
+    ...(data.recent ?? []).map((event) => ({
+      type: "管理操作",
+      content: `${event.action} · ${event.state}${
+        event.error ? ` · ${event.error}` : ""
+      }`,
+      at: fmtDateTime(event.at),
+    })),
+  ];
+  $("compute-audit-body").innerHTML = auditRows
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.type)}</td>
+        <td class="mono">${escapeHtml(row.content)}</td>
+        <td class="mono">${escapeHtml(row.at)}</td>
+      </tr>`,
+    )
+    .join("");
+  $("compute-audit-body")
+    .closest(".table-wrap")
+    .classList.toggle("hidden", auditRows.length === 0);
+  $("compute-audit-empty").classList.toggle("hidden", auditRows.length > 0);
+}
+
+async function loadCompute({ quiet = false } = {}) {
+  try {
+    state.compute = await api("/api/compute");
+    renderCompute();
+  } catch (error) {
+    if (!quiet) toast(error.message, true);
+    $("compute-dot").className = "dot offline";
+    $("compute-state").textContent = "无法读取";
+    $("compute-warnings").textContent = error.message;
+    $("compute-warnings").classList.remove("hidden");
+  }
+}
+
+async function toggleComputeSsh(button) {
+  const enabled = !(state.compute?.ssh?.tailscale?.sshEnabled ?? false);
+  if (
+    !confirm(
+      enabled
+        ? "启用 Tailscale SSH？\n\n还需要在 Tailscale ACL 中允许目标用户 compute，否则外部设备仍然无法登录。不会开放公网 22 端口。"
+        : "关闭 Tailscale SSH？当前通过 Tailscale 的 SSH 会话会断开。",
+    )
+  )
+    return;
+  if (button) button.disabled = true;
+  try {
+    await api("/api/compute/tailscale-ssh", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: JSON.stringify({ enabled }),
+    });
+    toast(
+      enabled
+        ? "Tailscale SSH 已启用；请在 ACL 中放行 compute"
+        : "Tailscale SSH 已关闭",
+    );
+    await loadCompute({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function copyComputeSsh(button) {
+  const command = $("compute-ssh-command").textContent;
+  if (!command || command === "Tailscale 未在线") return;
+  if (button) button.disabled = true;
+  try {
+    await navigator.clipboard.writeText(command);
+    toast("SSH 命令已复制");
+  } catch {
+    toast("无法自动复制，请手动选择", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 /* ---------- metrics history ---------- */
@@ -3702,6 +3888,7 @@ function switchView(view, { updateHash = true } = {}) {
     loadGateway();
     loadGatewayRecords();
   }
+  if (view === "compute") loadCompute();
   if (view === "settings") {
     renderSettingsFacts();
     loadTokenField();
@@ -3865,6 +4052,18 @@ document.addEventListener("click", (event) => {
   if (target.id === "gateway-refresh") {
     loadGateway();
     loadGatewayRecords();
+    return;
+  }
+  if (target.id === "compute-refresh") {
+    loadCompute();
+    return;
+  }
+  if (target.id === "compute-ssh-toggle") {
+    toggleComputeSsh(target);
+    return;
+  }
+  if (target.id === "compute-copy-ssh") {
+    copyComputeSsh(target);
     return;
   }
   if (target.id === "gateway-install") {
@@ -4388,3 +4587,7 @@ setInterval(() => {
     loadGatewayRecords({ quiet: true });
   }
 }, 3000);
+setInterval(() => {
+  if (!document.hidden && state.view === "compute")
+    loadCompute({ quiet: true });
+}, 5000);

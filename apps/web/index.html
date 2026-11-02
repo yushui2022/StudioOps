@@ -90,6 +90,14 @@
             <span class="nav-label">推理网关</span>
             <span class="nav-count" id="nav-gateway-count">0</span>
           </button>
+          <button class="nav-item" data-view="compute">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M6 3h12v4H6V3Zm0 7h12v4H6v-4Zm0 7h12v4H6v-4ZM8 5h1v1H8V5Zm0 7h1v1H8v-1Zm0 7h1v1H8v-1Z"
+              />
+            </svg>
+            <span class="nav-label">算力</span>
+          </button>
         </nav>
 
         <div class="sidebar-spacer"></div>
@@ -842,6 +850,158 @@
                 或请求体。日志文件：
                 <code id="gateway-records-file">—</code>
               </p>
+            </section>
+          </section>
+
+          <section class="view hidden" data-view-panel="compute">
+            <div class="network-toolbar panel" data-title="算力用户">
+              <div class="network-summary">
+                <span class="gateway-state">
+                  <i id="compute-dot" class="dot"></i>
+                  <strong id="compute-state">—</strong>
+                </span>
+                <span>用户 <strong id="compute-user">—</strong></span>
+                <span>UID <strong id="compute-uid">—</strong></span>
+                <span
+                  >Tailscale SSH
+                  <strong id="compute-tailscale-ssh">—</strong></span
+                >
+                <span
+                  >macOS SSH <strong id="compute-remote-login">—</strong></span
+                >
+                <span class="gateway-actions">
+                  <button class="btn btn-small" id="compute-refresh">
+                    刷新
+                  </button>
+                  <button class="btn btn-small" id="compute-ssh-toggle">
+                    启用 Tailscale SSH
+                  </button>
+                </span>
+              </div>
+              <p class="network-note">
+                compute 用户用于 CI、微调和小模型训练。训练进程必须在 macOS
+                宿主上运行；Linux 容器没有 Apple
+                GPU/MPS。面板只做审计和状态查看，不执行任意命令。
+              </p>
+              <p class="gateway-error hidden" id="compute-warnings"></p>
+            </div>
+
+            <div class="compute-grid">
+              <section class="panel" data-title="账号与访问">
+                <dl class="fact-list">
+                  <div>
+                    <dt>用户</dt>
+                    <dd id="compute-account-user">—</dd>
+                  </div>
+                  <div>
+                    <dt>类型</dt>
+                    <dd id="compute-account-type">—</dd>
+                  </div>
+                  <div>
+                    <dt>主目录</dt>
+                    <dd id="compute-account-home">—</dd>
+                  </div>
+                  <div>
+                    <dt>主目录权限</dt>
+                    <dd id="compute-account-mode">—</dd>
+                  </div>
+                  <div>
+                    <dt>主账号目录</dt>
+                    <dd id="compute-owner-home">—</dd>
+                  </div>
+                  <div>
+                    <dt>SSH 命令</dt>
+                    <dd id="compute-ssh-command">—</dd>
+                  </div>
+                </dl>
+                <div class="panel-actions">
+                  <button class="btn btn-small" id="compute-copy-ssh">
+                    复制 SSH 命令
+                  </button>
+                </div>
+              </section>
+              <section class="panel" data-title="资源占用">
+                <div class="gateway-metrics compute-metrics">
+                  <div class="gateway-metric active">
+                    <span>进程</span
+                    ><strong id="compute-process-count">—</strong
+                    ><small>个</small>
+                  </div>
+                  <div class="gateway-metric queued">
+                    <span>CPU</span><strong id="compute-cpu">—</strong
+                    ><small>合计</small>
+                  </div>
+                  <div class="gateway-metric">
+                    <span>内存</span><strong id="compute-memory">—</strong
+                    ><small>RSS</small>
+                  </div>
+                  <div class="gateway-metric">
+                    <span>磁盘</span><strong id="compute-disk">—</strong
+                    ><small>主目录</small>
+                  </div>
+                </div>
+                <div class="gateway-stats" id="compute-resource-note">—</div>
+              </section>
+            </div>
+
+            <section class="panel" data-title="当前会话">
+              <div class="table-wrap gateway-table-wrap">
+                <table class="table gateway-table">
+                  <thead>
+                    <tr>
+                      <th>用户</th>
+                      <th>TTY</th>
+                      <th>来源</th>
+                      <th>登录时间</th>
+                    </tr>
+                  </thead>
+                  <tbody id="compute-sessions-body"></tbody>
+                </table>
+              </div>
+              <div id="compute-sessions-empty" class="empty hidden">
+                <strong>当前没有活动会话</strong
+                ><span>compute 用户当前没有登录终端或 SSH 会话。</span>
+              </div>
+            </section>
+
+            <section class="panel" data-title="compute 进程">
+              <div class="table-wrap gateway-table-wrap">
+                <table class="table gateway-table">
+                  <thead>
+                    <tr>
+                      <th class="num">PID</th>
+                      <th>进程</th>
+                      <th class="num">CPU</th>
+                      <th class="num">内存</th>
+                      <th>运行时长</th>
+                    </tr>
+                  </thead>
+                  <tbody id="compute-processes-body"></tbody>
+                </table>
+              </div>
+              <div id="compute-processes-empty" class="empty hidden">
+                <strong>没有 compute 进程</strong
+                ><span>该用户当前没有运行中的进程。</span>
+              </div>
+            </section>
+
+            <section class="panel" data-title="登录历史与审计">
+              <div class="table-wrap gateway-table-wrap">
+                <table class="table gateway-table">
+                  <thead>
+                    <tr>
+                      <th>类型</th>
+                      <th>内容</th>
+                      <th>时间</th>
+                    </tr>
+                  </thead>
+                  <tbody id="compute-audit-body"></tbody>
+                </table>
+              </div>
+              <div id="compute-audit-empty" class="empty hidden">
+                <strong>暂无记录</strong
+                ><span>还没有 compute 登录或管理操作。</span>
+              </div>
             </section>
           </section>
 

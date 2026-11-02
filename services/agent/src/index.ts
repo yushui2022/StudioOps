@@ -23,6 +23,7 @@ import {
   type ApiTokenSource,
 } from "./core/api-token.js";
 import { cancelComfyTask, getComfySnapshot } from "./core/comfyui.js";
+import { getComputeSnapshot, setComputeTailscaleSsh } from "./core/compute.js";
 import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
@@ -356,7 +357,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/health", (c) =>
-  json({ status: "ok", service: "studioops-agent", version: "0.1.7" }),
+  json({ status: "ok", service: "studioops-agent", version: "0.1.8" }),
 );
 app.get("/api/system", async (c) => json(await getSystemSnapshot()));
 app.get("/api/services", async (c) => json(await registry.list()));
@@ -818,6 +819,50 @@ app.post("/api/remote-access/serve", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/compute", async (c) => {
+  const snapshot = await getComputeSnapshot();
+  return json({
+    ...snapshot,
+    recent: eventStore
+      .recent(100)
+      .filter((event) => event.serviceId === `compute:${snapshot.username}`)
+      .slice(0, 30),
+  });
+});
+app.post("/api/compute/tailscale-ssh", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const enabled = body.enabled === true;
+    const result = await setComputeTailscaleSsh(enabled);
+    eventStore.record({
+      serviceId: "compute:compute",
+      action: "config",
+      state: result.enabled ? "running" : "stopped",
+      success: true,
+      actor: actorFor(c),
+      ...remoteIdentity(c),
+      at: new Date().toISOString(),
+    });
+    return json({
+      ...result,
+      aclRequired: enabled,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Tailscale SSH 操作失败";
+    eventStore.record({
+      serviceId: "compute:compute",
+      action: "config",
+      state: "unknown",
+      success: false,
+      actor: actorFor(c),
+      ...remoteIdentity(c),
+      error: message,
+      at: new Date().toISOString(),
+    });
+    return c.json({ error: message }, 400);
+  }
+});
 app.get("/api/network/connections", (c) => json(networkMonitor.snapshot()));
 app.post("/api/network/refresh", async (c) =>
   json(await networkMonitor.refresh()),
@@ -1154,7 +1199,7 @@ app.get("/api/config", (c) =>
     tokenRequired: Boolean(configuredToken),
     tokenSource,
     dataDir,
-    version: "0.1.7",
+    version: "0.1.8",
   }),
 );
 app.get("/api/config/services", (c) => json(configStore.services));

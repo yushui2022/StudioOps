@@ -101,6 +101,7 @@ H3 视频:      8192  → 8193 → 8188
 - 项目可以单独开放 Tailnet 入口
 - 安全审计检查敏感端口、Funnel、Token 和 ACL 风险
 - 服务目标来自受控 YAML，不接受网页提交任意 shell 或路径
+- 算力用户：独立 `compute` 标准用户的会话、进程、磁盘、登录历史、Tailscale SSH 状态和审计
 
 ### 桌面体验
 
@@ -383,6 +384,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 - [cloudflared](docs/cloudflared.md)
 - [网络地图与隐私边界](docs/network-map.md)
 - [卸载与恢复](docs/uninstall.md)
+- [算力用户与审计](docs/compute-user.md)
 - [开发交接](docs/agent-handoff.md)
 
 ## Acknowledgements

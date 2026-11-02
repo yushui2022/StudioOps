@@ -1,6 +1,6 @@
 {
   "name": "studioops",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Desktop-first local operations console for macOS development and AI services",
   "type": "module",
