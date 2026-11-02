@@ -646,6 +646,55 @@
                 </p>
               </section>
 
+              <section class="panel panel-wide" data-title="卸载与恢复">
+                <dl class="fact-list">
+                  <div>
+                    <dt>LaunchAgent</dt>
+                    <dd id="uninstall-agents">检查中…</dd>
+                  </div>
+                  <div>
+                    <dt>托管服务</dt>
+                    <dd id="uninstall-services">—</dd>
+                  </div>
+                  <div>
+                    <dt>数据目录</dt>
+                    <dd id="uninstall-data-dir">—</dd>
+                  </div>
+                  <div>
+                    <dt>保留策略</dt>
+                    <dd>
+                      默认保留 services.yaml、SQLite、日志、PID
+                      和备份；可先导出归档。
+                    </dd>
+                  </div>
+                </dl>
+                <div class="panel-actions uninstall-actions">
+                  <button class="btn btn-small" id="uninstall-export">
+                    导出配置与数据
+                  </button>
+                  <button class="btn btn-small" id="uninstall-refresh">
+                    重新检查
+                  </button>
+                  <button
+                    class="btn btn-small btn-danger"
+                    id="uninstall-cleanup"
+                  >
+                    停止服务并退出
+                  </button>
+                </div>
+                <p class="uninstall-result hidden" id="uninstall-result"></p>
+                <p class="uninstall-hint">
+                  清理会停止由 StudioOps 启动的进程、移除所有
+                  <code>com.studioops.*</code>
+                  LaunchAgent，并退出桌面端；不会删除配置、
+                  SQLite、日志或备份。彻底删除时，再将 App
+                  与数据目录移到废纸篓。
+                </p>
+                <p class="uninstall-hint">
+                  终端脚本：<code id="uninstall-script">—</code>
+                </p>
+              </section>
+
               <section class="panel" data-title="运行信息">
                 <dl class="fact-list">
                   <div>

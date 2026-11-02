@@ -10,6 +10,7 @@
     "frontendDist": "../../web"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "StudioOps",
@@ -38,6 +39,7 @@
     },
     "resources": {
       "../../../dist/agent.cjs": "agent.cjs",
+      "../../../scripts/uninstall-studioops.sh": "uninstall-studioops.sh",
       "../../web": "web"
     }
   }

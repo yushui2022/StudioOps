@@ -54,6 +54,7 @@ const state = {
   processSort: "cpu",
   docker: null,
   config: null,
+  uninstall: null,
   serviceSearch: "",
   serviceFilter: "all",
   projectSearch: "",
@@ -1524,6 +1525,107 @@ async function restoreBackup(name) {
   }
 }
 
+async function loadUninstallPreview() {
+  try {
+    const preview = await api("/api/uninstall/preview");
+    state.uninstall = preview;
+    const labels = preview.launchAgents.map((agent) => agent.label);
+    $("uninstall-agents").textContent = labels.length
+      ? `${labels.length} 个：${labels.join("、")}`
+      : "无残留";
+    const running = preview.managedServices.filter(
+      (service) => service.state === "running" || service.state === "paused",
+    );
+    $("uninstall-services").textContent = preview.managedServices.length
+      ? `${preview.managedServices.length} 个（运行中 ${running.length}）`
+      : "无";
+    $("uninstall-data-dir").textContent = preview.dataDir;
+    $("uninstall-script").textContent =
+      preview.uninstallScript ??
+      "开发模式未安装脚本；使用仓库 scripts/uninstall-studioops.sh";
+  } catch (error) {
+    $("uninstall-agents").textContent = error.message;
+  }
+}
+
+async function exportUninstallData(button) {
+  if (button) button.disabled = true;
+  try {
+    const archive = await api("/api/uninstall/export", {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    const result = $("uninstall-result");
+    result.textContent = `已导出：${archive.path}（${fmtBytes(archive.sizeBytes)}）`;
+    result.classList.remove("hidden");
+    toast("配置与数据已导出到 Downloads");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function quitStudioOpsDesktop() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (typeof invoke !== "function") return false;
+  try {
+    await invoke("quit_app");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cleanupStudioOps(button) {
+  const preview = state.uninstall ?? {};
+  const agentCount = preview.launchAgents?.length ?? 0;
+  const managed = preview.managedServices?.length ?? 0;
+  if (
+    !confirm(
+      `停止由 StudioOps 管理的 ${managed} 个服务，并移除 ${agentCount} 个 com.studioops.* LaunchAgent？\n\n配置、SQLite、日志和备份会保留。StudioOps 随后退出；App 本体需要手动移到废纸篓。`,
+    )
+  )
+    return;
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/api/uninstall/cleanup", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: JSON.stringify({ stopServices: true }),
+    });
+    const failures = [
+      ...(result.launchAgentErrors ?? []),
+      ...(result.failures ?? []),
+    ];
+    const output = $("uninstall-result");
+    output.textContent = [
+      `已移除 ${result.removedLaunchAgents.length} 个 LaunchAgent`,
+      `停止 ${result.stopped.length} 个托管服务`,
+      result.configBackup
+        ? `配置已自动备份：${result.configBackup.name}`
+        : "配置未变更，无需备份",
+      ...failures.map((failure) => `失败：${failure}`),
+    ].join(" · ");
+    output.classList.remove("hidden");
+    await loadUninstallPreview();
+    if (failures.length) {
+      toast("部分清理失败，请查看设置页详情", true);
+      return;
+    }
+    const quitting = await quitStudioOpsDesktop();
+    if (!quitting)
+      toast("清理完成；请从菜单栏退出 StudioOps，并将 App 移到废纸篓");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function reloadConfig() {
   try {
     await api("/api/config/reload", {
@@ -1881,6 +1983,7 @@ function switchView(view, { updateHash = true } = {}) {
     renderSettingsFacts();
     loadTokenField();
     loadBackups();
+    loadUninstallPreview();
   }
   if (view === "logs") {
     if (!state.logServiceId && state.services[0])
@@ -2075,6 +2178,18 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "backup-refresh") {
     loadBackups();
+    return;
+  }
+  if (target.id === "uninstall-refresh") {
+    loadUninstallPreview();
+    return;
+  }
+  if (target.id === "uninstall-export") {
+    exportUninstallData(target);
+    return;
+  }
+  if (target.id === "uninstall-cleanup") {
+    cleanupStudioOps(target);
     return;
   }
   if (target.id === "reload-config") {

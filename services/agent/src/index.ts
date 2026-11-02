@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, normalize, resolve, sep } from "node:path";
+import { dirname, join, normalize, resolve, sep } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
@@ -35,6 +35,13 @@ import { terminateProcess } from "./core/process-control.js";
 import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
+import {
+  createBackupArchive,
+  isStudioOpsProject,
+  listStudioOpsLaunchAgents,
+  removeStudioOpsLaunchAgents,
+  resetPersistedProject,
+} from "./core/uninstall.js";
 
 const rootDir = resolve(process.env.STUDIOOPS_ROOT ?? process.cwd());
 const webDir = resolve(
@@ -386,6 +393,112 @@ app.delete("/api/projects/:id/persist", async (c) => {
     const message =
       error instanceof Error ? error.message : "Unable to remove persistence";
     recordConfigEvent(c, id, false, message);
+    return c.json({ error: message }, 400);
+  }
+});
+app.get("/api/uninstall/preview", async (c) => {
+  const services = await registry.list();
+  const launchAgents = listStudioOpsLaunchAgents();
+  const candidates = [
+    join(dirname(resolve(process.argv[1] ?? "")), "uninstall-studioops.sh"),
+    join(rootDir, "scripts/uninstall-studioops.sh"),
+  ];
+  const uninstallScript = candidates.find((candidate) => existsSync(candidate));
+  return json({
+    launchAgents,
+    managedServices: services
+      .filter(
+        (service) =>
+          service.adapter === "process" || isStudioOpsProject(service),
+      )
+      .map((service) => ({
+        id: service.id,
+        name: service.name,
+        state: service.state,
+      })),
+    configPath: configStore.filePath,
+    dataDir,
+    agentPid: process.pid,
+    uninstallScript,
+  });
+});
+app.post("/api/uninstall/export", async (c) => {
+  try {
+    const archive = await createBackupArchive({
+      configPath: configStore.filePath,
+      dataDir,
+    });
+    recordConfigEvent(c, "uninstall-export", true);
+    return json(archive);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to export data";
+    recordConfigEvent(c, "uninstall-export", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
+app.post("/api/uninstall/cleanup", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const stopServices = body.stopServices !== false;
+    const configBackup = configStore.backup();
+    const stopped: string[] = [];
+    const failures: string[] = [];
+
+    if (stopServices) {
+      for (const definition of configStore.services) {
+        if (definition.adapter !== "process") continue;
+        try {
+          const snapshot = await registry.inspect(definition.id);
+          if (snapshot.state !== "running" && snapshot.state !== "paused")
+            continue;
+          await registry.execute(definition.id, "stop");
+          stopped.push(definition.id);
+        } catch (error) {
+          failures.push(
+            `${definition.name}: ${error instanceof Error ? error.message : "stop failed"}`,
+          );
+        }
+      }
+    }
+
+    const agents = await removeStudioOpsLaunchAgents();
+    const reset: string[] = [];
+    for (const definition of [...configStore.services]) {
+      if (!definition.persisted) continue;
+      if (!isStudioOpsProject(definition)) continue;
+      try {
+        configStore.update(definition.id, {
+          ...resetPersistedProject(definition),
+        });
+        reset.push(definition.id);
+      } catch (error) {
+        failures.push(
+          `${definition.name}: ${error instanceof Error ? error.message : "config reset failed"}`,
+        );
+      }
+    }
+    await applyServices(configStore.services);
+    recordConfigEvent(
+      c,
+      "uninstall",
+      failures.length === 0,
+      failures.join("; ") || undefined,
+    );
+    return json({
+      removedLaunchAgents: agents.removed,
+      launchAgentErrors: agents.errors,
+      stopped,
+      reset,
+      failures,
+      configBackup,
+      dataDir,
+      quitRequired: true,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to clean up StudioOps";
+    recordConfigEvent(c, "uninstall", false, message);
     return c.json({ error: message }, 400);
   }
 });

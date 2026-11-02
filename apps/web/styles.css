@@ -1864,6 +1864,39 @@ select {
   padding: 11px 0;
 }
 
+.settings-grid .panel-wide {
+  grid-column: 1 / -1;
+}
+
+.uninstall-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.uninstall-result {
+  margin: 0 13px 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-2);
+  color: var(--text-soft);
+  font-size: 9.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.uninstall-hint {
+  margin: 0;
+  padding: 0 13px 8px;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+
+.uninstall-hint code {
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
 .fact-list {
   display: grid;
   gap: 5px;

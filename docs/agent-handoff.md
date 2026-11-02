@@ -1,6 +1,6 @@
 # StudioOps 开发交接清单
 
-更新时间：2026-11-01
+更新时间：2026-11-02
 
 这份文档给新的模型或 Agent 使用。目标是让它先读清楚真实代码和本机状态，再开始改动。
 
@@ -46,6 +46,7 @@
 | 项目服务模板            | 已完成                 | `services/agent/src/core/project-templates.ts`、`/api/project-templates`、`apps/web/app.js`                        | 7 个模板；选目录自动补全名称/ID/日志/命令/端口/健康检查                                          |
 | 项目开机启动开关        | 已完成                 | `core/project-persistence.ts`、`/api/projects/:id/autostart`、`apps/web/app.js`                                    | 常驻项目独立控制 RunAtLoad；只重写 plist，不重启当前服务                                         |
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                      | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                              |
+| 卸载与恢复              | 已完成                 | `services/agent/src/core/uninstall.ts`、`/api/uninstall/*`、`apps/web/app.js`、`scripts/uninstall-studioops.sh`    | 导出配置/数据；停止托管进程；清理 com.studioops.* LaunchAgent；重置常驻配置；退出桌面端          |
 | 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`core/discovery.ts`、`apps/web/app.js`                                     | `category: project` 单独成页；自动发现监听端口的开发进程并可纳入项目                             |
 | 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
 | 进程身份持久化          | 已完成                 | `services/agent/src/adapters/process.ts`、`core/process-metrics.ts`                                                | 自动 pid 文件（启动时间+命令）；Agent 重启后重新识别并校验 PID 复用                              |
@@ -119,6 +120,7 @@
 26. 重启语义验收：运行中的服务只改名称时 `restartRequired=false`；改端口时返回 `changedFields=["port"]` 和 `restartRequired=true`；前端弹出“立即重启/更新常驻”提示。
 27. 开机启动开关验收：常驻项目关闭开机启动后 plist 的 RunAtLoad 变 false，当前服务仍保持运行；重新开启后变为 true；取消常驻后 plist 和 launchd 都能回收。
 28. 单实例验收：首次启动 App 后执行 `open -n /Applications/StudioOps.app`，桌面进程保持 1 个、Agent 保持 1 个，第二次启动只聚焦已有窗口。
+29. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -182,23 +184,23 @@
 
 ## 已知限制和风险
 
-| 限制                                     | 影响                                        | 处理方式                                                    |
-| ---------------------------------------- | ------------------------------------------- | ----------------------------------------------------------- |
-| `config/services.yaml` 是本机私有文件    | 其他机器没有真实服务登记                    | 提供配置编辑器和示例模板；不提交真实路径和用户信息          |
-| 面板保存会重写 YAML                      | 手写注释不会保留；覆盖前原文件在备份目录    | 重要配置先备份；恢复后注释同样来自备份文件                  |
-| Compose 项目还没有真实动作证据           | 只能验证单容器启停，不能声称 Compose 已完成 | 找到真实 Compose 项目后实测 up/down/restart/logs            |
-| Tailscale/frp 未安装                     | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                             |
-| macOS 不能保存任意进程内存快照           | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                             |
-| 进程终止只覆盖当前用户                   | 无法结束 root 和其他用户的进程              | 需要更高权限时使用系统工具，不扩大 Agent 权限               |
-| 推理进程按命令行和进程树识别             | 特殊启动脚本可能识别不到                    | 优先用服务 PID 和子进程树；后续可加显式启动路径配置         |
-| RSS 汇总不等于独占内存                   | 共享内存可能被重复计算                      | 文案标为“内存占用”，不宣称精确独占                          |
-| 强制终止可能丢失未保存数据               | SIGKILL 不会给应用收尾机会                  | UI 二次确认，默认先 SIGTERM                                 |
-| Agent 崩溃后不会自动重启                 | 桌面 App 会显示断开，但不会自动恢复         | 后续加 Rust 守护/重启或 launchd 托管 Agent                  |
-| 端口 7227 被其他程序占用时只有日志提示   | UI 只显示无法连接，没有弹窗原因             | 后续在桌面端加启动错误对话框                                |
-| 没有请求限流和多用户权限                 | 本机同用户可调用所有 API                    | 远程模式必须配置 Token；多用户场景再引入角色                |
-| 项目服务目前由 Agent 启动                | Mac 重启后不会自动拉起                      | 后续生成 LaunchAgent 或开机启动项；现在需要先启动 App       |
-| 项目对外访问还没有统一入口               | 端口可看，但公网域名/隧道未绑定             | 后续接 cloudflared/tunnel，并在项目卡片展示入口地址         |
-| 自动发现要求工作目录在用户目录且监听 TCP | 系统目录启动或无端口的进程不会出现          | 特殊项目可用“新增项目服务”手动登记                          |
-| release App 还未签名/notarize            | 只能本机开发使用                            | 发布前完成证书、DMG 和升级策略                              |
-| 从 `~/Documents` 启动 App 会被 TCC 拦截  | Agent 可能卡在“访问文稿文件夹”权限框        | 验收和日常使用都从 `/Applications` 或 `~/Applications` 启动 |
-| 远程绑定需要 token                       | 忘记 token 会无法访问                       | 做设置页、环境变量说明和安全错误提示                        |
+| 限制                                     | 影响                                        | 处理方式                                                     |
+| ---------------------------------------- | ------------------------------------------- | ------------------------------------------------------------ |
+| `config/services.yaml` 是本机私有文件    | 其他机器没有真实服务登记                    | 提供配置编辑器和示例模板；不提交真实路径和用户信息           |
+| 面板保存会重写 YAML                      | 手写注释不会保留；覆盖前原文件在备份目录    | 重要配置先备份；恢复后注释同样来自备份文件                   |
+| Compose 项目还没有真实动作证据           | 只能验证单容器启停，不能声称 Compose 已完成 | 找到真实 Compose 项目后实测 up/down/restart/logs             |
+| Tailscale/frp 未安装                     | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                              |
+| macOS 不能保存任意进程内存快照           | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                              |
+| 进程终止只覆盖当前用户                   | 无法结束 root 和其他用户的进程              | 需要更高权限时使用系统工具，不扩大 Agent 权限                |
+| 推理进程按命令行和进程树识别             | 特殊启动脚本可能识别不到                    | 优先用服务 PID 和子进程树；后续可加显式启动路径配置          |
+| RSS 汇总不等于独占内存                   | 共享内存可能被重复计算                      | 文案标为“内存占用”，不宣称精确独占                           |
+| 强制终止可能丢失未保存数据               | SIGKILL 不会给应用收尾机会                  | UI 二次确认，默认先 SIGTERM                                  |
+| Agent 依赖桌面 supervisor 运行           | 退出 App 后普通 process 服务不会继续被守护  | 常驻项目交给 launchd；卸载时通过 Tauri 退出 App 并回收 Agent |
+| 端口 7227 被其他程序占用时只有日志提示   | UI 只显示无法连接，没有弹窗原因             | 后续在桌面端加启动错误对话框                                 |
+| 没有请求限流和多用户权限                 | 本机同用户可调用所有 API                    | 远程模式必须配置 Token；多用户场景再引入角色                 |
+| 未常驻项目由 Agent 启动                  | Mac 重启后不会自动拉起                      | 项目页“设为常驻”生成 LaunchAgent；卸载会清理这些 LaunchAgent |
+| 项目对外访问还没有统一入口               | 端口可看，但公网域名/隧道未绑定             | 后续接 cloudflared/tunnel，并在项目卡片展示入口地址          |
+| 自动发现要求工作目录在用户目录且监听 TCP | 系统目录启动或无端口的进程不会出现          | 特殊项目可用“新增项目服务”手动登记                           |
+| release App 还未签名/notarize            | 只能本机开发使用                            | 发布前完成证书、DMG 和升级策略                               |
+| 从 `~/Documents` 启动 App 会被 TCC 拦截  | Agent 可能卡在“访问文稿文件夹”权限框        | 验收和日常使用都从 `/Applications` 或 `~/Applications` 启动  |
+| 远程绑定需要 token                       | 忘记 token 会无法访问                       | 做设置页、环境变量说明和安全错误提示                         |

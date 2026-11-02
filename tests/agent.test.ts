@@ -27,6 +27,12 @@ import { appBundlePath } from "../services/agent/src/core/process-icons.js";
 import { buildProjectPlist } from "../services/agent/src/core/project-persistence.js";
 import { terminateProcess } from "../services/agent/src/core/process-control.js";
 import {
+  createBackupArchive,
+  listStudioOpsLaunchAgents,
+  removeStudioOpsLaunchAgents,
+  resetPersistedProject,
+} from "../services/agent/src/core/uninstall.js";
+import {
   evaluateKillability,
   listAncestorPids,
 } from "../services/agent/src/core/process-list.js";
@@ -324,6 +330,111 @@ test("config diff marks only runtime fields as restart-required", () => {
     }),
     [],
   );
+});
+
+test("uninstall removes only StudioOps launch agents", async () => {
+  const home = mkdtempSync(join(tmpdir(), "studioops-uninstall-"));
+  const launchAgents = join(home, "Library/LaunchAgents");
+  mkdirSync(launchAgents, { recursive: true });
+  writeFileSync(
+    join(launchAgents, "com.studioops.project.alpha.plist"),
+    "alpha",
+  );
+  writeFileSync(join(launchAgents, "com.studioops.project.beta.plist"), "beta");
+  writeFileSync(join(launchAgents, "com.example.other.plist"), "other");
+
+  assert.deepEqual(
+    listStudioOpsLaunchAgents(home).map((agent) => agent.label),
+    ["com.studioops.project.alpha", "com.studioops.project.beta"],
+  );
+
+  const calls: string[][] = [];
+  const result = await removeStudioOpsLaunchAgents({
+    home,
+    uid: 501,
+    run: async (file, args) => {
+      calls.push([file, ...args]);
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  assert.equal(result.removed.length, 2);
+  assert.deepEqual(result.errors, []);
+  assert.ok(
+    !existsSync(join(launchAgents, "com.studioops.project.alpha.plist")),
+  );
+  assert.ok(existsSync(join(launchAgents, "com.example.other.plist")));
+  assert.deepEqual(calls[0], [
+    "launchctl",
+    "bootout",
+    "gui/501/com.studioops.project.alpha",
+  ]);
+});
+
+test("uninstall export archives config and data outside the data directory", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-export-"));
+  const dataDir = join(root, "data");
+  const configPath = join(root, "config/services.yaml");
+  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(join(root, "config"), { recursive: true });
+  writeFileSync(join(dataDir, "studioops.sqlite"), "sqlite");
+  writeFileSync(configPath, "services: []\n");
+
+  let tarArgs: string[] = [];
+  const archive = await createBackupArchive({
+    configPath,
+    dataDir,
+    destinationDir: join(root, "out"),
+    now: new Date("2026-11-02T10:20:30Z"),
+    run: async (file, args) => {
+      assert.equal(file, "tar");
+      tarArgs = args;
+      writeFileSync(args[1] as string, "archive");
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  assert.match(archive.path, /StudioOps-backup-20261102-102030\.tar\.gz$/);
+  assert.deepEqual(archive.includes, [configPath, dataDir]);
+  assert.ok(archive.sizeBytes > 0);
+  assert.deepEqual(tarArgs.slice(2), [
+    "-C",
+    join(root, "config"),
+    "services.yaml",
+    "-C",
+    root,
+    "data",
+  ]);
+});
+
+test("persisted projects are reset to process services for reinstall", () => {
+  const definition: ServiceDefinition = {
+    id: "project-reset",
+    name: "Project Reset",
+    kind: "process",
+    category: "project",
+    adapter: "launchd",
+    target: "gui/501/com.studioops.project.project-reset",
+    command: "node",
+    cwd: "/tmp/project-reset",
+    persisted: true,
+    persistenceLabel: "com.studioops.project.project-reset",
+    autostart: false,
+    allowedActions: ["start", "stop", "restart"],
+  };
+  const reset = resetPersistedProject(definition);
+  assert.equal(reset.adapter, "process");
+  assert.equal(reset.target, "/tmp/project-reset");
+  assert.equal(reset.persisted, undefined);
+  assert.equal(reset.persistenceLabel, undefined);
+  assert.equal(reset.autostart, undefined);
+  assert.deepEqual(reset.allowedActions, [
+    "start",
+    "stop",
+    "restart",
+    "pause",
+    "resume",
+  ]);
 });
 
 test("project plist contains launchd keepalive and escaped environment", async () => {
