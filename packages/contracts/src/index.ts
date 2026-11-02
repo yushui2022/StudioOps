@@ -56,6 +56,7 @@ export interface ServiceDefinition {
   projectName?: string;
   logFile?: string;
   port?: number;
+  tailscaleServePort?: number;
   health?: {
     type: "http" | "tcp" | "process" | "none";
     endpoint?: string;

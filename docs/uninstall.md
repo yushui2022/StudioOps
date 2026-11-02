@@ -13,6 +13,7 @@ StudioOps 的卸载分成两层：先清理后台服务，再决定是否删除 
 3. 点“停止服务并退出”。StudioOps 会：
    - 停止由 Agent 启动的 process 服务；
    - `launchctl bootout` 并删除所有 `~/Library/LaunchAgents/com.studioops.*.plist`；
+   - 移除 StudioOps 和项目在 Tailscale Serve 中的入口；
    - 把常驻项目配置恢复成普通 process 服务；
    - 备份当前配置后退出桌面端。
 4. 如需彻底删除，退出后把 `/Applications/StudioOps.app` 和 `~/Library/Application Support/com.studioops.desktop` 移到废纸篓。

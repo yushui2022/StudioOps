@@ -43,9 +43,13 @@ import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
 import {
   TAILSCALE_DOWNLOAD_URL,
+  findTailscaleServeProxy,
   readTailscaleInfo,
   readTailscaleServeInfo,
   setTailscaleServe,
+  suggestTailscaleServePort,
+  tailscaleProxyServePort,
+  type TailscaleServeInfo,
 } from "./core/tailscale.js";
 import {
   createBackupArchive,
@@ -223,6 +227,54 @@ async function readJsonObject(
   if (!body || typeof body !== "object" || Array.isArray(body))
     throw new Error("Request body must be a JSON object");
   return body as Record<string, unknown>;
+}
+
+function isTailscaleProject(definition: ServiceDefinition): boolean {
+  return (
+    (definition.category === "project" ||
+      (!definition.category && definition.kind === "process")) &&
+    Number.isInteger(definition.port)
+  );
+}
+
+async function removeProjectTailnet(
+  definition: ServiceDefinition,
+): Promise<void> {
+  if (!definition.port || !definition.tailscaleServePort) return;
+  const tailscale = await readTailscaleInfo();
+  if (!tailscale.installed) return;
+  if (!tailscale.running)
+    throw new Error(
+      "Tailscale 未运行，无法移除项目 Tailnet 入口；请先启动 Tailscale",
+    );
+  await setTailscaleServe({
+    enabled: false,
+    targetPort: definition.port,
+    servePort: definition.tailscaleServePort,
+    binary: tailscale.binary,
+  });
+}
+
+function projectTailnetInfo(
+  definition: ServiceDefinition,
+  serve: TailscaleServeInfo,
+  dnsName?: string,
+) {
+  const localPort = definition.port as number;
+  const configuredPort = definition.tailscaleServePort;
+  const proxy = configuredPort
+    ? findTailscaleServeProxy(serve, localPort, configuredPort)
+    : undefined;
+  return {
+    id: definition.id,
+    name: definition.name,
+    localPort,
+    servePort: configuredPort,
+    suggestedPort: configuredPort ?? suggestTailscaleServePort(serve),
+    enabled: Boolean(proxy),
+    tailnetUrl: proxy?.tailnetUrl,
+    dnsName,
+  };
 }
 
 app.use(
@@ -534,6 +586,50 @@ app.post("/api/uninstall/cleanup", async (c) => {
     }
 
     const agents = await removeStudioOpsLaunchAgents();
+    const tailscaleRemoved: string[] = [];
+    const tailscaleErrors: string[] = [];
+    try {
+      const tailscale = await readTailscaleInfo();
+      if (tailscale.installed && tailscale.running) {
+        for (const definition of configStore.services) {
+          if (!definition.port || !definition.tailscaleServePort) continue;
+          try {
+            await setTailscaleServe({
+              enabled: false,
+              targetPort: definition.port,
+              servePort: definition.tailscaleServePort,
+              binary: tailscale.binary,
+            });
+            tailscaleRemoved.push(
+              `${definition.name}:${definition.tailscaleServePort}`,
+            );
+          } catch (error) {
+            tailscaleErrors.push(
+              `${definition.name}: ${error instanceof Error ? error.message : "remove failed"}`,
+            );
+          }
+        }
+        try {
+          await setTailscaleServe({
+            enabled: false,
+            targetPort: port,
+            servePort: 443,
+            binary: tailscale.binary,
+          });
+          tailscaleRemoved.push(`StudioOps:443`);
+        } catch (error) {
+          tailscaleErrors.push(
+            `StudioOps: ${error instanceof Error ? error.message : "remove failed"}`,
+          );
+        }
+      } else if (tailscale.installed) {
+        tailscaleErrors.push("Tailscale 未运行，Serve 配置未清理");
+      }
+    } catch (error) {
+      tailscaleErrors.push(
+        error instanceof Error ? error.message : "Tailscale cleanup failed",
+      );
+    }
     const reset: string[] = [];
     for (const definition of [...configStore.services]) {
       if (!definition.persisted) continue;
@@ -559,6 +655,8 @@ app.post("/api/uninstall/cleanup", async (c) => {
     return json({
       removedLaunchAgents: agents.removed,
       launchAgentErrors: agents.errors,
+      tailscaleRemoved,
+      tailscaleErrors,
       stopped,
       reset,
       failures,
@@ -649,7 +747,8 @@ app.post("/api/remote-access/serve", async (c) => {
       );
     const serve = await setTailscaleServe({
       enabled: body.enabled,
-      port,
+      targetPort: port,
+      servePort: 443,
       binary: tailscale.binary,
     });
     recordConfigEvent(c, "tailscale-serve", true);
@@ -660,6 +759,133 @@ app.post("/api/remote-access/serve", async (c) => {
         ? error.message
         : "Unable to change Tailscale Serve";
     recordConfigEvent(c, "tailscale-serve", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
+app.get("/api/tailscale/projects", async (c) => {
+  const tailscale = await readTailscaleInfo();
+  const serve = await readTailscaleServeInfo({
+    port: 0,
+    binary: tailscale.binary,
+  });
+  return json({
+    tailscale,
+    serve,
+    tokenRequired: Boolean(configuredToken),
+    projects: configStore.services
+      .filter(isTailscaleProject)
+      .map((definition) =>
+        projectTailnetInfo(definition, serve, tailscale.dnsName),
+      ),
+  });
+});
+app.post("/api/projects/:id/tailscale", async (c) => {
+  const id = c.req.param("id");
+  try {
+    const body = await readJsonObject(c.req.raw);
+    if (typeof body.enabled !== "boolean")
+      throw new Error("enabled must be a boolean");
+    const definition = registry.definition(id);
+    if (!isTailscaleProject(definition))
+      throw new Error(
+        "Only project services with a listening port can use Tailscale",
+      );
+    const localPort = definition.port as number;
+    if (body.enabled && !configuredToken)
+      throw new Error("启用 Tailnet 项目入口前需要先生成访问 Token");
+    const tailscale = await readTailscaleInfo();
+    if (!tailscale.installed)
+      throw new Error(
+        `Tailscale 未安装。请先安装并登录：${TAILSCALE_DOWNLOAD_URL}`,
+      );
+    if (!tailscale.running)
+      throw new Error(
+        `Tailscale 未运行或未登录${tailscale.backendState ? `（${tailscale.backendState}）` : ""}`,
+      );
+    const before = await readTailscaleServeInfo({
+      port: localPort,
+      binary: tailscale.binary,
+    });
+    let servePort = definition.tailscaleServePort;
+    if (body.port !== undefined) {
+      const requested = Number(body.port);
+      if (!Number.isInteger(requested) || requested < 1024 || requested > 65535)
+        throw new Error("端口必须是 1024-65535 之间的整数");
+      if (requested === 443)
+        throw new Error("HTTPS 443 保留给 StudioOps 管理入口");
+      servePort = requested;
+    }
+    if (body.enabled) {
+      if (servePort === 443)
+        throw new Error("HTTPS 443 保留给 StudioOps 管理入口");
+      if (!servePort) servePort = suggestTailscaleServePort(before);
+      const existing = findTailscaleServeProxy(before, localPort, servePort);
+      if (
+        !existing &&
+        before.proxies.some(
+          (proxy) => tailscaleProxyServePort(proxy) === servePort,
+        )
+      ) {
+        if (body.port !== undefined)
+          throw new Error(`Tailscale Serve 的 HTTPS ${servePort} 已被占用`);
+        servePort = suggestTailscaleServePort(before);
+      }
+      const serve = await setTailscaleServe({
+        enabled: true,
+        targetPort: localPort,
+        servePort,
+        binary: tailscale.binary,
+      });
+      try {
+        if (definition.tailscaleServePort !== servePort) {
+          const services = configStore.update(id, {
+            ...definition,
+            tailscaleServePort: servePort,
+          });
+          await applyServices(services);
+        }
+      } catch (error) {
+        await setTailscaleServe({
+          enabled: false,
+          targetPort: localPort,
+          servePort,
+          binary: tailscale.binary,
+        }).catch(() => {});
+        throw error;
+      }
+      recordConfigEvent(c, id, true);
+      return json({
+        tailscale,
+        serve,
+        project: projectTailnetInfo(
+          configStore.services.find((service) => service.id === id) ?? {
+            ...definition,
+            tailscaleServePort: servePort,
+          },
+          serve,
+          tailscale.dnsName,
+        ),
+      });
+    }
+    if (!servePort) throw new Error("项目还没有配置 Tailnet 入口");
+    const serve = await setTailscaleServe({
+      enabled: false,
+      targetPort: localPort,
+      servePort,
+      binary: tailscale.binary,
+    });
+    recordConfigEvent(c, id, true);
+    return json({
+      tailscale,
+      serve,
+      project: projectTailnetInfo(definition, serve, tailscale.dnsName),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to change project Tailscale entry";
+    recordConfigEvent(c, id, false, message);
     return c.json({ error: message }, 400);
   }
 });
@@ -704,6 +930,21 @@ app.put("/api/config/services/:id", async (c) => {
       ? changedRuntimeFields(previous, updated)
       : [];
     const running = snapshot.state === "running" || snapshot.state === "paused";
+    let tailscaleCleanupError: string | undefined;
+    if (
+      previous.tailscaleServePort &&
+      previous.port &&
+      (!updated ||
+        updated.port !== previous.port ||
+        !isTailscaleProject(updated))
+    ) {
+      try {
+        await removeProjectTailnet(previous);
+      } catch (error) {
+        tailscaleCleanupError =
+          error instanceof Error ? error.message : "Tailnet cleanup failed";
+      }
+    }
     recordConfigEvent(c, id, true);
     await applyServices(services);
     return json({
@@ -711,6 +952,7 @@ app.put("/api/config/services/:id", async (c) => {
       restartRequired: running && changedFields.length > 0,
       changedFields,
       persisted: Boolean(updated?.persisted),
+      tailscaleCleanupError,
     });
   } catch (error) {
     const message =
@@ -728,10 +970,17 @@ app.delete("/api/config/services/:id", async (c) => {
       throw new Error(
         `Stop ${definition.name} before deleting it from the configuration`,
       );
+    let tailscaleCleanupError: string | undefined;
+    try {
+      await removeProjectTailnet(definition);
+    } catch (error) {
+      tailscaleCleanupError =
+        error instanceof Error ? error.message : "Tailnet cleanup failed";
+    }
     const services = configStore.remove(id);
     recordConfigEvent(c, id, true);
     await applyServices(services);
-    return json({ services });
+    return json({ services, tailscaleCleanupError });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to delete service";

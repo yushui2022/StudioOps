@@ -50,9 +50,11 @@ import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
 import { getSystemSnapshot } from "../services/agent/src/core/system.js";
 import {
+  findTailscaleServeProxy,
   parseTailscaleServeStatus,
   parseTailscaleStatus,
   setTailscaleServe,
+  suggestTailscaleServePort,
   tailscaleServeArgs,
 } from "../services/agent/src/core/tailscale.js";
 import type { ServiceAdapter } from "../services/agent/src/adapters/adapter.js";
@@ -124,7 +126,7 @@ test("YAML config loads process and launchd definitions without shell expansion"
   const configPath = join(root, "services.yaml");
   writeFileSync(
     configPath,
-    `services:\n  - id: local-process\n    name: Local Process\n    kind: process\n    adapter: process\n    target: ./ignored-target\n    command: node\n    args: [--version]\n    allowedActions: [start, stop]\n  - id: launchd-job\n    name: Launchd Job\n    kind: launchd\n    adapter: launchd\n    target: gui/501/example.job\n    allowedActions: [start, stop]\n`,
+    `services:\n  - id: local-process\n    name: Local Process\n    kind: process\n    adapter: process\n    target: ./ignored-target\n    command: node\n    args: [--version]\n    tailscaleServePort: 8443\n    allowedActions: [start, stop]\n  - id: launchd-job\n    name: Launchd Job\n    kind: launchd\n    adapter: launchd\n    target: gui/501/example.job\n    allowedActions: [start, stop]\n`,
   );
   const previous = process.env.STUDIOOPS_CONFIG;
   process.env.STUDIOOPS_CONFIG = configPath;
@@ -132,6 +134,7 @@ test("YAML config loads process and launchd definitions without shell expansion"
     const loaded = loadConfig(root);
     assert.equal(loaded.services.length, 2);
     assert.equal(loaded.services[0]?.command, "node");
+    assert.equal(loaded.services[0]?.tailscaleServePort, 8443);
     assert.equal(loaded.services[1]?.target, "gui/501/example.job");
   } finally {
     if (previous === undefined) delete process.env.STUDIOOPS_CONFIG;
@@ -495,8 +498,66 @@ test("Tailscale Serve status finds only the StudioOps proxy", () => {
   });
 });
 
+test("Tailscale Serve maps project ports and suggests a free HTTPS port", () => {
+  const raw = JSON.stringify({
+    Web: {
+      "studio-mac.example-tailnet.ts.net:443": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:7227" } },
+      },
+      "studio-mac.example-tailnet.ts.net:8443": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:3000" } },
+      },
+    },
+  });
+  const serve = parseTailscaleServeStatus(raw, 3000);
+  assert.equal(serve.enabled, true);
+  assert.equal(
+    findTailscaleServeProxy(serve, 3000, 8443)?.tailnetUrl,
+    "https://studio-mac.example-tailnet.ts.net:8443/",
+  );
+  assert.equal(findTailscaleServeProxy(serve, 3000, 443), undefined);
+  assert.equal(suggestTailscaleServePort(serve), 8444);
+});
+
+test("project Tailscale Serve uses an explicit HTTPS port", async () => {
+  const calls: string[][] = [];
+  let started = false;
+  const serve = await setTailscaleServe({
+    enabled: true,
+    targetPort: 3000,
+    servePort: 8443,
+    binary: "/fake/tailscale",
+    run: async (_file, args) => {
+      calls.push(args);
+      if (args[0] === "serve" && args[1] === "status") {
+        return {
+          stdout: started
+            ? JSON.stringify({
+                Web: {
+                  "studio-mac.example-tailnet.ts.net:8443": {
+                    Handlers: { "/": { Proxy: "http://127.0.0.1:3000" } },
+                  },
+                },
+              })
+            : "No serve config",
+          stderr: "",
+        };
+      }
+      started = true;
+      return { stdout: "Serve started", stderr: "" };
+    },
+  });
+  assert.equal(serve.proxies.length, 1);
+  assert.deepEqual(calls.at(-2), ["serve", "--bg", "--https=8443", "3000"]);
+});
+
 test("Tailscale Serve command and state transition are explicit", async () => {
-  assert.deepEqual(tailscaleServeArgs(true, 7227), ["serve", "--bg", "7227"]);
+  assert.deepEqual(tailscaleServeArgs(true, 7227), [
+    "serve",
+    "--bg",
+    "--https=443",
+    "7227",
+  ]);
   assert.deepEqual(tailscaleServeArgs(false, 7227), [
     "serve",
     "--https=443",
@@ -507,7 +568,8 @@ test("Tailscale Serve command and state transition are explicit", async () => {
   let started = false;
   const serve = await setTailscaleServe({
     enabled: true,
-    port: 7227,
+    targetPort: 7227,
+    servePort: 443,
     binary: "/fake/tailscale",
     run: async (_file, args) => {
       calls.push(args);
@@ -530,7 +592,7 @@ test("Tailscale Serve command and state transition are explicit", async () => {
     },
   });
   assert.equal(serve.enabled, true);
-  assert.deepEqual(calls.at(-2), ["serve", "--bg", "7227"]);
+  assert.deepEqual(calls.at(-2), ["serve", "--bg", "--https=443", "7227"]);
 });
 
 test("API token persists privately and environment wins", () => {

@@ -13,6 +13,8 @@ services:
     args: [run, dev]
     cwd: /Users/orlando/Projects/my-node-project
     logFile: data/logs/my-node-project.log
+    # 在项目页开放 Tailnet 入口后自动写入，例如 8443
+    # tailscaleServePort: 8443
     allowedActions: [start, stop, restart, pause, resume]
     health:
       type: http

@@ -158,6 +158,7 @@ function validateService(
     projectName: optionalString(record, "projectName"),
     logFile: optionalPath(record, "logFile", rootDirFrom(filePath)),
     port: optionalPort(record, "port"),
+    tailscaleServePort: optionalPort(record, "tailscaleServePort"),
     health: health
       ? {
           type: (health.type as "http" | "tcp" | "process" | "none") ?? "none",

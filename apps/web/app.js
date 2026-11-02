@@ -56,6 +56,7 @@ const state = {
   config: null,
   uninstall: null,
   remoteAccess: null,
+  projectTailnet: null,
   serviceSearch: "",
   serviceFilter: "all",
   projectSearch: "",
@@ -592,6 +593,15 @@ function renderProjects() {
             `<button class="btn btn-small" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
         )
         .join("");
+      const tailnet = state.projectTailnet?.projects?.find(
+        (item) => item.id === service.id,
+      );
+      const tailnetAction =
+        state.projectTailnet?.tailscale?.running && service.port
+          ? tailnet?.enabled
+            ? `<button class="btn btn-small" data-tailnet-project="${escapeHtml(service.id)}" data-tailnet-enabled="false">关闭 Tailnet</button>`
+            : `<button class="btn btn-small" data-tailnet-project="${escapeHtml(service.id)}" data-tailnet-enabled="true">开放 Tailnet</button>`
+          : "";
       return `<article class="project-card">
         <header class="project-card-head">
           <div class="project-title">
@@ -607,6 +617,7 @@ function renderProjects() {
           </span>
         </header>
         <p class="project-target" title="${escapeHtml(service.target)}">${escapeHtml(service.description || service.target)}</p>
+        ${tailnet?.enabled ? `<p class="project-tailnet">Tailnet · <span>${escapeHtml(tailnet.tailnetUrl)}</span></p>` : ""}
         <div class="project-facts">
           <div><span>端口</span><strong>${service.port ?? "—"}</strong></div>
           <div><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
@@ -619,6 +630,7 @@ function renderProjects() {
               ? `<button class="btn btn-small" data-autostart-project="${escapeHtml(service.id)}" data-autostart-enabled="${service.autostart === false ? "true" : "false"}">开机启动：${service.autostart === false ? "关" : "开"}</button><button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">更新常驻</button><button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
               : `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">设为常驻</button>`
           }
+          ${tailnetAction}
           <button class="btn btn-small" data-log-service="${escapeHtml(service.id)}">日志</button>
           <button class="btn btn-small" data-edit-service="${escapeHtml(service.id)}">编辑</button>
           ${actions}
@@ -674,6 +686,67 @@ async function loadDiscovered() {
     renderDiscovered();
   } catch {
     // Keep the last discovery result on transient failures.
+  }
+}
+
+async function loadProjectTailnet() {
+  try {
+    state.projectTailnet = await api("/api/tailscale/projects");
+    renderProjects();
+  } catch {
+    state.projectTailnet = null;
+  }
+}
+
+async function changeProjectTailnet(serviceId, enabled, button) {
+  const service = state.services.find((item) => item.id === serviceId);
+  if (!service?.port) return;
+  if (enabled) {
+    if (!state.projectTailnet?.tailscale?.running) {
+      toast("Tailscale 未运行或未登录", true);
+      return;
+    }
+    if (!state.config?.tokenRequired) {
+      if (!confirm("启用 Tailnet 项目入口前需要先生成访问 Token。现在生成？"))
+        return;
+      const generated = await generateAccessToken({ confirmRotation: false });
+      if (!generated) return;
+    }
+    if (
+      !confirm(
+        `把 ${service.name} 的 127.0.0.1:${service.port} 通过 Tailscale Serve 开放给 tailnet？\n\n只有 tailnet 设备可访问；项目自身如果没有登录，tailnet 内其他设备也能直接访问。`,
+      )
+    )
+      return;
+  } else if (
+    !confirm(`关闭 ${service.name} 的 Tailnet 入口？本机端口访问不受影响。`)
+  )
+    return;
+  if (button) button.disabled = true;
+  try {
+    const result = await api(
+      `/api/projects/${encodeURIComponent(serviceId)}/tailscale`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-studioops-actor": "web",
+        },
+        body: JSON.stringify({ enabled }),
+      },
+    );
+    toast(
+      enabled
+        ? `已开放 ${result.project.tailnetUrl ?? "Tailnet 入口"}`
+        : "Tailnet 项目入口已关闭",
+    );
+    await loadProjectTailnet();
+    await refreshAll({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+    await loadProjectTailnet();
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -1307,6 +1380,8 @@ function collectServiceForm() {
   const existing = state.formServiceId
     ? state.services.find((item) => item.id === state.formServiceId)
     : undefined;
+  if (existing?.tailscaleServePort)
+    service.tailscaleServePort = existing.tailscaleServePort;
   if (existing?.persisted) {
     service.adapter = "launchd";
     service.target = existing.target;
@@ -1472,12 +1547,17 @@ async function deleteService() {
   const button = $("config-delete");
   button.disabled = true;
   try {
-    await api(`/api/config/services/${encodeURIComponent(id)}`, {
+    const result = await api(`/api/config/services/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: { "x-studioops-actor": "web" },
     });
     closeServiceForm();
-    toast(`已删除服务 ${id}`);
+    toast(
+      result.tailscaleCleanupError
+        ? `已删除 ${id}；Tailnet 入口未清理：${result.tailscaleCleanupError}`
+        : `已删除服务 ${id}`,
+      Boolean(result.tailscaleCleanupError),
+    );
     await refreshAll({ quiet: true });
   } catch (error) {
     setFormError(error.message);
@@ -1814,11 +1894,13 @@ async function cleanupStudioOps(button) {
     });
     const failures = [
       ...(result.launchAgentErrors ?? []),
+      ...(result.tailscaleErrors ?? []),
       ...(result.failures ?? []),
     ];
     const output = $("uninstall-result");
     output.textContent = [
       `已移除 ${result.removedLaunchAgents.length} 个 LaunchAgent`,
+      `清理 ${result.tailscaleRemoved?.length ?? 0} 个 Tailnet 入口`,
       `停止 ${result.stopped.length} 个托管服务`,
       result.configBackup
         ? `配置已自动备份：${result.configBackup.name}`
@@ -2191,6 +2273,7 @@ function switchView(view, { updateHash = true } = {}) {
   if (view === "projects") {
     renderProjects();
     loadDiscovered();
+    loadProjectTailnet();
   }
   if (view === "processes") loadProcesses();
   if (view === "containers") loadDocker();
@@ -2355,6 +2438,14 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "discovered-refresh") {
     loadDiscovered();
+    return;
+  }
+  if (target.dataset.tailnetProject) {
+    changeProjectTailnet(
+      target.dataset.tailnetProject,
+      target.dataset.tailnetEnabled === "true",
+      target,
+    );
     return;
   }
   if (target.dataset.autostartProject) {

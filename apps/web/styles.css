@@ -1403,6 +1403,20 @@ select {
   white-space: nowrap;
 }
 
+.project-tailnet {
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid #2f4336;
+  background: #101a14;
+  color: var(--muted);
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.project-tailnet span {
+  color: #a9c6b1;
+}
+
 .project-facts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

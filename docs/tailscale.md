@@ -47,6 +47,28 @@ https://studio-mac.example-tailnet.ts.net/
 
 Token 文件不会进入导出的配置归档。
 
+## 项目入口
+
+项目页的每个项目卡片都可以单独开放 Tailnet 入口：
+
+1. 项目必须有本地 `port`。
+2. 点“开放 Tailnet”。
+3. StudioOps 会自动选择一个空闲的 HTTPS 端口，从 8443 开始。
+4. 项目卡片会显示类似：
+
+```text
+https://orlandomac-studio.tailf34c26.ts.net:8443/
+```
+
+5. 点“关闭 Tailnet”只移除这个 Serve 入口，本机端口和服务不受影响。
+
+项目的 Tailnet 入口直接代理项目端口，不经过 StudioOps 的 Token 层。因此：
+
+- 只有 tailnet 是网络边界
+- 项目自身必须做登录或访问控制
+- 不要给不受信任的 tailnet 用户开放项目
+- 修改项目本地端口时会清理旧 Serve 入口，避免指向错误端口
+
 ## 安全边界
 
 - 只对 tailnet 开放，公网无法直接访问
@@ -54,7 +76,7 @@ Token 文件不会进入导出的配置归档。
 - Agent 继续监听 `127.0.0.1:7227`
 - Tailscale Serve 只代理 7227，不暴露 Ollama 11434 或其他项目端口
 - 本机回环和 Tauri 桌面端不要求 Token；通过 Tailscale Serve 进入的请求必须携带 Token
-- 访问 Token 作为 tailnet 之外的第二层保护
+- StudioOps 管理入口有 Token 保护；项目入口依赖项目自身鉴权和 Tailscale ACL
 - Tailscale ACL 建议只允许自己的设备访问 Mac
 - 不要把 Token 写进 `services.yaml` 或提交到仓库
 

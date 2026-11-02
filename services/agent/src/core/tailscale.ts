@@ -194,7 +194,9 @@ export function parseTailscaleServeStatus(
 
   const proxies: TailscaleServeProxy[] = [];
   collectProxies(data, undefined, proxies);
-  const matching = proxies.filter((proxy) => targetPort(proxy.target) === port);
+  const matching = proxies.filter(
+    (proxy) => targetPortOf(proxy.target) === port,
+  );
   return {
     enabled: matching.length > 0,
     proxies,
@@ -202,19 +204,53 @@ export function parseTailscaleServeStatus(
   };
 }
 
-export function tailscaleServeArgs(enabled: boolean, port: number): string[] {
+export function tailscaleServeArgs(
+  enabled: boolean,
+  targetPort: number,
+  servePort = 443,
+): string[] {
   return enabled
-    ? ["serve", "--bg", String(port)]
-    : ["serve", "--https=443", "off"];
+    ? ["serve", "--bg", `--https=${servePort}`, String(targetPort)]
+    : ["serve", `--https=${servePort}`, "off"];
+}
+
+export function findTailscaleServeProxy(
+  serve: TailscaleServeInfo,
+  targetPort: number,
+  servePort = 443,
+): TailscaleServeProxy | undefined {
+  return serve.proxies.find(
+    (proxy) =>
+      targetPortOf(proxy.target) === targetPort &&
+      hostPort(proxy.host) === servePort,
+  );
+}
+
+export function tailscaleProxyServePort(proxy: TailscaleServeProxy): number {
+  return hostPort(proxy.host);
+}
+
+export function suggestTailscaleServePort(
+  serve: TailscaleServeInfo,
+  start = 8443,
+  end = 8543,
+): number {
+  const used = new Set(serve.proxies.map((proxy) => hostPort(proxy.host)));
+  for (let port = start; port <= end; port += 1) {
+    if (!used.has(port)) return port;
+  }
+  throw new Error(`No free Tailscale Serve port in ${start}-${end}`);
 }
 
 export async function setTailscaleServe(options: {
   enabled: boolean;
-  port: number;
+  targetPort: number;
+  servePort?: number;
   binary?: string;
   run?: Runner;
 }): Promise<TailscaleServeInfo> {
   const run = options.run ?? execFileAsync;
+  const servePort = options.servePort ?? 443;
   const binary = await findTailscaleBinary({ ...options, run });
   if (!binary)
     throw new Error(
@@ -222,34 +258,49 @@ export async function setTailscaleServe(options: {
     );
   const before = await readTailscaleServeInfo({
     binary,
-    port: options.port,
+    port: options.targetPort,
     run,
   });
-  if (options.enabled && before.enabled) return before;
-  if (!options.enabled && !before.enabled) return before;
-  if (options.enabled && before.proxies.length > 0)
+  const existing = findTailscaleServeProxy(
+    before,
+    options.targetPort,
+    servePort,
+  );
+  if (options.enabled && existing) return before;
+  if (!options.enabled && !existing) return before;
+  if (
+    options.enabled &&
+    before.proxies.some((proxy) => hostPort(proxy.host) === servePort)
+  )
     throw new Error(
-      "Tailscale Serve 已有其他入口。请先在 Tailscale 中清理，避免覆盖现有服务。",
+      `Tailscale Serve 的 HTTPS 端口 ${servePort} 已被其他入口占用，请换一个端口。`,
     );
 
   try {
-    await run(binary, tailscaleServeArgs(options.enabled, options.port), {
-      timeout: 15_000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
+    await run(
+      binary,
+      tailscaleServeArgs(options.enabled, options.targetPort, servePort),
+      {
+        timeout: 15_000,
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    );
   } catch (error) {
     throw new Error(`Tailscale Serve 操作失败：${errorMessage(error)}`);
   }
 
   const after = await readTailscaleServeInfo({
     binary,
-    port: options.port,
+    port: options.targetPort,
     run,
   });
-  if (options.enabled && !after.enabled)
+  if (
+    options.enabled &&
+    !findTailscaleServeProxy(after, options.targetPort, servePort)
+  )
     throw new Error(
       after.error ??
-        "Tailscale Serve 未生效。请确认 Tailnet 已启用 HTTPS 证书和 MagicDNS。",
+        `Tailscale Serve 未生效（HTTPS ${servePort} → ${options.targetPort}）。请确认 Tailnet 已启用 HTTPS 证书和 MagicDNS。`,
     );
   return after;
 }
@@ -285,7 +336,7 @@ function collectProxies(
   }
 }
 
-function targetPort(target: string): number | undefined {
+function targetPortOf(target: string): number | undefined {
   try {
     const url = new URL(target.includes("://") ? target : `http://${target}`);
     if (url.port) return Number(url.port);
@@ -294,6 +345,11 @@ function targetPort(target: string): number | undefined {
     const match = target.match(/:(\d+)(?:\/|$)/);
     return match ? Number(match[1]) : undefined;
   }
+}
+
+function hostPort(host: string): number {
+  const match = host.match(/:([0-9]+)$/);
+  return match ? Number(match[1]) : 443;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
