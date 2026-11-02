@@ -16,7 +16,16 @@
 
 </div>
 
-![StudioOps 推理网关](docs/assets/gateway.png)
+![StudioOps 总览](docs/assets/overview.png)
+
+## 界面截图
+
+<p align="center">
+  <img src="docs/assets/gateway.png" width="49%" alt="推理网关" />
+  <img src="docs/assets/services.png" width="49%" alt="服务列表" />
+</p>
+
+<p align="center"><sub>推理网关：Ollama / ComfyUI / 视频 H3 三个队列与模型调用记录 · 服务：launchd、Bridge 和健康状态</sub></p>
 
 > StudioOps 目前是 pre-1.0 项目。它优先解决一台 Mac 上“AI 服务能稳定跑、不会把内存打爆、外部请求能排队”的问题，而不是做一个聊天客户端。
 
