@@ -17,7 +17,10 @@ import {
   tunnelModeOf,
 } from "../services/agent/src/adapters/cloudflared.js";
 import { AlertEngine, AlertStore } from "../services/agent/src/core/alerts.js";
-import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-compose.js";
+import {
+  DockerComposeAdapter,
+  parseComposeContainers,
+} from "../services/agent/src/adapters/docker-compose.js";
 import { launchctlArgsFor } from "../services/agent/src/adapters/launchd.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
 import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
@@ -1387,6 +1390,34 @@ test("process list is sorted and exposes numeric usage fields", async () => {
       list.processes[index - 1]!.cpuPercent >=
         list.processes[index]!.cpuPercent,
     );
+});
+
+test("compose ps JSON lines and arrays expose service state", () => {
+  const lines = parseComposeContainers(
+    [
+      '{"ID":"abc","Name":"demo-web-1","Service":"web","State":"running","Status":"Up 2 minutes","Image":"node:22"}',
+      '{"ID":"def","Name":"demo-worker-1","Service":"worker","State":"exited","Status":"Exited (0)","Image":"node:22"}',
+    ].join("\n"),
+  );
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0]?.service, "web");
+  assert.equal(lines[1]?.state, "exited");
+  const array = parseComposeContainers(
+    JSON.stringify([
+      {
+        ID: "x",
+        Names: "demo-one",
+        Service: "one",
+        State: "running",
+        Status: "Up",
+        Image: "alpine",
+        Health: "healthy",
+      },
+    ]),
+  );
+  assert.equal(array[0]?.name, "demo-one");
+  assert.equal(array[0]?.health, "healthy");
+  assert.deepEqual(parseComposeContainers(""), []);
 });
 
 test("docker status always returns a stable, safe shape", async () => {

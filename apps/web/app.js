@@ -578,6 +578,12 @@ function renderProjects() {
           service.port,
           service.target,
           service.description,
+          service.details?.compose?.containers
+            ?.map(
+              (container) =>
+                `${container.name} ${container.service} ${container.state}`,
+            )
+            .join(" "),
         ]
           .filter(Boolean)
           .join(" ")
@@ -611,6 +617,8 @@ function renderProjects() {
             `<button class="btn btn-small" data-action="${escapeHtml(action)}" data-service-id="${escapeHtml(service.id)}">${escapeHtml(actionLabels[action] ?? action)}</button>`,
         )
         .join("");
+      const compose = service.details?.compose;
+      const isCompose = service.adapter === "docker-compose";
       const tailnet = state.projectTailnet?.projects?.find(
         (item) => item.id === service.id,
       );
@@ -636,17 +644,39 @@ function renderProjects() {
         </header>
         <p class="project-target" title="${escapeHtml(service.target)}">${escapeHtml(service.description || service.target)}</p>
         ${tailnet?.enabled ? `<p class="project-tailnet">Tailnet · <span>${escapeHtml(tailnet.tailnetUrl)}</span></p>` : ""}
-        <div class="project-facts">
-          <div><span>端口</span><strong>${service.port ?? "—"}</strong></div>
-          <div><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
-          <div><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
-          <div><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
-        </div>
+        ${
+          isCompose
+            ? `<div class="project-facts">
+                 <div><span>服务</span><strong>${compose?.runningCount ?? 0} / ${compose?.serviceCount ?? "—"}</strong></div>
+                 <div><span>容器</span><strong>${compose?.containers.length ?? 0}</strong></div>
+                 <div><span>项目</span><strong>${escapeHtml(compose?.projectName ?? service.projectName ?? "—")}</strong></div>
+                 <div><span>状态</span><strong>${escapeHtml(stateLabels[service.state] ?? service.state)}</strong></div>
+               </div>
+               ${
+                 compose?.containers.length
+                   ? `<p class="project-containers">${compose.containers
+                       .map(
+                         (container) =>
+                           `${escapeHtml(container.service || container.name)}: ${escapeHtml(container.state)}`,
+                       )
+                       .join(" · ")}</p>`
+                   : ""
+               }`
+            : `<div class="project-facts">
+                 <div><span>端口</span><strong>${service.port ?? "—"}</strong></div>
+                 <div><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
+                 <div><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
+                 <div><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
+               </div>`
+        }
+        ${service.lastError ? `<p class="project-error">${escapeHtml(service.lastError)}</p>` : ""}
         <footer class="project-actions">
           ${
-            service.persisted
-              ? `<button class="btn btn-small" data-autostart-project="${escapeHtml(service.id)}" data-autostart-enabled="${service.autostart === false ? "true" : "false"}">开机启动：${service.autostart === false ? "关" : "开"}</button><button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">更新常驻</button><button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
-              : `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">设为常驻</button>`
+            isCompose
+              ? '<span class="muted">由 Docker Compose 管理</span>'
+              : service.persisted
+                ? `<button class="btn btn-small" data-autostart-project="${escapeHtml(service.id)}" data-autostart-enabled="${service.autostart === false ? "true" : "false"}">开机启动：${service.autostart === false ? "关" : "开"}</button><button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">更新常驻</button><button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
+                : `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">设为常驻</button>`
           }
           ${tailnetAction}
           <button class="btn btn-small" data-log-service="${escapeHtml(service.id)}">日志</button>
@@ -1489,6 +1519,11 @@ function inlineDetailHtml(service) {
             <div class="inline-fact"><span>健康检查</span><strong>${escapeHtml(healthLabels[health] ?? health)}</strong></div>
             <div class="inline-fact"><span>PID</span><strong>${service.pid ?? "—"}</strong></div>
             <div class="inline-fact"><span>端口</span><strong>${service.port ?? "—"}</strong></div>
+            ${
+              service.adapter === "docker-compose"
+                ? `<div class="inline-fact"><span>Compose 服务</span><strong>${service.details?.compose?.runningCount ?? 0} / ${service.details?.compose?.serviceCount ?? "—"}</strong></div>`
+                : ""
+            }
             <div class="inline-fact"><span>CPU</span><strong>${fmtPercent(service.cpuPercent)}</strong></div>
             <div class="inline-fact"><span>内存</span><strong>${fmtBytes(service.memoryBytes)}</strong></div>
             <div class="inline-fact"><span>适配器</span><strong>${escapeHtml(service.adapter)}</strong></div>
@@ -1504,6 +1539,25 @@ function inlineDetailHtml(service) {
             <div class="inline-fact wide"><span>允许动作</span><strong>${escapeHtml(service.allowedActions.join(" · "))}</strong></div>
           </div>
           ${modelSection}
+          ${
+            service.adapter === "docker-compose" && service.details?.compose
+              ? `<section class="inline-section">
+                   <div class="inline-head"><h3>Compose 容器</h3><span class="muted">${escapeHtml(service.details.compose.projectName ?? "")}</span></div>
+                   <div class="compose-list">
+                     ${
+                       service.details.compose.containers.length
+                         ? service.details.compose.containers
+                             .map(
+                               (container) =>
+                                 `<div class="compose-item"><span>${escapeHtml(container.service || container.name)}</span><strong>${escapeHtml(container.state)}</strong><small>${escapeHtml(container.status || container.image)}</small></div>`,
+                             )
+                             .join("")
+                         : '<p class="muted">没有容器记录</p>'
+                     }
+                   </div>
+                 </section>`
+              : ""
+          }
           <section class="inline-section">
             <div class="inline-head">
               <h3>最近日志</h3>

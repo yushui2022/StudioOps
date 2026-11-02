@@ -1417,6 +1417,65 @@ select {
   color: #a9c6b1;
 }
 
+.project-containers {
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.project-error {
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid #3f2b29;
+  background: #15100f;
+  color: #d9a39c;
+  font-size: 9px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.compose-list {
+  display: grid;
+  gap: 1px;
+  padding: 0 0 10px;
+}
+
+.compose-item {
+  display: grid;
+  grid-template-columns: 120px 70px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 9px;
+}
+
+.compose-item:last-child {
+  border-bottom: 0;
+}
+
+.compose-item span {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compose-item strong {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.compose-item small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-facts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -11,6 +11,53 @@ import type { ServiceAdapter } from "./adapter.js";
 
 const execFileAsync = promisify(execFile);
 
+export interface ComposeContainer {
+  id: string;
+  name: string;
+  service: string;
+  state: string;
+  status: string;
+  image: string;
+  health?: string;
+  ports?: string;
+}
+
+export function parseComposeContainers(stdout: string): ComposeContainer[] {
+  const values: unknown[] = [];
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) values.push(...parsed);
+    else values.push(parsed);
+  } catch {
+    for (const line of trimmed.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        values.push(JSON.parse(line));
+      } catch {
+        // Ignore non-JSON compose warnings; the caller will treat them as empty.
+      }
+    }
+  }
+  return values
+    .filter(
+      (value): value is Record<string, unknown> =>
+        Boolean(value) && typeof value === "object" && !Array.isArray(value),
+    )
+    .map((row) => ({
+      id: String(row.ID ?? row.Id ?? row.Name ?? ""),
+      name: String(row.Name ?? row.Names ?? ""),
+      service: String(row.Service ?? ""),
+      state: String(row.State ?? "unknown"),
+      status: String(row.Status ?? ""),
+      image: String(row.Image ?? ""),
+      health: row.Health ? String(row.Health) : undefined,
+      ports: row.Ports ? String(row.Ports) : undefined,
+    }))
+    .filter((container) => container.name || container.id);
+}
+
 export class DockerComposeAdapter implements ServiceAdapter {
   readonly id = "docker-compose";
 
@@ -20,25 +67,29 @@ export class DockerComposeAdapter implements ServiceAdapter {
 
   async inspect(definition: ServiceDefinition): Promise<ServiceSnapshot> {
     try {
-      const result = await this.run(definition, ["ps", "--format", "json"]);
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(result.stdout);
-      } catch {
-        parsed = result.stdout
-          .split(/\r?\n/)
-          .filter(Boolean)
-          .map((line) => JSON.parse(line));
-      }
-      const containers = (Array.isArray(parsed) ? parsed : [parsed]) as Array<{
-        State?: string;
-      }>;
-      const running = containers.some(
-        (container) => container.State === "running",
-      );
+      const [ps, services] = await Promise.all([
+        this.run(definition, ["ps", "-a", "--format", "json"]),
+        this.run(definition, ["config", "--services"]),
+      ]);
+      const containers = parseComposeContainers(ps.stdout);
+      const expectedServices = services.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const running = containers.filter(
+        (container) => container.state === "running",
+      ).length;
       return {
         ...definition,
-        state: running ? "running" : "stopped",
+        state: running > 0 ? "running" : "stopped",
+        details: {
+          compose: {
+            projectName: definition.projectName ?? definition.id,
+            serviceCount: expectedServices.length || containers.length,
+            runningCount: running,
+            containers,
+          },
+        },
         updatedAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -47,6 +98,14 @@ export class DockerComposeAdapter implements ServiceAdapter {
         state: "error",
         lastError:
           error instanceof Error ? error.message : "Docker unavailable",
+        details: {
+          compose: {
+            projectName: definition.projectName ?? definition.id,
+            serviceCount: 0,
+            runningCount: 0,
+            containers: [],
+          },
+        },
         updatedAt: new Date().toISOString(),
       };
     }
@@ -91,14 +150,34 @@ export class DockerComposeAdapter implements ServiceAdapter {
     };
   }
 
-  private run(definition: ServiceDefinition, args: string[]) {
+  private async run(definition: ServiceDefinition, args: string[]) {
     const composeFile = definition.composeFile ?? definition.target;
     const commandArgs = ["compose", "-f", resolve(composeFile)];
     if (definition.projectName) commandArgs.push("-p", definition.projectName);
     commandArgs.push(...args);
-    return execFileAsync("docker", commandArgs, {
-      timeout: 30_000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
+    try {
+      return await execFileAsync("docker", commandArgs, {
+        timeout: 30_000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+    } catch (error) {
+      throw new Error(composeErrorMessage(error));
+    }
   }
+}
+
+function composeErrorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const record = error as { stderr?: unknown; message?: unknown };
+    if (typeof record.stderr === "string" && record.stderr.trim()) {
+      const lines = record.stderr
+        .replace(/\u001b\[[0-9;]*m/g, "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      return lines.slice(-4).join(" ").slice(0, 500);
+    }
+    if (typeof record.message === "string") return record.message;
+  }
+  return String(error);
 }
