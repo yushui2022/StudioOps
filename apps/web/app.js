@@ -1610,21 +1610,16 @@ function renderCompute() {
     : "未创建";
   $("compute-user").textContent = data.username ?? "—";
   $("compute-uid").textContent = account.uid ?? "—";
-  const sshSupported = tailscale.sshSupported !== false;
-  $("compute-tailscale-ssh").textContent = !sshSupported
-    ? "GUI 不支持"
-    : tailscale.sshEnabled
-      ? "已启用"
-      : "关闭";
+  $("compute-tailscale-ssh").textContent = state.warpgate?.running
+    ? "Warpgate"
+    : "未配置";
   $("compute-remote-login").textContent =
-    ssh.remoteLogin === "enabled" ? "已启用" : "关闭";
-  $("compute-ssh-toggle").textContent = tailscale.sshEnabled
-    ? "关闭 Tailscale SSH"
-    : "启用 Tailscale SSH";
-  $("compute-ssh-toggle").classList.toggle(
-    "hidden",
-    !account.exists || !sshSupported,
-  );
+    ssh.remoteLogin !== "enabled"
+      ? "关闭"
+      : state.warpgate?.directSshOpen
+        ? "所有网卡"
+        : "仅回环";
+  $("compute-ssh-toggle").classList.add("hidden");
 
   const command = tailscale.ip
     ? `ssh ${data.username}@${tailscale.ip}`
@@ -1746,10 +1741,10 @@ function renderWarpgate() {
     : `${warpgate.httpPort} 不可访问`;
   $("warpgate-target").textContent = warpgate.target ?? "—";
   $("warpgate-user").textContent = warpgate.user ?? "—";
-  const ip = state.compute?.ssh?.tailscale?.ip;
-  const command = ip
-    ? `ssh -p ${warpgate.sshPort} ${warpgate.user}:${warpgate.target}@${ip}`
-    : "Tailscale IP 不可用";
+  const host = warpgate.sshHost || state.compute?.ssh?.tailscale?.ip;
+  const command = host
+    ? `ssh -p ${warpgate.sshPort} ${warpgate.user}:${warpgate.target}@${host}`
+    : "网关地址不可用";
   $("warpgate-command").textContent = command;
   $("warpgate-admin-link").href = warpgate.adminUrl ?? "#";
   $("warpgate-note").textContent = running

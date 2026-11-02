@@ -115,11 +115,6 @@ export async function getComputeSnapshot(
     warnings.push("macOS Remote Login 未开启");
   if (ssh.tailscale.sshError)
     warnings.push(`Tailscale SSH 状态读取失败：${ssh.tailscale.sshError}`);
-  if (!ssh.tailscale.sshSupported)
-    warnings.push(
-      "当前 Tailscale GUI 构建不支持 SSH 服务器；请使用 macOS Remote Login，或安装 Homebrew tailscaled CLI",
-    );
-  else if (!ssh.tailscale.sshEnabled) warnings.push("Tailscale SSH 未开启");
   return {
     username,
     account,

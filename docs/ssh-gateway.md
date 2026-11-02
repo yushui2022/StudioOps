@@ -1,7 +1,7 @@
 # SSH 网关与短期凭证规划
 
 更新时间：2026-11-02  
-状态：Warpgate PoC 已运行，直连 SSH 暂未关闭
+状态：Warpgate 已迁移到香港 VPS；Mac 直连 22 的收紧脚本已就绪，等待管理员确认
 
 ## 背景
 
@@ -28,13 +28,11 @@
 
 ```text
 朋友 / CI
-  → Tailscale 私网
-  → SSH 网关（Warpgate / Teleport / SSH CA）
-       ├─ 身份认证
-       ├─ 用户到 compute 的授权
-       ├─ 会话审计/录制
-       └─ 吊销和过期
-  → Mac 回环 sshd
+  → VPS 156.239.2.231:2222
+  → Warpgate 认证、授权、会话录制
+  → VPS 127.0.0.1:22022
+  → SSH 反向隧道（Mac 主动连出 VPS）
+  → Mac 127.0.0.1:22（仅回环 sshd）
   → compute 用户
 ```
 
@@ -57,21 +55,16 @@ Warpgate 是轻量开源堡垒机：
 - 标准 SSH 客户端即可
 - 不需要在目标机器安装专用 Agent
 
-推荐拓扑：
+推荐拓扑（已采用）：
 
 ```text
-Warpgate（Mac 本机，监听 tailnet/回环）
-  → 127.0.0.1:22
+Warpgate（香港 VPS，公网 2222）
+  → SSH 反向隧道
+  → Mac 127.0.0.1:22
   → compute
 ```
 
-或者：
-
-```text
-Warpgate（VPS）
-  → SSH 反向隧道
-  → Mac 127.0.0.1:22
-```
+Mac 本机 PoC 保留数据作为回退，但不再是主路径。
 
 建议先在本机或 VPS 做 PoC，确认：
 
@@ -179,53 +172,147 @@ Teleport 更完整：
 - 吊销用户后无法继续登录
 - 不在 StudioOps 中保存 SSH 私钥或密码
 
-## 当前 PoC 状态
+## 当前部署状态
 
-已在本机启动 Warpgate 容器：
+Warpgate 已迁移到香港 VPS。Mac 直连 22 的收紧脚本已就绪，等待管理员确认。
 
 ```text
+VPS:        156.239.2.231（Debian 12 / Docker 29.7.2）
 容器:       studioops-warpgate
 镜像:       ghcr.io/warp-tech/warpgate:0.30.2
-SSH:        100.115.137.62:2222
-管理台:     127.0.0.1:8888（HTTPS，自签证书）
-数据目录:   ~/Library/Application Support/com.studioops.desktop/warpgate
-管理员密码: ~/Library/Application Support/com.studioops.desktop/warpgate-admin-password
+SSH 入口:   156.239.2.231:2222
+管理台:     VPS 127.0.0.1:8888（HTTPS，自签证书）
+本地转发:   127.0.0.1:18888 → VPS 127.0.0.1:8888
+数据目录:   /opt/studioops/warpgate
+管理员密码: /opt/studioops/secrets/warpgate-admin-password
 外部用户:   compute-guest
-目标:       mac-compute → host.docker.internal:22 / compute
+目标:       mac-compute → 127.0.0.1:22022 / compute
 访问角色:   compute-access
 ```
 
-已完成：
-
-- Warpgate 容器运行
-- Warpgate 用户、角色、目标、目标角色全配置
-- Warpgate 公共密钥认证成功
-- Warpgate 客户端公钥已安装到 `compute`
-- 完整 SSH 登录测试通过：
+Mac 侧：
 
 ```text
-ssh -i warpgate-test-key -p 2222 compute-guest:mac-compute@100.115.137.62
+反向隧道:   VPS 127.0.0.1:22022 → Mac 127.0.0.1:22
+sshd:       目标：仅监听 127.0.0.1:22
+macOS:      Remote Login 待关闭
+```
+
+执行 `sudo bash scripts/ssh-loopback-mode.sh gateway` 后，系统 sshd 会换成
+仅回环的 LaunchDaemon `ai.local.studioops.sshd`。macOS Remote Login 的
+`com.apple.access_ssh` ACL 仍然生效，`compute` 在允许列表中。
+
+### 验证命令
+
+在任意能访问 VPS 的机器上：
+
+```bash
+ssh -p 2222 compute-guest:mac-compute@156.239.2.231
+```
+
+实测结果：
+
+```text
 CONNECTED
 compute
 /Users/compute
 ```
 
-- 会话录制已生成在 Warpgate 数据目录
-- StudioOps 增加 Warpgate 状态接口和面板
+Warpgate 日志确认：
 
-还差：
+- `UserAuthenticated1` 公钥认证成功
+- `TargetSessionStarted1` 建立到 `mac-compute`
+- `Recording session ...` 生成会话录制
+- 录制文件位于 `/opt/studioops/warpgate/recordings/`
 
-1. 将 macOS sshd 收紧到回环，关闭直连 22
-2. 由于 Warpgate 运行在 Docker 中，target 使用 `host.docker.internal:22`；直接绑定 `127.0.0.1` 会让容器无法访问
-3. 更稳妥的最终方案：Warpgate 放 VPS，SSH 反向隧道到 Mac `127.0.0.1:22`
-4. 给朋友在 Warpgate 中添加自己的公钥（不要共享测试私钥）
+收紧后确认直连 22 已关闭：
+
+```bash
+nc -vz -w 3 100.115.137.62 22   # 应失败
+nc -vz -w 3 156.239.2.231 22    # VPS 自己的 sshd，不是 Mac
+```
+
+### 管理台访问
+
+管理台只绑定 VPS 回环。通过隧道脚本的本地转发访问：
+
+```bash
+curl -k https://127.0.0.1:18888/@warpgate/admin
+```
+
+浏览器打开 `https://127.0.0.1:18888/@warpgate/admin`。
+管理员密码在 VPS 的 `/opt/studioops/secrets/warpgate-admin-password`，
+不要提交到 Git 或发到公开聊天。
+
+### 隧道与常驻
+
+`~/.local/bin/ollama-tunnel` 现在包含：
+
+```text
+-R 127.0.0.1:11434:127.0.0.1:11435   推理网关 Ollama
+-R 127.0.0.1:8190:127.0.0.1:8191     推理网关 ComfyUI
+-R 127.0.0.1:22022:127.0.0.1:22      供 VPS Warpgate 连接 Mac sshd
+-L 127.0.0.1:18888:127.0.0.1:8888    本机访问 VPS Warpgate 管理台
+```
+
+由 LaunchAgent `ai.local.ollama-tunnel` 常驻。
+
+### 回滚
+
+恢复 macOS 直接 SSH：
+
+```bash
+sudo bash scripts/ssh-loopback-mode.sh direct
+```
+
+这会停止仅回环 sshd、删除 LaunchDaemon，并重新打开 Remote Login。
+之后 `100.115.137.62:22` 会再次可直连。
+
+如果只是临时排查，先看状态：
+
+```bash
+sudo bash scripts/ssh-loopback-mode.sh status
+```
+
+### 给朋友添加公钥
+
+1. 朋友在自己的机器生成密钥：`ssh-keygen -t ed25519`
+2. 把 `~/.ssh/id_ed25519.pub` 发给你
+3. 在 Warpgate 管理台：Config → Users → `compute-guest` → Public keys
+4. 朋友连接：
+
+```bash
+ssh -i ~/.ssh/id_ed25519 -p 2222 compute-guest:mac-compute@156.239.2.231
+```
+
+不要共享本机测试私钥
+`~/Library/Application Support/com.studioops.desktop/warpgate-test-key`。
+
+### StudioOps 状态
+
+StudioOps 读取 `$STUDIOOPS_DATA_DIR/warpgate.json`：
+
+```json
+{
+  "host": "156.239.2.231",
+  "sshPort": 2222,
+  "adminPort": 18888,
+  "container": "studioops-warpgate",
+  "target": "mac-compute",
+  "user": "compute-guest"
+}
+```
+
+「算力」页显示 VPS 网关、SSH 入口、管理台、目标、登录用户和连接命令，
+并提示 macOS 直连 22 是否仍然开放。
 
 ## 当前决定
 
-- 先用 Warpgate PoC，Teleport 作为后续企业级选项
-- 直连 SSH 暂不关闭，等 Warpgate 完整登录测试通过后再收紧
+- 主路径：VPS Warpgate + SSH 反向隧道 + Mac 回环 sshd
+- Mac 本机 Warpgate PoC 保留数据作为回退，不再作为主路径
+- 不默认开放公网 22；VPS 只放行 2222
 - StudioOps 只展示 Warpgate 状态，不实现 SSH 协议
-- 如果只使用少量可信设备，Tailscale ACL + SSH CA 也足够
+- 如果以后多用户、多机器，再评估 Teleport 或短期 SSH 证书
 
 ## 相关文档
 
