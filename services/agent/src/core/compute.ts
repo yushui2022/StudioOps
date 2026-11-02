@@ -49,6 +49,7 @@ export interface ComputeSshStatus {
   tailscale: {
     online: boolean;
     sshEnabled: boolean;
+    sshSupported: boolean;
     ip?: string;
     dnsName?: string;
     sshError?: string;
@@ -109,10 +110,15 @@ export async function getComputeSnapshot(
     warnings.push(
       `主账号主目录权限为 ${ownerHome.mode ?? "未知"}，${username} 可能读取部分目录`,
     );
-  if (ssh.remoteLogin === "disabled" && !ssh.tailscale.sshEnabled)
-    warnings.push("macOS Remote Login 和 Tailscale SSH 当前都未开启");
+  if (ssh.remoteLogin === "disabled")
+    warnings.push("macOS Remote Login 未开启");
   if (ssh.tailscale.sshError)
     warnings.push(`Tailscale SSH 状态读取失败：${ssh.tailscale.sshError}`);
+  if (!ssh.tailscale.sshSupported)
+    warnings.push(
+      "当前 Tailscale GUI 构建不支持 SSH 服务器；请使用 macOS Remote Login，或安装 Homebrew tailscaled CLI",
+    );
+  else if (!ssh.tailscale.sshEnabled) warnings.push("Tailscale SSH 未开启");
   return {
     username,
     account,
@@ -370,6 +376,7 @@ async function readSshStatus(): Promise<ComputeSshStatus> {
     tailscale: {
       online: tailscale.online,
       sshEnabled: ssh.enabled,
+      sshSupported: ssh.supported,
       ip: tailscale.ips?.[0],
       dnsName: tailscale.dnsName,
       sshError: ssh.error,

@@ -1609,15 +1609,21 @@ function renderCompute() {
     : "未创建";
   $("compute-user").textContent = data.username ?? "—";
   $("compute-uid").textContent = account.uid ?? "—";
-  $("compute-tailscale-ssh").textContent = tailscale.sshEnabled
-    ? "已启用"
-    : "关闭";
+  const sshSupported = tailscale.sshSupported !== false;
+  $("compute-tailscale-ssh").textContent = !sshSupported
+    ? "GUI 不支持"
+    : tailscale.sshEnabled
+      ? "已启用"
+      : "关闭";
   $("compute-remote-login").textContent =
     ssh.remoteLogin === "enabled" ? "已启用" : "关闭";
   $("compute-ssh-toggle").textContent = tailscale.sshEnabled
     ? "关闭 Tailscale SSH"
     : "启用 Tailscale SSH";
-  $("compute-ssh-toggle").classList.toggle("hidden", !account.exists);
+  $("compute-ssh-toggle").classList.toggle(
+    "hidden",
+    !account.exists || !sshSupported,
+  );
 
   const command = tailscale.ip
     ? `ssh ${data.username}@${tailscale.ip}`
@@ -1647,7 +1653,11 @@ function renderCompute() {
   $("compute-resource-note").textContent = `Tailscale ${
     tailscale.online ? "在线" : "离线"
   } · ${tailscale.dnsName ?? "—"} · ${
-    tailscale.sshEnabled ? "Tailscale SSH 已开" : "Tailscale SSH 关闭"
+    !sshSupported
+      ? "Tailscale SSH 不支持 GUI 构建"
+      : tailscale.sshEnabled
+        ? "Tailscale SSH 已开"
+        : "Tailscale SSH 关闭"
   } · macOS Remote Login ${ssh.remoteLogin === "enabled" ? "已开" : "关闭"}`;
 
   const warningBox = $("compute-warnings");
@@ -1730,6 +1740,13 @@ async function loadCompute({ quiet = false } = {}) {
 }
 
 async function toggleComputeSsh(button) {
+  if (state.compute?.ssh?.tailscale?.sshSupported === false) {
+    toast(
+      "当前 Tailscale GUI 构建不支持 SSH 服务器；请使用 macOS Remote Login，或安装 Homebrew tailscaled CLI",
+      true,
+    );
+    return;
+  }
   const enabled = !(state.compute?.ssh?.tailscale?.sshEnabled ?? false);
   if (
     !confirm(

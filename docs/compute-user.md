@@ -45,9 +45,26 @@ chmod 755 /Users/Shared/ai-compute
 
 ## 远程登录方式
 
-### 方式 A：Tailscale SSH（推荐）
+### 方式 A：macOS Remote Login + Tailscale（推荐）
 
-不开放公网 22，只允许 tailnet 设备：
+macOS 的 Tailscale GUI 构建（App Store / pkg / cask）**不支持 SSH 服务器**，会报：
+
+```text
+The Tailscale SSH server does not run in sandboxed Tailscale GUI builds.
+```
+
+只有 Homebrew 的 `tailscaled` CLI 版本能作为 Tailscale SSH 服务器。当前机器使用 GUI 版本，因此推荐：
+
+1. 系统设置 → 通用 → 共享 → 远程登录
+2. 允许访问：仅这些用户
+3. 选择 `compute`
+4. 不要开放公网 22，只通过 Tailscale 网络访问
+
+如果以后切换到 Homebrew `tailscaled`，才使用下面的 Tailscale SSH ACL。
+
+### 方式 A2：Homebrew tailscaled + Tailscale SSH
+
+安装 Homebrew formula 版本后：
 
 ```bash
 tailscale set --ssh

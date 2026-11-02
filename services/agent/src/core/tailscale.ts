@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -87,8 +87,20 @@ export async function findTailscaleBinary(
 
 export interface TailscaleSshStatus {
   enabled: boolean;
+  supported: boolean;
   binary?: string;
   error?: string;
+}
+
+function isSandboxedGuiBuild(binary: string): boolean {
+  try {
+    const real = realpathSync(binary);
+    if (real.includes("Tailscale.app/")) return true;
+    const script = readFileSync(binary, "utf8");
+    return script.includes("Tailscale.app/");
+  } catch {
+    return false;
+  }
 }
 
 export async function readTailscaleSshStatus(
@@ -96,16 +108,26 @@ export async function readTailscaleSshStatus(
 ): Promise<TailscaleSshStatus> {
   const run = options.run ?? execFileAsync;
   const binary = await findTailscaleBinary({ ...options, run });
-  if (!binary) return { enabled: false, error: "Tailscale 未安装" };
+  if (!binary)
+    return { enabled: false, supported: false, error: "Tailscale 未安装" };
   try {
     const result = await run(binary, ["debug", "prefs"], {
       timeout: 5000,
       maxBuffer: 4 * 1024 * 1024,
     });
     const data = JSON.parse(result.stdout) as { RunSSH?: unknown };
-    return { enabled: data.RunSSH === true, binary };
+    return {
+      enabled: data.RunSSH === true,
+      supported: !isSandboxedGuiBuild(binary),
+      binary,
+    };
   } catch (error) {
-    return { enabled: false, binary, error: errorMessage(error) };
+    return {
+      enabled: false,
+      supported: !isSandboxedGuiBuild(binary),
+      binary,
+      error: errorMessage(error),
+    };
   }
 }
 
