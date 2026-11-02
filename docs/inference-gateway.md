@@ -49,7 +49,7 @@ macOS 没有 Linux cgroup 那样的硬内存限制，所以网关在应用层做
 - 默认给推理预留 `52GB`，给系统保留 `12GB`；已用内存达到预算时拒绝新的模型请求。
 - 每 5 秒读取 Ollama `/api/ps`，默认最多加载 `1` 个模型。
 - 请求新模型而槽位已满时，网关会尝试卸载没有正在执行请求的空闲模型；卸载失败才拒绝。
-- 只对会分配模型的请求做准入：Ollama 的 `POST /api/generate|chat|embed|embeddings|pull|create|copy`，ComfyUI 的 `POST /prompt|api/prompt|queue`。`/api/tags`、`/api/ps`、状态查询始终放行。
+- 只对会分配模型的请求做准入：Ollama 的 `POST /api/generate|chat|embed|embeddings|pull|create|copy` 和 OpenAI 兼容路径 `POST /v1/chat/completions|completions|embeddings`，ComfyUI 的 `POST /prompt|api/prompt|queue|v1/images/generations`。`/api/tags`、`/api/ps`、状态查询始终放行。
 
 ## 环境变量
 
