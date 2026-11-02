@@ -40,6 +40,7 @@
 | Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`                                                    | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态                                  |
 | 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                                                      | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                                              |
 | 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs` | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent |
+| Agent 自动重启          | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                                                               | 桌面端 supervisor 监控 Agent；异常退出退避重启；正常退出不拉起                                   |
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                      | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                              |
 | 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`core/discovery.ts`、`apps/web/app.js`                                     | `category: project` 单独成页；自动发现监听端口的开发进程并可纳入项目                             |
 | 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
@@ -105,6 +106,7 @@
 19. 项目视图验收：新增 `category: project` 的 Demo API 后，只在“项目”页出现，显示端口 3100、PID、CPU/内存和日志/编辑/启动操作；服务页与进程页不混入项目卡片。
 20. 自动发现验收：本机启动一个监听 4322 的 Node 服务后，“项目 → 自动发现”自动列出它及已运行的 kopi 开发服务，显示端口、内存和命令；无需手工录入即可“一键纳入项目”。
 21. 项目常驻验收：一个监听 4399 的 Node 项目执行“设为常驻”后生成 `com.studioops.project.persist-test.plist`，launchd running、端口 200、只有一个监听进程；取消常驻后 plist 删除、launchd 卸载、配置恢复 process。
+22. Agent 自动重启验收：直接 `kill -9` 7227 的 Agent，约 2 秒后出现新 PID 并恢复 `/api/health`；退出 App 后 Agent 停止且不重启。已有 Agent 被接管时，旧 Agent 消失后也会自动补起。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

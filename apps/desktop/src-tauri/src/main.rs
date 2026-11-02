@@ -5,8 +5,10 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -19,7 +21,19 @@ use tauri::{
 #[cfg_attr(debug_assertions, allow(dead_code))]
 const FIRST_RUN_CONFIG: &str = include_str!("../../../../config/services.first-run.yaml");
 
-struct AgentProcess(Mutex<Option<Child>>);
+struct AgentProcess {
+    child: Arc<Mutex<Option<Child>>>,
+    shutdown: Arc<AtomicBool>,
+}
+
+impl AgentProcess {
+    fn idle() -> Self {
+        Self {
+            child: Arc::new(Mutex::new(None)),
+            shutdown: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
 
 fn main() {
     tauri::Builder::default()
@@ -55,28 +69,22 @@ fn main() {
                     append_agent_log(&data_dir, &format!("config setup failed: {error}"));
                 }
 
-                let child = if studioops_agent_running() {
+                let supervisor = if studioops_agent_running() {
                     append_agent_log(&data_dir, "reusing the agent already listening on 7227");
-                    None
+                    start_agent_supervisor(&resource_dir, &data_dir, &config_path, true)
                 } else if port_open() {
                     append_agent_log(
                         &data_dir,
                         "port 7227 is already in use by another process; not starting a second agent",
                     );
-                    None
+                    AgentProcess::idle()
                 } else {
-                    match spawn_agent(&resource_dir, &data_dir, &config_path) {
-                        Ok(child) => Some(child),
-                        Err(error) => {
-                            append_agent_log(&data_dir, &format!("agent failed to start: {error}"));
-                            None
-                        }
-                    }
+                    start_agent_supervisor(&resource_dir, &data_dir, &config_path, false)
                 };
-                app.manage(AgentProcess(Mutex::new(child)));
+                app.manage(supervisor);
             }
             #[cfg(debug_assertions)]
-            app.manage(AgentProcess(Mutex::new(None)));
+            app.manage(AgentProcess::idle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -90,9 +98,11 @@ fn main() {
         .run(|app_handle: &tauri::AppHandle, event: RunEvent| {
             if let RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<AgentProcess>() {
-                    if let Ok(mut process) = state.0.lock() {
+                    state.shutdown.store(true, Ordering::SeqCst);
+                    if let Ok(mut process) = state.child.lock() {
                         if let Some(mut child) = process.take() {
                             let _ = child.kill();
+                            let _ = child.wait();
                         }
                     }
                 }
@@ -174,6 +184,134 @@ fn newest_nvm_node(home: &Path) -> Option<PathBuf> {
         .rev()
         .map(|version| version.join("bin/node"))
         .find(|node| node.is_file())
+}
+
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn start_agent_supervisor(
+    resource_dir: &Path,
+    data_dir: &Path,
+    config_path: &Path,
+    adopt_existing: bool,
+) -> AgentProcess {
+    let child = Arc::new(Mutex::new(None));
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let state = AgentProcess {
+        child: Arc::clone(&child),
+        shutdown: Arc::clone(&shutdown),
+    };
+    let resource_dir = resource_dir.to_path_buf();
+    let data_dir = data_dir.to_path_buf();
+    let config_path = config_path.to_path_buf();
+    let shared_child = Arc::clone(&child);
+
+    thread::spawn(move || {
+        let mut backoff = 1;
+        if adopt_existing {
+            append_agent_log(&data_dir, "monitoring the existing agent on 7227");
+            while !shutdown.load(Ordering::SeqCst) && studioops_agent_running() {
+                sleep_or_shutdown(&shutdown, 1);
+            }
+            if shutdown.load(Ordering::SeqCst) {
+                return;
+            }
+            append_agent_log(
+                &data_dir,
+                "existing agent is gone; starting a supervised agent",
+            );
+        }
+        loop {
+            if shutdown.load(Ordering::SeqCst) {
+                break;
+            }
+            let spawned = match spawn_agent(&resource_dir, &data_dir, &config_path) {
+                Ok(spawned_child) => {
+                    append_agent_log(&data_dir, "agent started by supervisor");
+                    if let Ok(mut process) = shared_child.lock() {
+                        *process = Some(spawned_child);
+                    }
+                    true
+                }
+                Err(error) => {
+                    append_agent_log(
+                        &data_dir,
+                        &format!("agent failed to start: {error}; retrying in {backoff}s"),
+                    );
+                    false
+                }
+            };
+
+            if !spawned {
+                sleep_or_shutdown(&shutdown, backoff);
+                backoff = (backoff * 2).min(30);
+                continue;
+            }
+
+            let started = Instant::now();
+            let mut exit_reason = String::from("agent exited unexpectedly");
+            loop {
+                if shutdown.load(Ordering::SeqCst) {
+                    if let Ok(mut process) = shared_child.lock() {
+                        if let Some(mut running) = process.take() {
+                            let _ = running.kill();
+                            let _ = running.wait();
+                        }
+                    }
+                    return;
+                }
+
+                let mut exited = false;
+                if let Ok(mut process) = shared_child.lock() {
+                    if let Some(running) = process.as_mut() {
+                        match running.try_wait() {
+                            Ok(Some(status)) => {
+                                exit_reason = format!("agent exited unexpectedly with {status}");
+                                process.take();
+                                exited = true;
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                exit_reason = format!("agent status check failed: {error}");
+                                process.take();
+                                exited = true;
+                            }
+                        }
+                    }
+                }
+                if exited {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(500));
+            }
+
+            if shutdown.load(Ordering::SeqCst) {
+                break;
+            }
+            let lived_for = started.elapsed();
+            if lived_for < Duration::from_secs(10) {
+                backoff = (backoff * 2).min(30);
+            } else {
+                backoff = 1;
+            }
+            append_agent_log(
+                &data_dir,
+                &format!("{exit_reason}; restarting in {backoff}s"),
+            );
+            sleep_or_shutdown(&shutdown, backoff);
+        }
+    });
+
+    state
+}
+
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn sleep_or_shutdown(shutdown: &Arc<AtomicBool>, seconds: u64) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < deadline {
+        if shutdown.load(Ordering::SeqCst) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
 }
 
 #[cfg_attr(debug_assertions, allow(dead_code))]
