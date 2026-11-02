@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import net from "node:net";
 import os from "node:os";
 import { promisify } from "node:util";
 import {
@@ -385,14 +386,15 @@ async function readSshStatus(): Promise<ComputeSshStatus> {
 }
 
 async function isPortListening(port: number): Promise<boolean> {
-  try {
-    const result = await execFileAsync(
-      "lsof",
-      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"],
-      { timeout: 2500, maxBuffer: 1024 * 1024 },
-    );
-    return result.stdout.trim().length > 0;
-  } catch {
-    return false;
-  }
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    const finish = (value: boolean) => {
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(1200);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
 }
