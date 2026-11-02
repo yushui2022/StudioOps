@@ -44,6 +44,28 @@ export async function readProcessMetrics(pid: number): Promise<{
   }
 }
 
+export async function readProcessIdentity(pid: number): Promise<{
+  startedAt?: string;
+  args?: string;
+}> {
+  try {
+    const [started, args] = await Promise.all([
+      execFileAsync("ps", ["-p", String(pid), "-o", "lstart="], {
+        timeout: 1500,
+      }),
+      execFileAsync("ps", ["-p", String(pid), "-o", "args="], {
+        timeout: 1500,
+      }),
+    ]);
+    return {
+      startedAt: started.stdout.trim() || undefined,
+      args: args.stdout.trim() || undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

@@ -45,6 +45,7 @@
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                      | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                              |
 | 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`core/discovery.ts`、`apps/web/app.js`                                     | `category: project` 单独成页；自动发现监听端口的开发进程并可纳入项目                             |
 | 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
+| 进程身份持久化          | 已完成                 | `services/agent/src/adapters/process.ts`、`core/process-metrics.ts`                                                | 自动 pid 文件（启动时间+命令）；Agent 重启后重新识别并校验 PID 复用                              |
 | 进程终止                | 已完成                 | `services/agent/src/core/process-control.ts`、`/api/processes/:pid/terminate`                                      | 仅当前用户；保护祖先进程链；SIGTERM 失败后可 SIGKILL；写入审计                                   |
 | 进程浏览                | 已完成                 | `services/agent/src/core/process-list.ts`、`/api/processes`                                                        | 按 CPU/内存排序、搜索、占用条、4 秒刷新                                                          |
 | Docker 状态和动作       | 已完成                 | `services/agent/src/core/docker-status.ts`、`/api/docker`                                                          | daemon 状态、容器列表、启动/停止/重启；已用真实容器验证                                          |
@@ -109,6 +110,7 @@
 21. 项目常驻验收：一个监听 4399 的 Node 项目执行“设为常驻”后生成 `com.studioops.project.persist-test.plist`，launchd running、端口 200、只有一个监听进程；取消常驻后 plist 删除、launchd 卸载、配置恢复 process。
 22. Agent 自动重启验收：直接 `kill -9` 7227 的 Agent，约 2 秒后出现新 PID 并恢复 `/api/health`；退出 App 后 Agent 停止且不重启。已有 Agent 被接管时，旧 Agent 消失后也会自动补起。
 23. 启动错误验收：用 `python3 -m http.server 7227` 占用端口后启动 App，弹出“StudioOps Agent 无法启动 / 端口 7227 已被其他程序占用”对话框，并提示 `lsof` 排查命令；关闭占用后再次启动恢复正常。
+24. 进程身份验收：启动一个无端口、无 pidFile 的 Node 项目，生成 `data/pids/adopt-test.pid`（含 PID、lstart、命令行）；kill Agent 后子进程继续运行，新 Agent 启动后仍识别同一 PID；停止后 pid 文件删除。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

@@ -324,6 +324,38 @@ test("app bundle path is extracted from executable path", () => {
   assert.equal(appBundlePath("/usr/bin/true"), undefined);
 });
 
+test("process adapter re-adopts a running child from its pid file", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "studioops-adopt-"));
+  const definition: ServiceDefinition = {
+    id: "adopt-test",
+    name: "Adopt Test",
+    kind: "process",
+    category: "project",
+    adapter: "process",
+    target: dataDir,
+    command: process.execPath,
+    args: ["-e", "setInterval(() => {}, 1000)"],
+    cwd: dataDir,
+    allowedActions: ["start", "stop", "restart"],
+  };
+  const first = new ProcessAdapter(dataDir);
+  const started = await first.execute(definition, "start");
+  assert.equal(started.state, "running");
+  assert.ok(started.pid);
+  const pidFile = join(dataDir, "pids", "adopt-test.pid");
+  assert.ok(existsSync(pidFile));
+  assert.match(readFileSync(pidFile, "utf8"), /"pid"/);
+
+  const second = new ProcessAdapter(dataDir);
+  const resumed = await second.inspect(definition);
+  assert.equal(resumed.state, "running");
+  assert.equal(resumed.pid, started.pid);
+  await second.execute(definition, "stop");
+  assert.equal(existsSync(pidFile), false);
+  const after = await second.inspect(definition);
+  assert.equal(after.state, "stopped");
+});
+
 test("process kill guard rejects system and other users", () => {
   const user = os.userInfo().username;
   const base = {

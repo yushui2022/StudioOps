@@ -41,6 +41,7 @@ npm run dev
 - 自动发现：扫描本机正在监听端口、工作目录在用户目录下的开发进程，自动列在“项目 → 自动发现”，可一键纳入项目。
 - 项目常驻：项目服务可“设为常驻”，生成 `~/Library/LaunchAgents/com.studioops.project.<id>.plist`，由 launchd 在登录/重启后自动拉起。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
+- 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
 - 进程浏览：`/api/processes` 返回按 CPU 或内存排序的进程表，面板支持搜索、排序和占用条。
 - Docker：`/api/docker` 显示 daemon 状态和容器列表；daemon 可用时可对容器执行启动、停止、重启。

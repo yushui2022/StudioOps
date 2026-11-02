@@ -47,7 +47,7 @@ if (host !== "127.0.0.1" && host !== "localhost" && !configuredToken) {
 
 const registry = new ServiceRegistry();
 registry.registerAdapter(new LaunchdAdapter());
-registry.registerAdapter(new ProcessAdapter());
+registry.registerAdapter(new ProcessAdapter(dataDir));
 registry.registerAdapter(new DockerComposeAdapter());
 const configStore = new ConfigStore({
   rootDir,

@@ -6,10 +6,13 @@ import {
   openSync,
   readFileSync,
   readSync,
+  renameSync,
+  rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type {
   ServiceAction,
   ServiceDefinition,
@@ -20,14 +23,22 @@ import type { ServiceAdapter } from "./adapter.js";
 import {
   findPidByPort,
   isProcessAlive,
+  readProcessIdentity,
   readProcessMetrics,
 } from "../core/process-metrics.js";
 
 type ManagedProcess = { child: ChildProcess; startedAt: number };
+type PidRecord = {
+  pid: number;
+  startedAt?: string;
+  args?: string;
+};
 
 export class ProcessAdapter implements ServiceAdapter {
   readonly id = "process";
   private readonly children = new Map<string, ManagedProcess>();
+
+  constructor(private readonly dataDir?: string) {}
 
   canHandle(definition: ServiceDefinition): boolean {
     return definition.adapter === this.id;
@@ -37,7 +48,7 @@ export class ProcessAdapter implements ServiceAdapter {
     const managed = this.children.get(definition.id);
     const pid =
       managed?.child.pid ??
-      this.readPid(definition) ??
+      (await this.readPid(definition)) ??
       (definition.port ? await findPidByPort(definition.port) : undefined);
     if (!pid || !isProcessAlive(pid)) {
       this.children.delete(definition.id);
@@ -47,6 +58,7 @@ export class ProcessAdapter implements ServiceAdapter {
         updatedAt: new Date().toISOString(),
       };
     }
+    if (!managed) await this.rememberManagedPid(definition, pid);
     return {
       ...definition,
       state: "running",
@@ -152,9 +164,13 @@ export class ProcessAdapter implements ServiceAdapter {
     if (!child.pid) throw new Error(`Failed to start ${definition.id}`);
     const managed = { child, startedAt: Date.now() };
     this.children.set(definition.id, managed);
+    await this.writeManagedPid(definition, child.pid);
     child.once("exit", () => {
       const current = this.children.get(definition.id);
-      if (current?.child === child) this.children.delete(definition.id);
+      if (current?.child === child) {
+        this.children.delete(definition.id);
+        this.removeManagedPid(definition);
+      }
     });
     return this.inspect(definition);
   }
@@ -173,6 +189,7 @@ export class ProcessAdapter implements ServiceAdapter {
         );
     }
     this.children.delete(definition.id);
+    this.removeManagedPid(definition);
     if (definition.logFile && existsSync(resolve(definition.logFile)))
       appendFileSync(resolve(definition.logFile), "");
     return {
@@ -182,11 +199,114 @@ export class ProcessAdapter implements ServiceAdapter {
     };
   }
 
-  private readPid(definition: ServiceDefinition): number | undefined {
-    const pidFile = definition.pidFile;
-    if (!pidFile || !existsSync(resolve(pidFile))) return undefined;
-    const pid = Number(readFileSync(resolve(pidFile), "utf8").trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  private managedPidFile(definition: ServiceDefinition): string | undefined {
+    if (definition.pidFile) return undefined;
+    if (!this.dataDir) return undefined;
+    return join(this.dataDir, "pids", `${definition.id}.pid`);
+  }
+
+  private readPidFile(definition: ServiceDefinition): string | undefined {
+    if (definition.pidFile) return resolve(definition.pidFile);
+    return this.managedPidFile(definition);
+  }
+
+  private async readPid(
+    definition: ServiceDefinition,
+  ): Promise<number | undefined> {
+    const pidFile = this.readPidFile(definition);
+    if (!pidFile || !existsSync(pidFile)) return undefined;
+    let record: PidRecord | undefined;
+    try {
+      const raw = readFileSync(pidFile, "utf8").trim();
+      if (raw.startsWith("{")) {
+        const parsed = JSON.parse(raw) as Partial<PidRecord>;
+        if (Number.isInteger(parsed.pid))
+          record = {
+            pid: Number(parsed.pid),
+            startedAt:
+              typeof parsed.startedAt === "string"
+                ? parsed.startedAt
+                : undefined,
+            args: typeof parsed.args === "string" ? parsed.args : undefined,
+          };
+      } else {
+        const pid = Number(raw);
+        if (Number.isInteger(pid)) record = { pid };
+      }
+    } catch {
+      record = undefined;
+    }
+    if (!record?.pid || !isProcessAlive(record.pid)) {
+      rmSync(pidFile, { force: true });
+      return undefined;
+    }
+    if (record.startedAt || record.args) {
+      const identity = await readProcessIdentity(record.pid);
+      if (
+        record.startedAt &&
+        identity.startedAt &&
+        record.startedAt !== identity.startedAt
+      ) {
+        rmSync(pidFile, { force: true });
+        return undefined;
+      }
+      if (
+        !record.startedAt &&
+        record.args &&
+        identity.args &&
+        !this.commandMatches(definition, identity.args)
+      ) {
+        rmSync(pidFile, { force: true });
+        return undefined;
+      }
+    }
+    return record.pid;
+  }
+
+  private async rememberManagedPid(
+    definition: ServiceDefinition,
+    pid: number,
+  ): Promise<void> {
+    if (definition.pidFile || !this.dataDir) return;
+    const pidFile = this.managedPidFile(definition);
+    if (!pidFile || existsSync(pidFile)) return;
+    await this.writeManagedPid(definition, pid);
+  }
+
+  private async writeManagedPid(
+    definition: ServiceDefinition,
+    pid: number,
+  ): Promise<void> {
+    const pidFile = this.managedPidFile(definition);
+    if (!pidFile) return;
+    const identity = await readProcessIdentity(pid);
+    const record: PidRecord = {
+      pid,
+      startedAt: identity.startedAt,
+      args: identity.args,
+    };
+    mkdirSync(dirname(pidFile), { recursive: true, mode: 0o700 });
+    const temporary = `${pidFile}.tmp-${process.pid}`;
+    writeFileSync(temporary, JSON.stringify(record), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    renameSync(temporary, pidFile);
+  }
+
+  private removeManagedPid(definition: ServiceDefinition): void {
+    const pidFile = this.managedPidFile(definition);
+    if (pidFile) rmSync(pidFile, { force: true });
+  }
+
+  private commandMatches(
+    definition: ServiceDefinition,
+    actualArgs: string,
+  ): boolean {
+    const command = definition.command;
+    if (!command) return true;
+    const expected = command.split("/").at(-1)?.toLowerCase();
+    return !expected || actualArgs.toLowerCase().includes(expected);
   }
 }
 
