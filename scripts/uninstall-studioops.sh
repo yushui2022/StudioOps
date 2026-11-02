@@ -64,7 +64,8 @@ backup=""
 if [[ -d "$DATA_DIR" ]]; then
   mkdir -p "$HOME/Downloads"
   backup="$HOME/Downloads/StudioOps-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-  tar -czf "$backup" -C "$(dirname "$DATA_DIR")" "$(basename "$DATA_DIR")"
+  data_name="$(basename "$DATA_DIR")"
+  tar -czf "$backup" --exclude "$data_name/api-token" -C "$(dirname "$DATA_DIR")" "$data_name"
   echo "Exported: $backup"
 else
   echo "No data directory found at $DATA_DIR"

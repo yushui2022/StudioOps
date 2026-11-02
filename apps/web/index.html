@@ -646,6 +646,56 @@
                 </p>
               </section>
 
+              <section
+                class="panel panel-wide"
+                data-title="远程访问 · Tailscale"
+              >
+                <dl class="fact-list">
+                  <div>
+                    <dt>Tailscale</dt>
+                    <dd id="tailscale-state">检查中…</dd>
+                  </div>
+                  <div>
+                    <dt>Tailnet IP</dt>
+                    <dd id="tailscale-ip">—</dd>
+                  </div>
+                  <div>
+                    <dt>MagicDNS</dt>
+                    <dd id="tailscale-dns">—</dd>
+                  </div>
+                  <div>
+                    <dt>Tailnet</dt>
+                    <dd id="tailscale-tailnet">—</dd>
+                  </div>
+                  <div>
+                    <dt>管理入口</dt>
+                    <dd id="tailscale-serve">—</dd>
+                  </div>
+                </dl>
+                <div class="panel-actions uninstall-actions">
+                  <button class="btn btn-small" id="tailscale-refresh">
+                    重新检查
+                  </button>
+                  <button class="btn btn-small" id="tailscale-token">
+                    生成访问 Token
+                  </button>
+                  <button class="btn btn-small" id="tailscale-copy-token">
+                    复制 Token
+                  </button>
+                  <button
+                    class="btn btn-small btn-primary"
+                    id="tailscale-serve-toggle"
+                  >
+                    仅 Tailnet 开放 StudioOps
+                  </button>
+                </div>
+                <p class="uninstall-result hidden" id="tailscale-result"></p>
+                <p class="uninstall-hint" id="tailscale-hint">
+                  只对已登录同一 Tailscale tailnet 的设备开放，不启用 Funnel，
+                  也不会把 7227 绑定到公网。
+                </p>
+              </section>
+
               <section class="panel panel-wide" data-title="卸载与恢复">
                 <dl class="fact-list">
                   <div>

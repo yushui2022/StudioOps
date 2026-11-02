@@ -46,6 +46,7 @@
 | 项目服务模板            | 已完成                 | `services/agent/src/core/project-templates.ts`、`/api/project-templates`、`apps/web/app.js`                        | 7 个模板；选目录自动补全名称/ID/日志/命令/端口/健康检查                                          |
 | 项目开机启动开关        | 已完成                 | `core/project-persistence.ts`、`/api/projects/:id/autostart`、`apps/web/app.js`                                    | 常驻项目独立控制 RunAtLoad；只重写 plist，不重启当前服务                                         |
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                      | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                              |
+| Tailscale 私网访问      | 已完成                 | `core/tailscale.ts`、`core/api-token.ts`、`/api/remote-access`、`/api/security/token`、`apps/web/app.js`           | 状态、Tailnet IP、MagicDNS、Serve 开关；Token 文件 0600；仅 tailnet，不启用 Funnel               |
 | 卸载与恢复              | 已完成                 | `services/agent/src/core/uninstall.ts`、`/api/uninstall/*`、`apps/web/app.js`、`scripts/uninstall-studioops.sh`    | 导出配置/数据；停止托管进程；清理 com.studioops.* LaunchAgent；重置常驻配置；退出桌面端          |
 | 项目服务视图            | 已完成                 | `packages/contracts`、`core/config.ts`、`core/discovery.ts`、`apps/web/app.js`                                     | `category: project` 单独成页；自动发现监听端口的开发进程并可纳入项目                             |
 | 推理进程面板            | 已完成                 | `services/agent/src/core/inference.ts`、`/api/inference`、`apps/web/app.js`                                        | 识别 Ollama/ComfyUI 进程树；内存汇总、压力提示、停止/终止快捷操作                                |
@@ -71,14 +72,14 @@
 
 ## 本机真实服务状态
 
-| 服务          | 当前登记方式 | 目标                                 | 健康/运行信息                                                |
-| ------------- | ------------ | ------------------------------------ | ------------------------------------------------------------ |
-| Ollama        | launchd      | `gui/501/ai.local.ollama`            | 11434，健康检查 200，发现 4 个模型                           |
-| ComfyUI       | launchd      | `gui/501/ai.local.comfyui`           | 8188，健康检查 200，设备为 mps                               |
-| Ollama Tunnel | launchd      | `gui/501/ai.local.ollama-tunnel`     | 当前有 PID 和日志，尚未有真实 tunnel 健康检查                |
-| Docker        | CLI 已安装   | Docker Desktop 2.x / daemon 可启动   | `/api/docker` 显示状态；已用测试容器验证启动/停止/重启并清理 |
-| Tailscale/frp | 未接入命令   | 当前机器未发现 `tailscale` 或 `frpc` | 需要后续选择方案                                             |
-| cloudflared   | 已安装       | 版本 2026.10.7                       | 尚未接入 tunnel 适配器                                       |
+| 服务          | 当前登记方式 | 目标                               | 健康/运行信息                                                |
+| ------------- | ------------ | ---------------------------------- | ------------------------------------------------------------ |
+| Ollama        | launchd      | `gui/501/ai.local.ollama`          | 11434，健康检查 200，发现 4 个模型                           |
+| ComfyUI       | launchd      | `gui/501/ai.local.comfyui`         | 8188，健康检查 200，设备为 mps                               |
+| Ollama Tunnel | launchd      | `gui/501/ai.local.ollama-tunnel`   | 当前有 PID 和日志，尚未有真实 tunnel 健康检查                |
+| Docker        | CLI 已安装   | Docker Desktop 2.x / daemon 可启动 | `/api/docker` 显示状态；已用测试容器验证启动/停止/重启并清理 |
+| Tailscale     | 已接入状态   | 当前机器未安装客户端               | 设置页可检测/Serve；安装登录后补真实联调                     |
+| cloudflared   | 已安装       | 版本 2026.10.7                     | 尚未接入 tunnel 适配器                                       |
 
 ## Release 验收记录（2026-11-01）
 
@@ -120,7 +121,8 @@
 26. 重启语义验收：运行中的服务只改名称时 `restartRequired=false`；改端口时返回 `changedFields=["port"]` 和 `restartRequired=true`；前端弹出“立即重启/更新常驻”提示。
 27. 开机启动开关验收：常驻项目关闭开机启动后 plist 的 RunAtLoad 变 false，当前服务仍保持运行；重新开启后变为 true；取消常驻后 plist 和 launchd 都能回收。
 28. 单实例验收：首次启动 App 后执行 `open -n /Applications/StudioOps.app`，桌面进程保持 1 个、Agent 保持 1 个，第二次启动只聚焦已有窗口。
-29. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
+29. Tailscale 验收：用假 CLI 模拟 Running 状态和 Serve 配置，设置页显示 100.x、MagicDNS 和 tailnet；无 Token 时拒绝开放；生成 Token 后 `api-token` 权限为 0600、未授权请求返回 401；启用 Serve 后返回 `https://studio-mac.example-tailnet.ts.net/`，关闭后恢复未开启；导出归档不包含 `api-token`。真实 Tailscale 安装和登录后的联调待本机安装后补测。
+30. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -138,7 +140,7 @@
 | P1     | 服务配置编辑器               | 已完成：面板新增/编辑/删除服务，服务端校验，保存前自动备份，设置页可恢复                                              | `apps/web/`、`services/agent/src/core/config-store.ts`                                                    | 不手改 YAML 也能登记 Node/Python/launchd/Compose 服务（已实测）                 |
 | P1     | 配置热加载                   | 已完成：保存/恢复后直接替换注册表并广播；非法 reload 保留上一份可用配置                                               | `ServiceRegistry`、Agent API                                                                              | 新服务出现在列表；非法配置不会破坏当前配置（已实测）                            |
 | P1     | launchd 发现                 | 读取 `launchctl list`，展示现有 LaunchAgent；支持选择 label 加入配置                                                  | 新增 `services/agent/src/core/launchd-discovery.ts`、Web                                                  | 能列出本机 `ai.local.*` 和其他用户 LaunchAgent；动作仍走白名单                  |
-| P1     | tunnel 适配器                | 接入 cloudflared；后续再选 Tailscale 或 frp；显示连接状态、入口地址、日志                                             | 新增 `services/agent/src/adapters/tunnel.ts` 或拆成具体适配器                                             | tunnel 卡片能显示 running/healthy/unhealthy 和日志；没有命令时给清晰错误        |
+| P1     | cloudflared 公网适配器       | 在 Tailscale 私网之后接入 cloudflared named tunnel；显示连接状态、入口地址、日志                                      | 新增 `services/agent/src/adapters/cloudflared.ts`                                                         | tunnel 卡片能显示 running/healthy/unhealthy 和日志；没有命令时给清晰错误        |
 | P1     | Docker 可用性和 Compose 实测 | Docker daemon 状态、容器列表和单容器启停已完成；还需用 Compose 项目实测 up/down/restart/logs                          | `services/agent/src/adapters/docker-compose.ts`、系统卡片                                                 | 不把“Docker CLI 已安装”误显示成“容器可用”                                       |
 | P1     | 真实暂停/恢复边界            | UI 已按状态过滤动作；launchd、Docker、模型服务不再显示无效暂停按钮；process 的 SIGSTOP/SIGCONT 待补测试               | `ServiceDefinition.allowedActions`、`apps/web/app.js`                                                     | UI 只显示服务声明的动作；暂停后状态和错误可解释                                 |
 | P1     | 日志体验                     | 已完成尾部读取、100/300/1000 行、自动刷新、error/warn 高亮；还缺真正的 WebSocket 日志流和搜索/清空视图                | `services/agent/src/index.ts` WebSocket、`apps/web/app.js`                                                | 日志不会阻塞 Agent；单次读取有上限；长日志可连续查看                            |
@@ -189,14 +191,14 @@
 | `config/services.yaml` 是本机私有文件    | 其他机器没有真实服务登记                    | 提供配置编辑器和示例模板；不提交真实路径和用户信息           |
 | 面板保存会重写 YAML                      | 手写注释不会保留；覆盖前原文件在备份目录    | 重要配置先备份；恢复后注释同样来自备份文件                   |
 | Compose 项目还没有真实动作证据           | 只能验证单容器启停，不能声称 Compose 已完成 | 找到真实 Compose 项目后实测 up/down/restart/logs             |
-| Tailscale/frp 未安装                     | 不能声称公网穿透已完成                      | 先接 cloudflared 或安装后再适配                              |
+| Tailscale 客户端未安装                   | 不能联调真实 tailnet 和 Serve 证书          | 安装登录后补测；当前已用模拟 CLI 验证状态和命令              |
 | macOS 不能保存任意进程内存快照           | “保存状态”只能保存配置、代码、数据库和备份  | UI 文案必须明确                                              |
 | 进程终止只覆盖当前用户                   | 无法结束 root 和其他用户的进程              | 需要更高权限时使用系统工具，不扩大 Agent 权限                |
 | 推理进程按命令行和进程树识别             | 特殊启动脚本可能识别不到                    | 优先用服务 PID 和子进程树；后续可加显式启动路径配置          |
 | RSS 汇总不等于独占内存                   | 共享内存可能被重复计算                      | 文案标为“内存占用”，不宣称精确独占                           |
 | 强制终止可能丢失未保存数据               | SIGKILL 不会给应用收尾机会                  | UI 二次确认，默认先 SIGTERM                                  |
 | Agent 依赖桌面 supervisor 运行           | 退出 App 后普通 process 服务不会继续被守护  | 常驻项目交给 launchd；卸载时通过 Tauri 退出 App 并回收 Agent |
-| 端口 7227 被其他程序占用时只有日志提示   | UI 只显示无法连接，没有弹窗原因             | 后续在桌面端加启动错误对话框                                 |
+| 端口 7227 被其他程序占用                 | Agent 无法启动，面板无法连接                | 桌面端弹窗提示并使用 lsof 排查；不会启动第二个 Agent         |
 | 没有请求限流和多用户权限                 | 本机同用户可调用所有 API                    | 远程模式必须配置 Token；多用户场景再引入角色                 |
 | 未常驻项目由 Agent 启动                  | Mac 重启后不会自动拉起                      | 项目页“设为常驻”生成 LaunchAgent；卸载会清理这些 LaunchAgent |
 | 项目对外访问还没有统一入口               | 端口可看，但公网域名/隧道未绑定             | 后续接 cloudflared/tunnel，并在项目卡片展示入口地址          |

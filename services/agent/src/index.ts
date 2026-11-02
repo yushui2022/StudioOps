@@ -15,6 +15,12 @@ import type {
 import { DockerComposeAdapter } from "./adapters/docker-compose.js";
 import { LaunchdAdapter } from "./adapters/launchd.js";
 import { ProcessAdapter } from "./adapters/process.js";
+import {
+  generateApiToken,
+  loadApiToken,
+  saveApiToken,
+  type ApiTokenSource,
+} from "./core/api-token.js";
 import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
@@ -36,6 +42,12 @@ import { listProcesses } from "./core/process-list.js";
 import { ServiceRegistry } from "./core/service-registry.js";
 import { getSystemSnapshot } from "./core/system.js";
 import {
+  TAILSCALE_DOWNLOAD_URL,
+  readTailscaleInfo,
+  readTailscaleServeInfo,
+  setTailscaleServe,
+} from "./core/tailscale.js";
+import {
   createBackupArchive,
   isStudioOpsProject,
   listStudioOpsLaunchAgents,
@@ -49,8 +61,10 @@ const webDir = resolve(
 );
 const host = process.env.STUDIOOPS_HOST ?? "127.0.0.1";
 const port = Number(process.env.STUDIOOPS_PORT ?? 7227);
-const configuredToken = process.env.STUDIOOPS_TOKEN ?? "";
 const dataDir = process.env.STUDIOOPS_DATA_DIR ?? join(rootDir, "data");
+const initialToken = loadApiToken(dataDir);
+let configuredToken = initialToken.token;
+let tokenSource: ApiTokenSource = initialToken.source;
 
 if (host !== "127.0.0.1" && host !== "localhost" && !configuredToken) {
   throw new Error("STUDIOOPS_TOKEN is required when binding outside loopback");
@@ -503,6 +517,87 @@ app.post("/api/uninstall/cleanup", async (c) => {
   }
 });
 app.get("/api/project-templates", (c) => json(listProjectTemplates()));
+app.get("/api/security/token", (c) =>
+  json({
+    required: Boolean(configuredToken),
+    source: tokenSource,
+    filePath: initialToken.filePath,
+  }),
+);
+app.post("/api/security/token", (c) => {
+  try {
+    if (tokenSource === "env")
+      throw new Error(
+        "Token 由 STUDIOOPS_TOKEN 管理；请先移除环境变量再在 App 内生成",
+      );
+    const token = generateApiToken();
+    const filePath = saveApiToken(dataDir, token);
+    configuredToken = token;
+    tokenSource = "file";
+    for (const client of clients.keys())
+      client.close(1008, "API token changed");
+    clients.clear();
+    recordConfigEvent(c, "api-token", true);
+    return json({ required: true, source: "file", filePath, token });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to generate API token";
+    recordConfigEvent(c, "api-token", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
+app.get("/api/remote-access", async (c) => {
+  const tailscale = await readTailscaleInfo();
+  const serve = await readTailscaleServeInfo({
+    port,
+    binary: tailscale.binary,
+  });
+  return json({
+    tailscale,
+    serve,
+    studioops: {
+      port,
+      tokenRequired: Boolean(configuredToken),
+      tokenSource,
+      tailnetUrl: serve.tailnetUrl,
+    },
+    downloadUrl: TAILSCALE_DOWNLOAD_URL,
+  });
+});
+app.post("/api/remote-access/serve", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    if (typeof body.enabled !== "boolean")
+      throw new Error("enabled must be a boolean");
+    if (body.enabled && !configuredToken)
+      throw new Error(
+        "启用 Tailscale 私网访问前需要先生成访问 Token，避免 tailnet 内无鉴权访问",
+      );
+    const tailscale = await readTailscaleInfo();
+    if (!tailscale.installed)
+      throw new Error(
+        `Tailscale 未安装。请先安装并登录：${TAILSCALE_DOWNLOAD_URL}`,
+      );
+    if (!tailscale.running)
+      throw new Error(
+        `Tailscale 未运行或未登录${tailscale.backendState ? `（${tailscale.backendState}）` : ""}`,
+      );
+    const serve = await setTailscaleServe({
+      enabled: body.enabled,
+      port,
+      binary: tailscale.binary,
+    });
+    recordConfigEvent(c, "tailscale-serve", true);
+    return json({ tailscale, serve });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to change Tailscale Serve";
+    recordConfigEvent(c, "tailscale-serve", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
 app.get("/api/config", (c) =>
   json({
     filePath: configStore.filePath,
@@ -512,6 +607,7 @@ app.get("/api/config", (c) =>
     host,
     port,
     tokenRequired: Boolean(configuredToken),
+    tokenSource,
     dataDir,
     version: "0.1.3",
   }),

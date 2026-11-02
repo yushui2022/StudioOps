@@ -17,6 +17,8 @@ StudioOps 的卸载分成两层：先清理后台服务，再决定是否删除 
    - 备份当前配置后退出桌面端。
 4. 如需彻底删除，退出后把 `/Applications/StudioOps.app` 和 `~/Library/Application Support/com.studioops.desktop` 移到废纸篓。
 
+`api-token` 不会进入归档；卸载并保留数据时会继续保留，彻底删除数据时一起移除。
+
 清理后检查没有残留：
 
 ```bash

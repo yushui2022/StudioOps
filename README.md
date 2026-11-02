@@ -44,6 +44,7 @@ npm run dev
 - 项目常驻：项目服务可“设为常驻”，生成 `~/Library/LaunchAgents/com.studioops.project.<id>.plist`，由 launchd 在登录/重启后自动拉起。
 - 开机启动开关：常驻项目可独立开启/关闭“开机启动”，只改 plist 的 RunAtLoad，不打断当前运行的服务。
 - 卸载与恢复：设置页列出 `com.studioops.*` LaunchAgent 和托管服务，可先导出 `services.yaml`、SQLite、日志和备份，再停止服务、移除 LaunchAgent 并退出桌面端；默认保留数据，也可用 `scripts/uninstall-studioops.sh` 彻底清理。
+- Tailscale 私网访问：设置页检测 Tailscale 状态、Tailnet IP 和 MagicDNS 名称；可生成访问 Token，并通过 Tailscale Serve 只对 tailnet 开放 StudioOps，不启用 Funnel，不把 7227 绑定到公网。
 - 推理进程：总览单独显示 Ollama/ComfyUI 主进程与子进程的内存、CPU 和系统内存压力；主进程可停止服务，子进程可单独终止。
 - 进程身份：process 服务启动后自动写 `data/pids/<id>.pid`（含启动时间），Agent 重启后能重新识别已在运行的进程，并校验 PID 没有被复用。
 - 进程终止：进程页可对当前用户进程发送 SIGTERM，失败后可二次确认 SIGKILL；保护系统进程、其他用户和 StudioOps 自身/父进程链，操作写入审计。
@@ -76,6 +77,7 @@ npm run build
 - `docs/research/mac-dash.md`：基于 mac-dash 实际源码的复用与取舍记录。
 - `docs/research/adjacent-projects.md`：Dockge、Uptime Kuma、Netdata、OliveTin 等项目的复用边界。
 - `docs/uninstall.md`：卸载、导出与重装后的恢复步骤。
+- `docs/tailscale.md`：Tailscale 安装、登录、私网访问和安全边界。
 
 ## 复用策略
 
@@ -88,4 +90,4 @@ StudioOps 不把所有能力重新实现一遍，也不提前安装一堆后台�
 
 ## 安全边界
 
-Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`。远程浏览器在“设置 → 访问 Token”保存后，HTTP 请求和 WebSocket 都会携带它。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。
+Agent 默认只监听回环地址。绑定局域网或 Tailscale 时必须设置 `STUDIOOPS_TOKEN`，或在设置页生成访问 Token。远程浏览器在“设置 → 访问 Token”保存后，HTTP 请求和 WebSocket 都会携带它。Tailscale Serve 只开放给 tailnet，不启用 Funnel；管理面板仍保留 Token 鉴权。客户端不能提交任意 shell、路径或 launchd label；服务目标必须先写入受控配置并注册适配器。

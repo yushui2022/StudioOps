@@ -119,10 +119,15 @@ export async function createBackupArchive(options: {
     .replace("T", "-");
   const archivePath = join(destinationDir, `StudioOps-backup-${stamp}.tar.gz`);
   const includes: string[] = [];
-  const args = ["-czf", archivePath];
 
   const configPath = resolve(options.configPath);
   const dataDir = resolve(options.dataDir);
+  const args = [
+    "-czf",
+    archivePath,
+    "--exclude",
+    `${basename(dataDir)}/api-token`,
+  ];
   if (pathInside(dataDir, archivePath))
     throw new Error(
       "Backup destination must be outside the StudioOps data directory",

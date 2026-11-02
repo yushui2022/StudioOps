@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +15,11 @@ import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-comp
 import { launchctlArgsFor } from "../services/agent/src/adapters/launchd.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
 import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
+import {
+  generateApiToken,
+  loadApiToken,
+  saveApiToken,
+} from "../services/agent/src/core/api-token.js";
 import { changedRuntimeFields } from "../services/agent/src/core/config-diff.js";
 import { ConfigStore } from "../services/agent/src/core/config-store.js";
 import { loadConfig } from "../services/agent/src/core/config.js";
@@ -43,6 +49,12 @@ import {
 import { listProcesses } from "../services/agent/src/core/process-list.js";
 import { ServiceRegistry } from "../services/agent/src/core/service-registry.js";
 import { getSystemSnapshot } from "../services/agent/src/core/system.js";
+import {
+  parseTailscaleServeStatus,
+  parseTailscaleStatus,
+  setTailscaleServe,
+  tailscaleServeArgs,
+} from "../services/agent/src/core/tailscale.js";
 import type { ServiceAdapter } from "../services/agent/src/adapters/adapter.js";
 import type { ServiceDefinition } from "../packages/contracts/src/index.js";
 
@@ -398,6 +410,8 @@ test("uninstall export archives config and data outside the data directory", asy
   assert.deepEqual(archive.includes, [configPath, dataDir]);
   assert.ok(archive.sizeBytes > 0);
   assert.deepEqual(tarArgs.slice(2), [
+    "--exclude",
+    "data/api-token",
     "-C",
     join(root, "config"),
     "services.yaml",
@@ -435,6 +449,100 @@ test("persisted projects are reset to process services for reinstall", () => {
     "pause",
     "resume",
   ]);
+});
+
+test("Tailscale status exposes tailnet address and login state", () => {
+  const status = parseTailscaleStatus(
+    JSON.stringify({
+      Version: "1.104.2",
+      BackendState: "Running",
+      Self: {
+        HostName: "studio-mac",
+        DNSName: "studio-mac.example-tailnet.ts.net.",
+        TailscaleIPs: ["100.64.0.5", "fd7a:115c:a1e0::5"],
+        Online: true,
+      },
+      CurrentTailnet: { Name: "example-tailnet.ts.net", MagicDNSEnabled: true },
+    }),
+  );
+  assert.equal(status.running, true);
+  assert.equal(status.online, true);
+  assert.equal(status.dnsName, "studio-mac.example-tailnet.ts.net");
+  assert.deepEqual(status.ips, ["100.64.0.5", "fd7a:115c:a1e0::5"]);
+  assert.equal(status.magicDnsEnabled, true);
+});
+
+test("Tailscale Serve status finds only the StudioOps proxy", () => {
+  const raw = JSON.stringify({
+    TCP: { "443": { HTTPS: true } },
+    Web: {
+      "studio-mac.example-tailnet.ts.net:443": {
+        Handlers: { "/": { Proxy: "http://127.0.0.1:7227" } },
+      },
+      "studio-mac.example-tailnet.ts.net:8443": {
+        Handlers: { "/other": { Proxy: "http://127.0.0.1:4399" } },
+      },
+    },
+  });
+  const serve = parseTailscaleServeStatus(raw, 7227);
+  assert.equal(serve.enabled, true);
+  assert.equal(serve.tailnetUrl, "https://studio-mac.example-tailnet.ts.net/");
+  assert.equal(serve.proxies.length, 2);
+  assert.deepEqual(parseTailscaleServeStatus("No serve config", 7227), {
+    enabled: false,
+    proxies: [],
+    tailnetUrl: undefined,
+  });
+});
+
+test("Tailscale Serve command and state transition are explicit", async () => {
+  assert.deepEqual(tailscaleServeArgs(true, 7227), ["serve", "--bg", "7227"]);
+  assert.deepEqual(tailscaleServeArgs(false, 7227), [
+    "serve",
+    "--https=443",
+    "off",
+  ]);
+
+  const calls: string[][] = [];
+  let started = false;
+  const serve = await setTailscaleServe({
+    enabled: true,
+    port: 7227,
+    binary: "/fake/tailscale",
+    run: async (_file, args) => {
+      calls.push(args);
+      if (args[0] === "serve" && args[1] === "status") {
+        return {
+          stdout: started
+            ? JSON.stringify({
+                Web: {
+                  "studio-mac.example-tailnet.ts.net:443": {
+                    Handlers: { "/": { Proxy: "http://127.0.0.1:7227" } },
+                  },
+                },
+              })
+            : "No serve config",
+          stderr: "",
+        };
+      }
+      started = true;
+      return { stdout: "Serve started", stderr: "" };
+    },
+  });
+  assert.equal(serve.enabled, true);
+  assert.deepEqual(calls.at(-2), ["serve", "--bg", "7227"]);
+});
+
+test("API token persists privately and environment wins", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-token-"));
+  const token = generateApiToken();
+  const tokenPath = saveApiToken(root, token);
+  assert.equal(loadApiToken(root, "").token, token);
+  assert.equal(loadApiToken(root, "").source, "file");
+  assert.equal(loadApiToken(root, "env-token").source, "env");
+  assert.equal(loadApiToken(root, "env-token").token, "env-token");
+  assert.equal(tokenPath, join(root, "api-token"));
+  assert.equal(statSync(tokenPath).mode & 0o777, 0o600);
 });
 
 test("project plist contains launchd keepalive and escaped environment", async () => {

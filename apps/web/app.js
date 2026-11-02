@@ -55,6 +55,7 @@ const state = {
   docker: null,
   config: null,
   uninstall: null,
+  remoteAccess: null,
   serviceSearch: "",
   serviceFilter: "all",
   projectSearch: "",
@@ -930,7 +931,9 @@ function renderSettingsFacts() {
     $("settings-origin").textContent = agentOrigin;
     $("settings-bind").textContent = `${config.host}:${config.port}`;
     $("settings-token").textContent = config.tokenRequired
-      ? "已启用 Bearer Token"
+      ? config.tokenSource === "env"
+        ? "已启用（STUDIOOPS_TOKEN）"
+        : "已启用（本机生成）"
       : "未启用（仅本机回环）";
     $("settings-data-dir").textContent = config.dataDir ?? "—";
     $("settings-version").textContent = `v${config.version}`;
@@ -939,8 +942,8 @@ function renderSettingsFacts() {
     const hint = $("token-hint");
     if (hint)
       hint.textContent = config.tokenRequired
-        ? "已启用；HTTP 与 WebSocket 自动携带。"
-        : "仅监听本机回环；远程绑定需设置 STUDIOOPS_TOKEN。";
+        ? "已启用；HTTP 与 WebSocket 自动携带。Tailscale 私网访问也需要它。"
+        : "仅监听本机回环；启用 Tailscale 私网访问时会引导生成 Token。";
     if ($("runtime-agent"))
       $("runtime-agent").textContent = `${config.host}:${config.port}`;
     if ($("runtime-config"))
@@ -1525,6 +1528,194 @@ async function restoreBackup(name) {
   }
 }
 
+async function loadRemoteAccess() {
+  try {
+    state.remoteAccess = await api("/api/remote-access");
+    renderRemoteAccess();
+  } catch (error) {
+    $("tailscale-state").textContent = error.message;
+  }
+}
+
+function renderRemoteAccess() {
+  const data = state.remoteAccess;
+  if (!data) return;
+  const tailscale = data.tailscale;
+  const serve = data.serve;
+  const stateText = !tailscale.installed
+    ? "未安装"
+    : tailscale.running
+      ? `运行中${tailscale.version ? ` · v${tailscale.version}` : ""}`
+      : `未运行${tailscale.backendState ? ` · ${tailscale.backendState}` : ""}`;
+  $("tailscale-state").textContent = stateText;
+  $("tailscale-ip").textContent = tailscale.ips?.join("、") || "—";
+  $("tailscale-dns").textContent = tailscale.dnsName || "—";
+  $("tailscale-tailnet").textContent =
+    [
+      tailscale.tailnet,
+      tailscale.magicDnsEnabled === false
+        ? "MagicDNS 关闭"
+        : tailscale.magicDnsEnabled
+          ? "MagicDNS 已启用"
+          : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "—";
+
+  const toggle = $("tailscale-serve-toggle");
+  if (serve.enabled) {
+    $("tailscale-serve").textContent = serve.tailnetUrl ?? "已开启";
+    toggle.textContent = "关闭 Tailnet 入口";
+  } else {
+    $("tailscale-serve").textContent = serve.error
+      ? `未开启 · ${serve.error}`
+      : "未开启";
+    toggle.textContent = "仅 Tailnet 开放 StudioOps";
+  }
+  toggle.disabled = !tailscale.installed || !tailscale.running;
+
+  const tokenButton = $("tailscale-token");
+  tokenButton.textContent = data.studioops.tokenRequired
+    ? "轮换访问 Token"
+    : "生成访问 Token";
+  tokenButton.classList.toggle("hidden", data.studioops.tokenSource === "env");
+  $("tailscale-copy-token").disabled = !localStorage.getItem("studioops.token");
+
+  const hint = $("tailscale-hint");
+  if (!tailscale.installed) {
+    hint.textContent = `Tailscale 未安装。先安装并登录：${data.downloadUrl}`;
+  } else if (!tailscale.running) {
+    hint.textContent = `Tailscale 已安装，但当前未登录或未运行${
+      tailscale.backendState ? `（${tailscale.backendState}）` : ""
+    }。打开 Tailscale 登录后点“重新检查”。`;
+  } else if (serve.enabled) {
+    hint.textContent = `管理入口只对 tailnet 可见：${serve.tailnetUrl ?? "已开启"}。远程设备首次访问时，在“设置 → 访问 Token”粘贴 Token。`;
+  } else if (data.studioops.tokenRequired) {
+    hint.textContent =
+      "点击“仅 Tailnet 开放 StudioOps”会通过 Tailscale Serve 暴露本机 7227；不会启用 Funnel，公网无法直接访问。";
+  } else {
+    hint.textContent =
+      "开放前会先自动生成访问 Token，再启用 Tailscale Serve；Tailscale 仍需安装并登录。";
+  }
+  if (data.studioops.tokenSource === "env" && tailscale.running) {
+    hint.textContent += " 访问 Token 当前由 STUDIOOPS_TOKEN 管理。";
+  }
+}
+
+function showTailscaleResult(message) {
+  const result = $("tailscale-result");
+  result.textContent = message;
+  result.classList.remove("hidden");
+}
+
+async function generateAccessToken({ confirmRotation = true } = {}) {
+  const current = state.remoteAccess;
+  if (current?.studioops?.tokenSource === "env") {
+    toast("Token 由 STUDIOOPS_TOKEN 管理，不能在 App 内生成", true);
+    return false;
+  }
+  if (
+    confirmRotation &&
+    current?.studioops?.tokenRequired &&
+    !confirm(
+      "生成新 Token 会让其他设备当前的 Token 立即失效，需要重新输入。继续？",
+    )
+  )
+    return false;
+  try {
+    const result = await api("/api/security/token", {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    localStorage.setItem("studioops.token", result.token);
+    $("token-input").value = result.token;
+    showTailscaleResult(
+      "访问 Token 已生成并保存在当前浏览器。其他设备首次访问时，在“设置 → 访问 Token”粘贴同一个 Token。",
+    );
+    reconnectSocket();
+    await refreshAll({ quiet: true });
+    await loadRemoteAccess();
+    toast("访问 Token 已生成");
+    return true;
+  } catch (error) {
+    toast(error.message, true);
+    return false;
+  }
+}
+
+async function copyAccessToken() {
+  const token = localStorage.getItem("studioops.token");
+  if (!token) {
+    toast("当前浏览器没有访问 Token", true);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(token);
+    toast("Token 已复制");
+  } catch {
+    const input = $("token-input");
+    input.type = "text";
+    input.value = token;
+    input.select();
+    const copied = document.execCommand("copy");
+    input.type = "password";
+    toast(copied ? "Token 已复制" : "无法自动复制，请手动选择", !copied);
+  }
+}
+
+async function toggleTailscaleServe(button) {
+  let current = state.remoteAccess;
+  if (!current) return;
+  const enable = !current.serve.enabled;
+  if (enable && !current.studioops.tokenRequired) {
+    if (
+      !confirm("远程访问需要先启用访问 Token。现在自动生成并保存到当前浏览器？")
+    )
+      return;
+    const generated = await generateAccessToken({ confirmRotation: false });
+    if (!generated) return;
+    current = state.remoteAccess;
+    if (!current) return;
+  }
+  if (
+    !confirm(
+      enable
+        ? "通过 Tailscale Serve 把 StudioOps 管理面板开放给 tailnet？\n\n只有已登录同一 tailnet 的设备可访问；不会启用 Funnel。"
+        : "关闭 Tailscale Serve 的 StudioOps 入口？本机仍可继续用 127.0.0.1:7227 访问。",
+    )
+  )
+    return;
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/api/remote-access/serve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: JSON.stringify({ enabled: enable }),
+    });
+    state.remoteAccess = {
+      ...current,
+      tailscale: result.tailscale,
+      serve: result.serve,
+    };
+    renderRemoteAccess();
+    showTailscaleResult(
+      enable
+        ? `已开放：${result.serve.tailnetUrl ?? "Tailscale Serve 入口"}（仅 tailnet）`
+        : "Tailnet 管理入口已关闭，本机回环访问不受影响。",
+    );
+    toast(enable ? "已仅对 tailnet 开放 StudioOps" : "已关闭 Tailnet 入口");
+  } catch (error) {
+    toast(error.message, true);
+    showTailscaleResult(error.message);
+    await loadRemoteAccess();
+  } finally {
+    renderRemoteAccess();
+  }
+}
+
 async function loadUninstallPreview() {
   try {
     const preview = await api("/api/uninstall/preview");
@@ -1983,6 +2174,7 @@ function switchView(view, { updateHash = true } = {}) {
     renderSettingsFacts();
     loadTokenField();
     loadBackups();
+    loadRemoteAccess();
     loadUninstallPreview();
   }
   if (view === "logs") {
@@ -2178,6 +2370,22 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "backup-refresh") {
     loadBackups();
+    return;
+  }
+  if (target.id === "tailscale-refresh") {
+    loadRemoteAccess();
+    return;
+  }
+  if (target.id === "tailscale-token") {
+    generateAccessToken();
+    return;
+  }
+  if (target.id === "tailscale-copy-token") {
+    copyAccessToken();
+    return;
+  }
+  if (target.id === "tailscale-serve-toggle") {
+    toggleTailscaleServe(target);
     return;
   }
   if (target.id === "uninstall-refresh") {
