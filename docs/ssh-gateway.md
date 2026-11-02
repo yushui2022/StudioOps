@@ -200,21 +200,25 @@ SSH:        100.115.137.62:2222
 - Warpgate 容器运行
 - Warpgate 用户、角色、目标、目标角色全配置
 - Warpgate 公共密钥认证成功
-- 会话录制开启
+- Warpgate 客户端公钥已安装到 `compute`
+- 完整 SSH 登录测试通过：
+
+```text
+ssh -i warpgate-test-key -p 2222 compute-guest:mac-compute@100.115.137.62
+CONNECTED
+compute
+/Users/compute
+```
+
+- 会话录制已生成在 Warpgate 数据目录
 - StudioOps 增加 Warpgate 状态接口和面板
 
 还差：
 
-1. 把 Warpgate 客户端公钥安装到 `compute` 的 `authorized_keys`
-2. 用 Warpgate 做一次完整 SSH 登录测试
-3. 验证会话录制
-4. 将 macOS sshd 收紧到回环，关闭直连 22
-
-安装 Warpgate 公钥：
-
-```bash
-sudo bash scripts/install-warpgate-key.sh
-```
+1. 将 macOS sshd 收紧到回环，关闭直连 22
+2. 由于 Warpgate 运行在 Docker 中，target 使用 `host.docker.internal:22`；直接绑定 `127.0.0.1` 会让容器无法访问
+3. 更稳妥的最终方案：Warpgate 放 VPS，SSH 反向隧道到 Mac `127.0.0.1:22`
+4. 给朋友在 Warpgate 中添加自己的公钥（不要共享测试私钥）
 
 ## 当前决定
 
