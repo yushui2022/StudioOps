@@ -90,6 +90,7 @@ const state = {
   gatewayRecords: [],
   gatewayRecordsError: "",
   compute: null,
+  warpgate: null,
   gatewayRecordSearch: "",
   metricsSettings: null,
   alerts: null,
@@ -1726,16 +1727,75 @@ function renderCompute() {
   $("compute-audit-empty").classList.toggle("hidden", auditRows.length > 0);
 }
 
+function renderWarpgate() {
+  const warpgate = state.warpgate;
+  if (!warpgate) return;
+  const running = Boolean(warpgate.running);
+  $("warpgate-dot").className = `dot ${running ? "online" : "offline"}`;
+  $("warpgate-state").textContent = running
+    ? "运行中"
+    : warpgate.installed
+      ? "已安装，未运行"
+      : "未安装";
+  $("warpgate-container").textContent = warpgate.container ?? "—";
+  $("warpgate-ssh").textContent = warpgate.sshListening
+    ? `${warpgate.sshPort} 可连接`
+    : `${warpgate.sshPort} 不可连接`;
+  $("warpgate-http").textContent = warpgate.httpListening
+    ? `${warpgate.httpPort} 可访问`
+    : `${warpgate.httpPort} 不可访问`;
+  $("warpgate-target").textContent = warpgate.target ?? "—";
+  $("warpgate-user").textContent = warpgate.user ?? "—";
+  const ip = state.compute?.ssh?.tailscale?.ip;
+  const command = ip
+    ? `ssh -p ${warpgate.sshPort} ${warpgate.user}:${warpgate.target}@${ip}`
+    : "Tailscale IP 不可用";
+  $("warpgate-command").textContent = command;
+  $("warpgate-admin-link").href = warpgate.adminUrl ?? "#";
+  $("warpgate-note").textContent = running
+    ? warpgate.directSshOpen
+      ? "Warpgate 运行中；macOS 直连 22 仍然开启，验证登录后再收紧。"
+      : "Warpgate 运行中；直连 22 已关闭，SSH 先经过网关认证和审计。"
+    : warpgate.error
+      ? `Warpgate 不可用：${warpgate.error}`
+      : "Warpgate 尚未运行。";
+  $("warpgate-copy").disabled = !command.startsWith("ssh ");
+}
+
 async function loadCompute({ quiet = false } = {}) {
-  try {
-    state.compute = await api("/api/compute");
-    renderCompute();
-  } catch (error) {
-    if (!quiet) toast(error.message, true);
+  const results = await Promise.allSettled([
+    api("/api/compute"),
+    api("/api/warpgate/status"),
+  ]);
+  const [compute, warpgate] = results;
+  if (compute.status === "fulfilled") {
+    state.compute = compute.value;
+  } else {
+    if (!quiet) toast(compute.reason?.message ?? "无法读取算力状态", true);
     $("compute-dot").className = "dot offline";
     $("compute-state").textContent = "无法读取";
-    $("compute-warnings").textContent = error.message;
+    $("compute-warnings").textContent =
+      compute.reason?.message ?? "无法读取算力状态";
     $("compute-warnings").classList.remove("hidden");
+  }
+  if (warpgate.status === "fulfilled") state.warpgate = warpgate.value;
+  if (compute.status === "fulfilled") {
+    renderCompute();
+    renderWarpgate();
+  }
+}
+
+async function copyWarpgateCommand(button) {
+  const command = $("warpgate-command").textContent;
+  if (!command?.startsWith("ssh ")) return;
+  if (button) button.disabled = true;
+  try {
+    await navigator.clipboard.writeText(command);
+    toast("Warpgate 命令已复制");
+  } catch {
+    toast("无法自动复制，请手动选择", true);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -4081,6 +4141,10 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "compute-copy-ssh") {
     copyComputeSsh(target);
+    return;
+  }
+  if (target.id === "warpgate-copy") {
+    copyWarpgateCommand(target);
     return;
   }
   if (target.id === "gateway-install") {

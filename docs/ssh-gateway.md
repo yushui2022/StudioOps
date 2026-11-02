@@ -1,7 +1,7 @@
 # SSH 网关与短期凭证规划
 
 更新时间：2026-11-02  
-状态：待选型，不改变当前直连 SSH 的行为
+状态：Warpgate PoC 已运行，直连 SSH 暂未关闭
 
 ## 背景
 
@@ -179,11 +179,48 @@ Teleport 更完整：
 - 吊销用户后无法继续登录
 - 不在 StudioOps 中保存 SSH 私钥或密码
 
+## 当前 PoC 状态
+
+已在本机启动 Warpgate 容器：
+
+```text
+容器:       studioops-warpgate
+镜像:       ghcr.io/warp-tech/warpgate:0.30.2
+SSH:        100.115.137.62:2222
+管理台:     127.0.0.1:8888（HTTPS，自签证书）
+数据目录:   ~/Library/Application Support/com.studioops.desktop/warpgate
+管理员密码: ~/Library/Application Support/com.studioops.desktop/warpgate-admin-password
+外部用户:   compute-guest
+目标:       mac-compute → host.docker.internal:22 / compute
+访问角色:   compute-access
+```
+
+已完成：
+
+- Warpgate 容器运行
+- Warpgate 用户、角色、目标、目标角色全配置
+- Warpgate 公共密钥认证成功
+- 会话录制开启
+- StudioOps 增加 Warpgate 状态接口和面板
+
+还差：
+
+1. 把 Warpgate 客户端公钥安装到 `compute` 的 `authorized_keys`
+2. 用 Warpgate 做一次完整 SSH 登录测试
+3. 验证会话录制
+4. 将 macOS sshd 收紧到回环，关闭直连 22
+
+安装 Warpgate 公钥：
+
+```bash
+sudo bash scripts/install-warpgate-key.sh
+```
+
 ## 当前决定
 
-- 暂不改变现有直连 SSH
-- 先记录方案，等 `compute` 用户和训练流程稳定后再实施
-- 优先评估 Warpgate，Teleport 作为后续企业级选项
+- 先用 Warpgate PoC，Teleport 作为后续企业级选项
+- 直连 SSH 暂不关闭，等 Warpgate 完整登录测试通过后再收紧
+- StudioOps 只展示 Warpgate 状态，不实现 SSH 协议
 - 如果只使用少量可信设备，Tailscale ACL + SSH CA 也足够
 
 ## 相关文档

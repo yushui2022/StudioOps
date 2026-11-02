@@ -24,6 +24,7 @@ import {
 } from "./core/api-token.js";
 import { cancelComfyTask, getComfySnapshot } from "./core/comfyui.js";
 import { getComputeSnapshot, setComputeTailscaleSsh } from "./core/compute.js";
+import { getWarpgateStatus } from "./core/warpgate.js";
 import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
@@ -829,6 +830,7 @@ app.get("/api/compute", async (c) => {
       .slice(0, 30),
   });
 });
+app.get("/api/warpgate/status", async (c) => json(await getWarpgateStatus()));
 app.post("/api/compute/tailscale-ssh", async (c) => {
   try {
     const body = await readJsonObject(c.req.raw);

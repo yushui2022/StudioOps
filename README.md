@@ -363,7 +363,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 - [ ] Gateway API Key、配额和每用户限流
 - [ ] 按模型大小做加载前内存预估
 - [ ] Gateway / SSH 隧道健康告警
-- [ ] SSH 网关（Warpgate / Teleport）：所有 SSH 先认证和审计
+- [ ] SSH 网关（Warpgate / Teleport）：所有 SSH 先认证和审计（Warpgate PoC 已启动）
 - [ ] 视频队列对外映射
 - [ ] CI、签名、公证和自动更新
 - [ ] 数据与配置统一备份

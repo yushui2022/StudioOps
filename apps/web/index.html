@@ -944,6 +944,50 @@
               </section>
             </div>
 
+            <section class="panel" data-title="SSH 网关">
+              <div class="network-summary compute-gateway-summary">
+                <span class="gateway-state">
+                  <i id="warpgate-dot" class="dot"></i>
+                  <strong id="warpgate-state">—</strong>
+                </span>
+                <span>容器 <strong id="warpgate-container">—</strong></span>
+                <span>SSH <strong id="warpgate-ssh">—</strong></span>
+                <span>管理台 <strong id="warpgate-http">—</strong></span>
+              </div>
+              <dl class="fact-list">
+                <div>
+                  <dt>网关</dt>
+                  <dd id="warpgate-name">Warpgate</dd>
+                </div>
+                <div>
+                  <dt>目标</dt>
+                  <dd id="warpgate-target">—</dd>
+                </div>
+                <div>
+                  <dt>登录用户</dt>
+                  <dd id="warpgate-user">—</dd>
+                </div>
+                <div>
+                  <dt>连接命令</dt>
+                  <dd id="warpgate-command">—</dd>
+                </div>
+              </dl>
+              <div class="panel-actions">
+                <button class="btn btn-small" id="warpgate-copy">
+                  复制网关命令
+                </button>
+                <a
+                  class="btn btn-small"
+                  id="warpgate-admin-link"
+                  href="#"
+                  target="_blank"
+                  rel="noreferrer"
+                  >打开管理台</a
+                >
+              </div>
+              <p class="network-note" id="warpgate-note">—</p>
+            </section>
+
             <section class="panel" data-title="当前会话">
               <div class="table-wrap gateway-table-wrap">
                 <table class="table gateway-table">

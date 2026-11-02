@@ -3889,3 +3889,11 @@ select {
 .view[data-view-panel="compute"] .table-wrap {
   padding-top: 8px;
 }
+
+.compute-gateway-summary {
+  padding: 10px 13px 0;
+}
+
+#warpgate-note {
+  padding: 0 13px 10px;
+}
