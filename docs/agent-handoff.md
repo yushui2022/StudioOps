@@ -40,6 +40,7 @@
 | Ollama 模型列表         | 已完成                 | `services/agent/src/core/ollama.ts`、`/api/services/:id/models`                                                    | 合并 /api/tags 和 /api/ps；抽屉显示大小、参数量、量化、加载状态                                  |
 | 进程图标                | 已完成                 | `services/agent/src/core/process-icons.ts`、`/icons/:key.png`                                                      | 从 .app 提取并缓存 64px PNG；无图标进程用首字母占位                                              |
 | 后端稳定性与安全        | 已完成                 | `services/agent/src/index.ts`、`config-store.ts`、`event-store.ts`、`service-registry.ts`、`process.ts`、`main.rs` | 动作串行、轮询防重叠、配置错误禁写、配置审计、事件保留、WS Origin 校验、路径校验、复用已有 Agent |
+| 单桌面实例              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`、`Cargo.toml`                                                                 | Tauri single-instance；重复启动只聚焦原窗口，不新增 Agent                                        |
 | 启动错误提示            | 已完成                 | `apps/desktop/src-tauri/src/main.rs`、`apps/web/app.js`                                                            | 端口冲突/连续启动失败弹窗；配置错误顶部横幅；日志路径提示                                        |
 | Agent 自动重启          | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                                                               | 桌面端 supervisor 监控 Agent；异常退出退避重启；正常退出不拉起                                   |
 | 项目服务模板            | 已完成                 | `services/agent/src/core/project-templates.ts`、`/api/project-templates`、`apps/web/app.js`                        | 7 个模板；选目录自动补全名称/ID/日志/命令/端口/健康检查                                          |
@@ -117,6 +118,7 @@
 25. 项目模板验收：打开“新增项目服务”可选择 Node/npm、Vite、Python、uvicorn、PM2、静态站点；选择 `/Users/orlando/Documents/kopi` 后自动填充 ID/name/target/日志路径；切到 uvicorn 后命令、参数、端口和健康检查自动更新。
 26. 重启语义验收：运行中的服务只改名称时 `restartRequired=false`；改端口时返回 `changedFields=["port"]` 和 `restartRequired=true`；前端弹出“立即重启/更新常驻”提示。
 27. 开机启动开关验收：常驻项目关闭开机启动后 plist 的 RunAtLoad 变 false，当前服务仍保持运行；重新开启后变为 true；取消常驻后 plist 和 launchd 都能回收。
+28. 单实例验收：首次启动 App 后执行 `open -n /Applications/StudioOps.app`，桌面进程保持 1 个、Agent 保持 1 个，第二次启动只聚焦已有窗口。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
