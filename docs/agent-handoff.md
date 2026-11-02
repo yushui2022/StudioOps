@@ -55,6 +55,7 @@
 | 操作审计                | 已完成第一版           | `services/agent/src/core/event-store.ts`                                                                           | SQLite 保存启停动作和错误                                                                        |
 | 配置备份                | 已完成                 | `services/agent/src/core/config-store.ts`、`apps/web/app.js`                                                       | 自动/手动备份、列表、恢复；保留最近 30 份                                                        |
 | 配置写入和热加载        | 已完成                 | `services/agent/src/core/config-store.ts`、`/api/config/services`                                                  | 增删改、校验、原子写入、备份、立即刷新注册表                                                     |
+| 运行中改配置语义        | 已完成                 | `services/agent/src/core/config-diff.ts`、`apps/web/app.js`                                                        | 只标记运行参数变更；提示立即重启或更新常驻；名称/说明变更不重启                                  |
 | Web 面板                | 已完成终端风格 v5      | `apps/web/index.html`、`apps/web/app.js`、`apps/web/styles.css`                                                    | 六视图、服务行内展开、编辑表单、备份恢复、边框标题、分块柱状图                                   |
 | Tauri 桌面壳            | 已完成可编译版         | `apps/desktop/src-tauri/`                                                                                          | 复用同一 Web；Agent 作为 release 资源启动                                                        |
 | 菜单栏入口              | 已完成                 | `apps/desktop/src-tauri/src/main.rs`                                                                               | “打开 StudioOps/退出 StudioOps”；窗口关闭后隐藏                                                  |
@@ -113,6 +114,7 @@
 23. 启动错误验收：用 `python3 -m http.server 7227` 占用端口后启动 App，弹出“StudioOps Agent 无法启动 / 端口 7227 已被其他程序占用”对话框，并提示 `lsof` 排查命令；关闭占用后再次启动恢复正常。
 24. 进程身份验收：启动一个无端口、无 pidFile 的 Node 项目，生成 `data/pids/adopt-test.pid`（含 PID、lstart、命令行）；kill Agent 后子进程继续运行，新 Agent 启动后仍识别同一 PID；停止后 pid 文件删除。
 25. 项目模板验收：打开“新增项目服务”可选择 Node/npm、Vite、Python、uvicorn、PM2、静态站点；选择 `/Users/orlando/Documents/kopi` 后自动填充 ID/name/target/日志路径；切到 uvicorn 后命令、参数、端口和健康检查自动更新。
+26. 重启语义验收：运行中的服务只改名称时 `restartRequired=false`；改端口时返回 `changedFields=["port"]` 和 `restartRequired=true`；前端弹出“立即重启/更新常驻”提示。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 

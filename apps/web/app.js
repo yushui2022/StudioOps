@@ -614,7 +614,7 @@ function renderProjects() {
         <footer class="project-actions">
           ${
             service.persisted
-              ? `<button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
+              ? `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">更新常驻</button><button class="btn btn-small" data-unpersist-project="${escapeHtml(service.id)}">取消常驻</button>`
               : `<button class="btn btn-small" data-persist-project="${escapeHtml(service.id)}">设为常驻</button>`
           }
           <button class="btn btn-small" data-log-service="${escapeHtml(service.id)}">日志</button>
@@ -702,7 +702,9 @@ async function changeProjectPersistence(serviceId, enabled, button) {
   const service = state.services.find((item) => item.id === serviceId);
   const name = service?.name ?? serviceId;
   const message = enabled
-    ? `将 ${name} 设为常驻？\n当前进程会停止，改由 launchd 在登录和重启后自动启动。`
+    ? service?.persisted
+      ? `更新 ${name} 的常驻配置？\nlaunchd 会重新加载 plist 并重启服务。`
+      : `将 ${name} 设为常驻？\n当前进程会停止，改由 launchd 在登录和重启后自动启动。`
     : `取消 ${name} 的常驻？\nlaunchd 会自动停止该服务，之后由 StudioOps 手动启动。`;
   if (!confirm(message)) return;
   if (button) button.disabled = true;
@@ -1339,6 +1341,55 @@ function collectServiceForm() {
   return service;
 }
 
+const runtimeFieldLabels = {
+  adapter: "适配器",
+  target: "目标",
+  command: "命令",
+  args: "参数",
+  cwd: "工作目录",
+  env: "环境变量",
+  port: "端口",
+  pidFile: "PID 文件",
+  plistFile: "plist 文件",
+  composeFile: "Compose 文件",
+  projectName: "项目名",
+};
+
+async function offerRestart(serviceId, result) {
+  const fields = (result.changedFields ?? [])
+    .map((field) => runtimeFieldLabels[field] ?? field)
+    .join("、");
+  const persisted = Boolean(result.persisted);
+  const action = persisted ? "更新常驻配置并重启" : "重启服务";
+  if (
+    !confirm(
+      `配置已保存。${fields || "运行参数"}已修改，需要${action}后生效。\n现在执行吗？`,
+    )
+  ) {
+    toast(
+      persisted
+        ? "配置已保存；点“更新常驻”后生效"
+        : "配置已保存；重启服务后生效",
+    );
+    return;
+  }
+  try {
+    await api(
+      persisted
+        ? `/api/projects/${encodeURIComponent(serviceId)}/persist`
+        : `/api/services/${encodeURIComponent(serviceId)}/restart`,
+      {
+        method: "POST",
+        headers: { "x-studioops-actor": "web" },
+      },
+    );
+    toast(persisted ? "常驻配置已更新并重启" : "服务已重启");
+    await refreshAll({ quiet: true });
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 async function saveServiceForm() {
   const button = $("config-save");
   button.disabled = true;
@@ -1346,7 +1397,7 @@ async function saveServiceForm() {
   try {
     const service = collectServiceForm();
     const editing = state.formServiceId;
-    await api(
+    const result = await api(
       editing
         ? `/api/config/services/${encodeURIComponent(editing)}`
         : "/api/config/services",
@@ -1371,6 +1422,7 @@ async function saveServiceForm() {
       if (current?.kind === "ollama") loadInlineModels(targetId);
     }
     if (state.view === "settings") loadBackups();
+    if (result?.restartRequired) await offerRestart(targetId, result);
   } catch (error) {
     setFormError(error.message);
   } finally {

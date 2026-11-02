@@ -15,6 +15,7 @@ import type {
 import { DockerComposeAdapter } from "./adapters/docker-compose.js";
 import { LaunchdAdapter } from "./adapters/launchd.js";
 import { ProcessAdapter } from "./adapters/process.js";
+import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { listDiscoveredProcesses } from "./core/discovery.js";
@@ -382,11 +383,23 @@ app.post("/api/config/services", async (c) => {
 app.put("/api/config/services/:id", async (c) => {
   const id = c.req.param("id");
   try {
+    const previous = registry.definition(id);
+    const snapshot = await registry.inspect(id);
     const body = await readJsonObject(c.req.raw);
     const services = configStore.update(id, body);
+    const updated = configStore.services.find((service) => service.id === id);
+    const changedFields = updated
+      ? changedRuntimeFields(previous, updated)
+      : [];
+    const running = snapshot.state === "running" || snapshot.state === "paused";
     recordConfigEvent(c, id, true);
     await applyServices(services);
-    return json({ services });
+    return json({
+      services,
+      restartRequired: running && changedFields.length > 0,
+      changedFields,
+      persisted: Boolean(updated?.persisted),
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update service";

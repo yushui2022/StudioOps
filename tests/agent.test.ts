@@ -14,6 +14,7 @@ import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-comp
 import { launchctlArgsFor } from "../services/agent/src/adapters/launchd.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
 import { ProcessAdapter } from "../services/agent/src/adapters/process.js";
+import { changedRuntimeFields } from "../services/agent/src/core/config-diff.js";
 import { ConfigStore } from "../services/agent/src/core/config-store.js";
 import { loadConfig } from "../services/agent/src/core/config.js";
 import { getDockerSnapshot } from "../services/agent/src/core/docker-status.js";
@@ -289,6 +290,40 @@ test("inference roles are detected from full command lines", () => {
   );
   assert.equal(detectRole("/usr/bin/node server.js"), undefined);
   assert.equal(detectRole("/bin/bash ollama-tunnel"), undefined);
+});
+
+test("config diff marks only runtime fields as restart-required", () => {
+  const previous: ServiceDefinition = {
+    id: "diff-test",
+    name: "Old Name",
+    kind: "process",
+    adapter: "process",
+    target: "/tmp",
+    command: "node",
+    args: ["server.js"],
+    port: 3000,
+    allowedActions: ["start", "stop"],
+    health: { type: "http", endpoint: "http://127.0.0.1:3000/" },
+  };
+  assert.deepEqual(
+    changedRuntimeFields(previous, { ...previous, name: "New Name" }),
+    [],
+  );
+  assert.deepEqual(
+    changedRuntimeFields(previous, {
+      ...previous,
+      command: "python3",
+      port: 8000,
+    }),
+    ["command", "port"],
+  );
+  assert.deepEqual(
+    changedRuntimeFields(previous, {
+      ...previous,
+      health: { type: "http", endpoint: "http://127.0.0.1:3000/health" },
+    }),
+    [],
+  );
 });
 
 test("project plist contains launchd keepalive and escaped environment", async () => {
