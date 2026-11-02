@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { extractModel, type MemoryAdmission } from "./memory.js";
 import { ModelCallLog, type ModelCallRecord } from "./records.js";
 
-export type BackendName = "ollama" | "comfyui";
+export type BackendName = "ollama" | "comfyui" | "video";
 export type JobState =
   | "queued"
   | "active"
@@ -685,13 +685,15 @@ export class InferenceGateway {
 
 function isModelCallEvent(event: RecentEvent): boolean {
   if (event.model) return true;
-  if (event.backend !== "comfyui" || event.method !== "POST") return false;
+  if (event.method !== "POST") return false;
+  if (event.backend !== "comfyui" && event.backend !== "video") return false;
   try {
     const pathname = new URL(event.path, "http://127.0.0.1").pathname;
     return (
       pathname === "/prompt" ||
       pathname === "/api/prompt" ||
-      pathname === "/v1/images/generations"
+      pathname === "/v1/images/generations" ||
+      pathname === "/v1/videos/generations"
     );
   } catch {
     return false;

@@ -734,11 +734,10 @@
                 <div class="bar"><i id="gateway-memory-bar"></i></div>
               </div>
               <p class="network-note">
-                Ollama 和 ComfyUI 的外部请求统一从本机 11435 / 8191
-                进入，排队、并发和超时由网关控制，再转发到 11434 / 8190。
-                网关只监听
-                127.0.0.1，模型端口不直接暴露到公网；这里只记录请求元数据，不记录
-                prompt 或请求内容。
+                Ollama、ComfyUI 图片和视频 H3 的请求统一从本机 11435 / 8191 /
+                8192 进入，排队、并发和超时由网关控制，再转发到 11434 / 8190 /
+                8193。网关只监听 127.0.0.1，模型端口不直接暴露到公网；
+                这里只记录请求元数据，不记录 prompt 或请求内容。
               </p>
               <p class="gateway-error hidden" id="gateway-error"></p>
             </div>

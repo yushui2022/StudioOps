@@ -860,3 +860,56 @@ test("memory guard keeps free memory headroom for ComfyUI", async () => {
     true,
   );
 });
+
+test("memory guard reserves headroom for H3 video jobs", async () => {
+  const fetchImpl = (async () =>
+    new Response(JSON.stringify({ models: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  const tight = new MemoryGuard({
+    ollamaUpstream: new URL("http://127.0.0.1:11434"),
+    reserveBytes: 12 * 1024 ** 3,
+    readMemory: async () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 38 * 1024 ** 3,
+      freeBytes: 26 * 1024 ** 3,
+    }),
+    fetchImpl,
+  });
+  await tight.start();
+  tight.stop();
+  const denied = await tight.admit({
+    backend: "video",
+    method: "POST",
+    path: "/v1/videos/generations",
+    model: "minimax-h3",
+  });
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.code, "memory");
+  assert.match(denied.reason ?? "", /H3 视频需要至少/);
+
+  const roomy = new MemoryGuard({
+    ollamaUpstream: new URL("http://127.0.0.1:11434"),
+    reserveBytes: 12 * 1024 ** 3,
+    readMemory: async () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 28 * 1024 ** 3,
+      freeBytes: 36 * 1024 ** 3,
+    }),
+    fetchImpl,
+  });
+  await roomy.start();
+  roomy.stop();
+  assert.equal(
+    (
+      await roomy.admit({
+        backend: "video",
+        method: "POST",
+        path: "/v1/videos/generations",
+        model: "minimax-h3",
+      })
+    ).allowed,
+    true,
+  );
+});

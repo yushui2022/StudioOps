@@ -6,7 +6,7 @@ import {
 import { MemoryGuard } from "./memory.js";
 import { join } from "node:path";
 
-const GATEWAY_VERSION = "0.1.2";
+const GATEWAY_VERSION = "0.1.3";
 const recordsFile =
   process.env.STUDIOOPS_GATEWAY_RECORDS_FILE ??
   join(process.cwd(), "data", "gateway", "model-calls.jsonl");
@@ -111,6 +111,24 @@ const backends: BackendConfig[] = [
     // Image edits send multipart reference images; 4MB is too small.
     maxBodyEnv: "STUDIOOPS_GATEWAY_COMFY_MAX_BODY_BYTES",
     defaultMaxBodyBytes: 32 * 1024 * 1024,
+  }),
+  backend({
+    name: "video",
+    portEnv: "STUDIOOPS_GATEWAY_VIDEO_PORT",
+    defaultPort: 8192,
+    upstreamEnv: "STUDIOOPS_GATEWAY_VIDEO_UPSTREAM",
+    defaultUpstream: "http://127.0.0.1:8193",
+    concurrencyEnv: "STUDIOOPS_GATEWAY_VIDEO_CONCURRENCY",
+    defaultConcurrency: 1,
+    queueEnv: "STUDIOOPS_GATEWAY_VIDEO_QUEUE",
+    defaultQueue: 8,
+    queueTimeoutEnv: "STUDIOOPS_GATEWAY_VIDEO_QUEUE_TIMEOUT_MS",
+    // H3 10-15 second clips can take many minutes.
+    defaultQueueTimeoutMs: 30 * 60_000,
+    requestTimeoutEnv: "STUDIOOPS_GATEWAY_VIDEO_REQUEST_TIMEOUT_MS",
+    defaultRequestTimeoutMs: 60 * 60_000,
+    maxBodyEnv: "STUDIOOPS_GATEWAY_VIDEO_MAX_BODY_BYTES",
+    defaultMaxBodyBytes: 2 * 1024 * 1024,
   }),
 ];
 

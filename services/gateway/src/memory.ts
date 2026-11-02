@@ -240,6 +240,20 @@ export class MemoryGuard implements MemoryAdmission {
         snapshot,
       };
     }
+    const videoMinimumFreeBytes = Number(
+      process.env.STUDIOOPS_GATEWAY_VIDEO_MIN_FREE_BYTES ?? 30 * 1024 ** 3,
+    );
+    if (
+      request?.backend === "video" &&
+      snapshot.freeBytes < videoMinimumFreeBytes
+    ) {
+      return {
+        allowed: false,
+        code: "memory",
+        reason: `内存准入：H3 视频需要至少 ${formatBytes(videoMinimumFreeBytes)} 可用内存，当前仅 ${formatBytes(snapshot.freeBytes)}；请先卸载空闲 Ollama 模型`,
+        snapshot,
+      };
+    }
     const critical =
       snapshot.percent >= 96 || snapshot.freeBytes < minimumFreeBytes;
     if (!critical && (warm || snapshot.usedBytes < snapshot.budgetBytes))
@@ -394,6 +408,11 @@ const COMFY_MEMORY_PATHS = new Set([
   "/v1/images/generations",
 ]);
 
+const VIDEO_MEMORY_PATHS = new Set([
+  "/v1/videos/generations",
+  "/videos/generations",
+]);
+
 function isMemoryInfluencing(request: AdmissionRequest): boolean {
   if (request.method.toUpperCase() !== "POST") return false;
   let pathname: string;
@@ -403,6 +422,7 @@ function isMemoryInfluencing(request: AdmissionRequest): boolean {
     pathname = request.path.split("?")[0] ?? request.path;
   }
   if (request.backend === "ollama") return OLLAMA_MEMORY_PATHS.has(pathname);
+  if (request.backend === "video") return VIDEO_MEMORY_PATHS.has(pathname);
   return COMFY_MEMORY_PATHS.has(pathname);
 }
 

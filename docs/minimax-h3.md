@@ -27,6 +27,32 @@ ComfyUI：`0.43.0`，原生 MiniMax H3 节点 + ComfyUI-GGUF
 ~/Documents/默认项目/ComfyUI/output/video/H3_test_00001_.mp4
 ```
 
+## 10 秒带货测试
+
+同样的模型和工作流，`864×480`、10.123 秒、243 帧、4 步：
+
+```text
+提示词：黑人小哥在奶品柜台拿玻璃瓶鲜奶对镜头带货
+画面文字：顶部「每日鲜奶」，下面「新鲜直达」
+输出：H3_milk_00001_.mp4，2.8 MB
+耗时：505.5 秒（8 分 25 秒）
+```
+
+中文文字渲染成功，没有明显错字；音频为 32kHz 双声道 AAC。10 秒任务比 5 秒任务慢约 2.25 倍，且内存/swap 压力更大。
+
+## 经推理网关的视频请求
+
+通过 StudioOps 网关 `8192` 提交同样题材的 5 秒、608×352 视频：
+
+```text
+HTTP 200
+输出：H3_api_00001_.mp4，1.2 MB
+耗时：113.3 秒
+网关记录：backend=video, model=minimax-h3, duration=113276 ms
+```
+
+这验证了 `8192 → 8193 视频桥 → 8188 ComfyUI` 的队列、内存门槛和模型调用记录。
+
 ## 使用的模型
 
 Abiray 的 ComfyUI 兼容 GGUF；不要用 unsloth 的 text encoder GGUF，它缺少 `general.architecture` 元数据，`CLIPLoaderGGUF` 会报 “This gguf file is incompatible with llama.cpp”。

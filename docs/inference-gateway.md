@@ -110,6 +110,34 @@ VPS 127.0.0.1:8190
 
 真实测试：从香港 VPS 经 `172.20.0.1:8190` 发起 `gpt-image-qwen-2.1` 1024×1024 出图，58.7 秒返回 1 张 871KB PNG；网关记录耗时 54.7 秒。
 
+## 视频 H3 队列
+
+推理网关新增第三个后端 `video`：
+
+```text
+POST 127.0.0.1:8192/v1/videos/generations
+  → Gateway 队列（并发 1、队列 8、请求 60 分钟）
+  → 127.0.0.1:8193 comfy_video_bridge.py
+  → 127.0.0.1:8188 ComfyUI
+```
+
+请求示例：
+
+```json
+{
+  "model": "minimax-h3",
+  "prompt": "A young Black man sells fresh milk to the camera...",
+  "width": 864,
+  "height": 480,
+  "seconds": 5,
+  "steps": 4
+}
+```
+
+返回视频文件名、路径、尺寸、时长和实际耗时。视频桥只接受 H3，不保存 prompt；网关记录会显示 `backend=video`、`model=minimax-h3`。当前视频入口只监听本机，尚未映射到 VPS。
+
+真实测试：`608×352 / 5 秒` 经网关生成耗时 113.3 秒，输出 `H3_api_00001_.mp4`，网关记录 `backend=video`、`model=minimax-h3`。
+
 ## 常驻与更新
 
 网关由独立 LaunchAgent 守护：

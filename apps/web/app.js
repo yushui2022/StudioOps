@@ -1257,6 +1257,7 @@ const gatewayStateLabels = {
 const gatewayBackendLabels = {
   ollama: "Ollama",
   comfyui: "ComfyUI",
+  video: "视频 H3",
 };
 
 function fmtDuration(ms) {
@@ -1402,7 +1403,7 @@ function renderGateway() {
   const backends = gateway.backends ?? [];
   $("gateway-backends").innerHTML = backends.length
     ? backends.map(gatewayBackendHtml).join("")
-    : `<section class="panel"><p class="muted gateway-placeholder">网关未返回后端状态。安装并启动后这里会显示 Ollama 和 ComfyUI 的队列。</p></section>`;
+    : `<section class="panel"><p class="muted gateway-placeholder">网关未返回后端状态。安装并启动后这里会显示 Ollama、ComfyUI 和视频 H3 的队列。</p></section>`;
 
   const rows = gatewayQueueRows(gateway);
   $("nav-gateway-count").textContent = String(
