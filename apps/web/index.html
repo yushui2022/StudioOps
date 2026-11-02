@@ -733,6 +733,85 @@
                 </p>
               </section>
 
+              <section class="panel panel-wide" data-title="告警与通知">
+                <div class="alert-switches">
+                  <label
+                    ><input type="checkbox" id="alerts-enabled" />
+                    启用告警</label
+                  >
+                  <label
+                    ><input type="checkbox" id="alerts-desktop" />
+                    桌面通知</label
+                  >
+                </div>
+                <div class="metrics-settings-grid">
+                  <label class="field">
+                    <span>服务掉线确认（秒）</span>
+                    <input
+                      id="alerts-service-down"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>资源阈值持续时间（秒）</span>
+                    <input
+                      id="alerts-sustain"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>重复通知间隔（分钟）</span>
+                    <input
+                      id="alerts-repeat"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>内存阈值（%）</span>
+                    <input
+                      id="alerts-memory"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>磁盘余量阈值（%）</span>
+                    <input
+                      id="alerts-disk"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>CPU 温度阈值（°C）</span>
+                    <input
+                      id="alerts-temp"
+                      class="text-input"
+                      inputmode="numeric"
+                    />
+                  </label>
+                </div>
+                <div class="panel-actions">
+                  <button class="btn btn-small" id="alerts-save">保存</button>
+                  <button class="btn btn-small" id="alerts-test">
+                    测试通知
+                  </button>
+                  <button class="btn btn-small" id="alerts-refresh">
+                    刷新
+                  </button>
+                </div>
+                <p class="uninstall-result hidden" id="alerts-result"></p>
+                <div class="alert-events-head">活动告警</div>
+                <div class="alert-active" id="alerts-active">
+                  <p class="alert-empty">没有活动告警</p>
+                </div>
+                <div class="alert-events-head">最近告警</div>
+                <div class="alert-events" id="alerts-events"></div>
+              </section>
+
               <section
                 class="panel panel-wide"
                 data-title="远程访问 · Tailscale"

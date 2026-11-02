@@ -74,6 +74,7 @@ const state = {
   historyData: null,
   historyServiceId: null,
   metricsSettings: null,
+  alerts: null,
   formServiceId: null,
   lastUpdated: null,
   connected: false,
@@ -1189,6 +1190,125 @@ function setHistoryRange(range) {
       button.classList.toggle("active", button.dataset.historyRange === range),
     );
   loadHistory();
+}
+
+async function loadAlertsStatus({
+  populateSettings = false,
+  quiet = false,
+} = {}) {
+  try {
+    const data = await api("/api/alerts/status");
+    const firstLoad = !state.alerts;
+    state.alerts = data;
+    if (populateSettings || firstLoad) {
+      $("alerts-enabled").checked = data.settings.enabled;
+      $("alerts-desktop").checked = data.settings.desktopNotifications;
+      $("alerts-service-down").value = String(data.settings.serviceDownSeconds);
+      $("alerts-sustain").value = String(data.settings.sustainSeconds);
+      $("alerts-repeat").value = String(data.settings.repeatMinutes);
+      $("alerts-memory").value = String(data.settings.memoryPercent);
+      $("alerts-disk").value = String(data.settings.diskFreePercent);
+      $("alerts-temp").value = String(data.settings.temperatureC);
+    }
+    renderAlertsStatus();
+  } catch (error) {
+    if (!quiet) toast(error.message, true);
+  }
+}
+
+function renderAlertsStatus() {
+  const data = state.alerts;
+  if (!data) return;
+  const active = $("alerts-active");
+  active.innerHTML = data.active.length
+    ? data.active
+        .map(
+          (
+            alert,
+          ) => `<article class="alert-item ${alert.severity} ${alert.status}">
+            <div class="alert-item-head">
+              <strong>${escapeHtml(alert.title)}</strong>
+              <span class="alert-status">${alert.status === "firing" ? "告警" : "确认中"}</span>
+            </div>
+            <p>${escapeHtml(alert.detail)}</p>
+            <small>开始 ${escapeHtml(fmtDateTime(alert.since))}</small>
+          </article>`,
+        )
+        .join("")
+    : '<p class="alert-empty">没有活动告警</p>';
+
+  const events = $("alerts-events");
+  events.innerHTML = data.events.length
+    ? data.events
+        .slice(0, 10)
+        .map(
+          (event) => `<div class="alert-event ${event.status}">
+            <span class="alert-event-status">${event.status === "resolved" ? "恢复" : event.status === "firing" ? "告警" : "确认"}</span>
+            <div>
+              <strong>${escapeHtml(event.title)}</strong>
+              <p>${escapeHtml(event.detail)}</p>
+            </div>
+            <small>${escapeHtml(fmtDateTime(event.at))}</small>
+          </div>`,
+        )
+        .join("")
+    : '<p class="alert-empty">还没有告警记录</p>';
+
+  const result = $("alerts-result");
+  if (data.notificationError) {
+    result.textContent = `桌面通知失败：${data.notificationError}`;
+    result.classList.remove("hidden");
+  } else if (!result.textContent) {
+    result.classList.add("hidden");
+  }
+}
+
+async function saveAlertSettings() {
+  const button = $("alerts-save");
+  button.disabled = true;
+  try {
+    await api("/api/alerts/settings", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-studioops-actor": "web",
+      },
+      body: JSON.stringify({
+        enabled: $("alerts-enabled").checked,
+        desktopNotifications: $("alerts-desktop").checked,
+        serviceDownSeconds: Number($("alerts-service-down").value),
+        sustainSeconds: Number($("alerts-sustain").value),
+        repeatMinutes: Number($("alerts-repeat").value),
+        memoryPercent: Number($("alerts-memory").value),
+        diskFreePercent: Number($("alerts-disk").value),
+        temperatureC: Number($("alerts-temp").value),
+      }),
+    });
+    const result = $("alerts-result");
+    result.textContent = "告警设置已保存";
+    result.classList.remove("hidden");
+    toast("告警设置已保存");
+    await loadAlertsStatus({ populateSettings: true });
+  } catch (error) {
+    const result = $("alerts-result");
+    result.textContent = error.message;
+    result.classList.remove("hidden");
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function testAlertNotification() {
+  try {
+    await api("/api/alerts/test", {
+      method: "POST",
+      headers: { "x-studioops-actor": "web" },
+    });
+    toast("测试通知已发送");
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 async function loadMetricsSettings() {
@@ -2618,6 +2738,7 @@ function switchView(view, { updateHash = true } = {}) {
     loadTokenField();
     loadBackups();
     loadMetricsSettings();
+    loadAlertsStatus({ populateSettings: true });
     loadRemoteAccess();
     loadSecurityAudit();
     loadUninstallPreview();
@@ -2831,6 +2952,18 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "history-refresh") {
     loadHistory();
+    return;
+  }
+  if (target.id === "alerts-save") {
+    saveAlertSettings();
+    return;
+  }
+  if (target.id === "alerts-test") {
+    testAlertNotification();
+    return;
+  }
+  if (target.id === "alerts-refresh") {
+    loadAlertsStatus({ populateSettings: true });
     return;
   }
   if (target.id === "metrics-save") {

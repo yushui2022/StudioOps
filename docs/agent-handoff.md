@@ -47,6 +47,7 @@
 | 项目开机启动开关        | 已完成                 | `core/project-persistence.ts`、`/api/projects/:id/autostart`、`apps/web/app.js`                                        | 常驻项目独立控制 RunAtLoad；只重写 plist，不重启当前服务                                                         |
 | 项目服务常驻            | 已完成                 | `services/agent/src/core/project-persistence.ts`、`/api/projects/:id/persist`                                          | 生成 LaunchAgent、bootstrap/bootout、KeepAlive、RunAtLoad、取消常驻                                              |
 | cloudflared 隧道        | 已完成                 | `adapters/cloudflared.ts`、`core/config.ts`、`apps/web/app.js`、`apps/web/index.html`                                  | quick/config/token；公网地址/错误/日志；quick tunnel 安全审计高风险；真实 quick tunnel 已实测                    |
+| 告警与通知              | 已完成                 | `core/alerts.ts`、`/api/alerts/status`、`/api/alerts/settings`、`apps/web/app.js`                                      | 服务掉线/操作失败/内存/磁盘/温度；确认时间、滞后、去重、重复间隔、恢复通知、测试通知                             |
 | 指标历史                | 已完成                 | `core/metrics-store.ts`、`core/metrics-sampler.ts`、`/api/metrics/history`、`/api/metrics/settings`、`apps/web/app.js` | SQLite 原始+1m/1h rollup；5m/1h/24h；服务 CPU/内存；采样和保留可配                                               |
 | 外部访问安全检查        | 已完成                 | `core/security-audit.ts`、`/api/security/audit`、`apps/web/app.js`、`apps/web/index.html`                              | 审计回环绑定、Token、Funnel、Ollama 11434、项目入口和 ACL 提醒；高风险在设置页展示                               |
 | 项目 Tailnet 入口       | 已完成                 | `core/tailscale.ts`、`/api/tailscale/projects`、`/api/projects/:id/tailscale`、`apps/web/app.js`                       | 项目卡片开放/关闭；自动分配 HTTPS 端口；配置保存 tailscaleServePort；旧端口入口自动清理                          |
@@ -130,7 +131,8 @@
 31. 外部访问安全检查验收：设置页显示 6 项正常、1 条 ACL 无法本机验证警告；真实环境无 Funnel、无 11434 暴露；项目 11434 入口被 API 以 400 拒绝；模拟 Funnel 和 Ollama 暴露时审计返回 critical。
 32. cloudflared 验收：临时 HTTP 服务 4397 通过 quick tunnel 启动，日志解析出 `https://head-sending-material-nursery.trycloudflare.com`，真实公网 curl 返回 200；服务页显示 running 和公网地址；停止后 cloudflared 子进程和 PID 文件回收；config/token 命令构造由单测覆盖；模拟 PATH 中无 cloudflared 时服务状态为 error 并返回安装提示。named tunnel 真实域名联调需要 Cloudflare 账号和域名，尚未执行。
 33. 指标历史验收：Agent 默认 10 秒采样，SQLite 写入原始点和 1m/1h rollup；5m 返回 10 秒点、1h 返回 1 分钟点、24h 返回 5 分钟点；历史视图显示 6 张系统曲线和服务 CPU/内存；重启 Agent 后历史仍在；设置页可保存采样间隔和保留天数。
-34. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
+34. 告警与通知验收：真实进程被 kill 后进入 pending，超过确认时间后 firing，服务重启后发送恢复通知；同一告警在确认后不重复发送；内存阈值滞后由单测覆盖；设置页显示开关、阈值、活动告警和最近记录；`POST /api/alerts/test` 成功触发 macOS 桌面通知。
+35. 卸载与恢复验收：设置页显示 1 个测试 LaunchAgent 和托管服务；导出生成 `~/Downloads/StudioOps-backup-*.tar.gz`；清理后测试 plist 和非 StudioOps plist 的对照结果正确，托管进程停止、常驻配置恢复 process、配置自动备份，Agent 仍可响应；`scripts/uninstall-studioops.sh --yes --purge-data --remove-app` 在临时 HOME 中移除 data、app 和 LaunchAgent，同时保留备份归档。
 
 这次验收同时修掉了两个开发模式看不出的问题：Tauri 资源被放进 `Resources/_up_/...` 导致 Agent 找不到；内嵌 Web 页面的 `/api` 相对地址和跨域请求无法到达 7227。以后修改打包配置后必须重新做一次上面的真机验收。
 
@@ -156,7 +158,7 @@
 | P1     | Ollama 控制                  | 已完成模型列表和加载状态；还缺手工加载/卸载模型和显存明细                                                             | `services/agent/src/core/ollama.ts`                                                                       | 面板能区分服务运行和模型加载；动作受配置白名单限制（列表已完成）                |
 | P1     | ComfyUI 控制                 | 展示队列、运行任务、历史任务；支持取消队列任务；保留 MPS 指标                                                         | 新增 `services/agent/src/adapters/comfyui.ts`                                                             | 不影响现有服务启停；队列操作有审计                                              |
 | P2     | 项目运行时模板               | Node/Python/PM2 项目模板；生成 start/stop/restart/status/logs 配置                                                    | `config/services.example.yaml`、新增模板目录                                                              | 新增项目只填路径、命令、端口即可登记                                            |
-| P2     | 通知和告警                   | 服务掉线、重启失败、GPU/磁盘阈值；桌面通知和可选 ntfy/Telegram                                                        | Agent 事件层、Tauri 通知、可选 Uptime Kuma                                                                | 告警有去重、恢复通知和审计记录                                                  |
+| P2     | 通知和告警                   | 已完成 P0：服务掉线、操作失败、内存/磁盘/温度阈值、去重和恢复通知；后续再补 ntfy/Telegram/Uptime Kuma                 | `services/agent/src/core/alerts.ts`、设置页                                                               | 告警有确认时间、滞后、去重、恢复通知和审计记录（已实测）                        |
 | P2     | 开机启动                     | 用 launchd 管理 StudioOps Agent/Desktop；提供安装/卸载脚本                                                            | 新增 `scripts/com.studioops.agent.plist`、桌面设置                                                        | 重启 Mac 后按用户选择启动；卸载可恢复                                           |
 | P2     | App 发布                     | 代码签名、notarization、DMG、版本号、升级策略和 CI                                                                    | `apps/desktop/src-tauri/tauri.conf.json`、CI                                                              | 新机器可安装；升级不丢 `services.yaml`、SQLite 和备份                           |
 | P2     | 插件 SDK                     | 定义适配器、健康检查、动作、日志、详情字段的扩展协议                                                                  | `packages/contracts`、`services/agent/src/adapters`                                                       | 新增适配器不需要修改 UI 核心逻辑                                                |
@@ -215,4 +217,5 @@
 | 远程绑定需要 token                        | 忘记 token 会无法访问                       | 本机可从 API/UI 读取并复制；远程设备必须粘贴 Token           |
 | 项目 Tailnet 入口绕过 StudioOps Token     | 有 tailnet 访问权限的设备可直接访问项目端口 | 项目自身必须登录；Tailscale ACL 限制设备；不要共享整个 Mac   |
 | cloudflared named tunnel 未做真实域名联调 | 只能验证命令、配置和 quick tunnel           | 配置 Cloudflare 域名后补测 named tunnel + Access             |
+| 告警活动状态只在内存                      | Agent 重启后 active 状态会重新评估          | 告警历史写入 SQLite；后续可持久化 active 状态和静默窗口      |
 | StudioOps 不会随登录自动启动              | Mac 重启后 tailnet 入口在但 Agent 未运行    | 后续加入开机启动/登录项；当前需打开一次 App                  |

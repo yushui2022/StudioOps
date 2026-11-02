@@ -27,6 +27,12 @@ import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
 import { listDiscoveredProcesses } from "./core/discovery.js";
 import { EventStore } from "./core/event-store.js";
+import {
+  AlertEngine,
+  AlertStore,
+  sendMacNotification,
+  type AlertSettingsInput,
+} from "./core/alerts.js";
 import { listInferenceProcesses } from "./core/inference.js";
 import { MetricsSampler } from "./core/metrics-sampler.js";
 import {
@@ -103,6 +109,8 @@ try {
 const eventStore = new EventStore(dataDir);
 const iconStore = new ProcessIconStore(dataDir);
 const metricsStore = new MetricsStore(dataDir);
+const alertStore = new AlertStore(dataDir);
+const alertEngine = new AlertEngine(alertStore, sendMacNotification);
 
 const app = new Hono();
 const clients = new Map<WebSocket, Set<Topic>>();
@@ -931,6 +939,46 @@ app.post("/api/projects/:id/tailscale", async (c) => {
     return c.json({ error: message }, 400);
   }
 });
+app.get("/api/alerts/status", (c) => json(alertEngine.status()));
+app.put("/api/alerts/settings", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const input: AlertSettingsInput = {};
+    if (typeof body.enabled === "boolean") input.enabled = body.enabled;
+    if (typeof body.desktopNotifications === "boolean")
+      input.desktopNotifications = body.desktopNotifications;
+    for (const key of [
+      "serviceDownSeconds",
+      "sustainSeconds",
+      "repeatMinutes",
+      "memoryPercent",
+      "diskFreePercent",
+      "temperatureC",
+    ] as const) {
+      if (body[key] !== undefined) input[key] = Number(body[key]);
+    }
+    const settings = alertEngine.updateSettings(input);
+    recordConfigEvent(c, "alerts-settings", true);
+    return json(settings);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Invalid alert settings";
+    recordConfigEvent(c, "alerts-settings", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
+app.post("/api/alerts/test", async (c) => {
+  try {
+    await alertEngine.testNotification();
+    recordConfigEvent(c, "alerts-test", true);
+    return json({ ok: true });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Notification failed";
+    recordConfigEvent(c, "alerts-test", false, message);
+    return c.json({ error: message }, 400);
+  }
+});
 app.get("/api/metrics/history", (c) => {
   const range = (c.req.query("range") ?? "5m") as MetricRange;
   if (!["5m", "1h", "24h"].includes(range))
@@ -1156,6 +1204,7 @@ app.post("/api/services/:id/:action", async (c) => {
         : "local";
   try {
     const snapshot = await registry.execute(id, action);
+    alertEngine.recordActionSuccess(id, action);
     const event = eventStore.record({
       serviceId: id,
       action,
@@ -1183,13 +1232,23 @@ app.post("/api/services/:id/:action", async (c) => {
     );
     return json(snapshot);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Action failed";
+    const definition = configStore.services.find(
+      (service) => service.id === id,
+    );
+    alertEngine.recordActionFailure(
+      id,
+      definition?.name ?? id,
+      action,
+      message,
+    );
     eventStore.record({
       serviceId: id,
       action,
       state: "error",
       success: false,
       actor,
-      error: error instanceof Error ? error.message : "Action failed",
+      error: message,
       at: new Date().toISOString(),
     });
     return c.json(
@@ -1257,6 +1316,7 @@ const metricsSampler = new MetricsSampler(
     services: () => registry.list(),
   },
   (error) => console.error("[metrics]", error),
+  (system, services, ts) => alertEngine.evaluate(system, services, ts),
 );
 metricsSampler.start();
 

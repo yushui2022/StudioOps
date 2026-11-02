@@ -90,6 +90,13 @@ export class MetricsSampler {
     private readonly store: MetricsStore,
     private readonly source: MetricsSource,
     private readonly onError: (error: unknown) => void = () => {},
+    private readonly onSample:
+      | ((
+          system: SystemSnapshot,
+          services: ServiceSnapshot[],
+          ts: number,
+        ) => void)
+      | undefined = undefined,
   ) {}
 
   start(): void {
@@ -113,6 +120,7 @@ export class MetricsSampler {
         this.source.services(),
       ]);
       this.store.insert(buildMetricSamples(system, services, now));
+      this.onSample?.(system, services, now);
     } catch (error) {
       this.onError(error);
     } finally {

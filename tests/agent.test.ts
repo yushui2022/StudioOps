@@ -16,6 +16,7 @@ import {
   parseCloudflaredLog,
   tunnelModeOf,
 } from "../services/agent/src/adapters/cloudflared.js";
+import { AlertEngine, AlertStore } from "../services/agent/src/core/alerts.js";
 import { DockerComposeAdapter } from "../services/agent/src/adapters/docker-compose.js";
 import { launchctlArgsFor } from "../services/agent/src/adapters/launchd.js";
 import { MockAdapter } from "../services/agent/src/adapters/mock.js";
@@ -70,7 +71,10 @@ import {
   tailscaleServeArgs,
 } from "../services/agent/src/core/tailscale.js";
 import type { ServiceAdapter } from "../services/agent/src/adapters/adapter.js";
-import type { ServiceDefinition } from "../packages/contracts/src/index.js";
+import type {
+  ServiceDefinition,
+  ServiceSnapshot,
+} from "../packages/contracts/src/index.js";
 
 test("service registry serializes concurrent actions per service", async () => {
   let active = 0;
@@ -377,6 +381,97 @@ test("config diff marks only runtime fields as restart-required", () => {
     }),
     [],
   );
+});
+
+test("alert engine deduplicates service down and sends recovery", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-alerts-"));
+  const store = new AlertStore(root);
+  const notifications: string[] = [];
+  const engine = new AlertEngine(store, async (title, body) => {
+    notifications.push(`${title}:${body}`);
+  });
+  engine.updateSettings({
+    serviceDownSeconds: 5,
+    sustainSeconds: 5,
+    repeatMinutes: 60,
+  });
+  const system = alertSystemSnapshot();
+  const running = alertService("demo", "running");
+  const stopped = alertService("demo", "stopped");
+  const t0 = Date.UTC(2026, 10, 2, 12, 0, 0);
+
+  engine.evaluate(system, [running], t0);
+  engine.evaluate(system, [stopped], t0 + 1000);
+  assert.equal(engine.status().active[0]?.status, "pending");
+  assert.equal(notifications.length, 0);
+
+  engine.evaluate(system, [stopped], t0 + 7000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(engine.status().active[0]?.status, "firing");
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0] ?? "", /服务掉线/);
+
+  engine.evaluate(system, [stopped], t0 + 9000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(notifications.length, 1);
+
+  engine.evaluate(system, [running], t0 + 10_000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(notifications.length, 2);
+  assert.match(notifications[1] ?? "", /已恢复/);
+  assert.ok(
+    engine.status().events.some((event) => event.status === "resolved"),
+  );
+  store.close();
+});
+
+test("alert engine records action failures once", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-alerts-action-"));
+  const store = new AlertStore(root);
+  const notifications: string[] = [];
+  const engine = new AlertEngine(store, async (title) => {
+    notifications.push(title);
+  });
+  engine.recordActionFailure("demo", "Demo", "restart", "exit 1", 1234);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const events = engine.status().events;
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.rule, "action-failure");
+  assert.equal(events[0]?.status, "firing");
+  assert.equal(notifications.length, 1);
+  store.close();
+});
+
+test("alert engine applies hysteresis to memory threshold", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-alerts-memory-"));
+  const store = new AlertStore(root);
+  const notifications: string[] = [];
+  const engine = new AlertEngine(store, async (title) => {
+    notifications.push(title);
+  });
+  engine.updateSettings({ sustainSeconds: 5, memoryPercent: 90 });
+  const t0 = Date.UTC(2026, 10, 2, 12, 0, 0);
+  const high = alertSystemSnapshot({ memoryPercent: 95 });
+  const middle = alertSystemSnapshot({ memoryPercent: 85 });
+  const low = alertSystemSnapshot({ memoryPercent: 70 });
+
+  engine.evaluate(high, [], t0);
+  engine.evaluate(high, [], t0 + 6000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0] ?? "", /内存/);
+
+  engine.evaluate(middle, [], t0 + 7000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(engine.status().active.length, 1);
+  assert.equal(notifications.length, 1);
+
+  engine.evaluate(low, [], t0 + 8000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(engine.status().active.length, 0);
+  assert.equal(notifications.length, 2);
+  assert.match(notifications[1] ?? "", /已恢复/);
+  store.close();
 });
 
 test("metrics store writes raw samples, rollups and prunes old data", () => {
@@ -1295,3 +1390,35 @@ test("system snapshot reports used memory and CPU count", async () => {
   );
   assert.ok((system.silicon?.activeCores ?? 0) >= 0);
 });
+
+function alertSystemSnapshot(options: { memoryPercent?: number } = {}) {
+  const totalBytes = 1000;
+  const usedBytes = ((options.memoryPercent ?? 40) / 100) * totalBytes;
+  return {
+    hostname: "test",
+    platform: "darwin",
+    arch: "arm64",
+    uptimeSeconds: 100,
+    load: [1, 2, 3],
+    memory: { totalBytes, usedBytes, freeBytes: totalBytes - usedBytes },
+    disk: { totalBytes: 1000, freeBytes: 500 },
+    silicon: { cpuTemperatureC: 40, gpuTemperatureC: 40 },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function alertService(
+  id: string,
+  state: "running" | "stopped",
+): ServiceSnapshot {
+  return {
+    id,
+    name: id,
+    kind: "process",
+    adapter: "process",
+    target: "/tmp",
+    state,
+    allowedActions: ["start", "stop"],
+    updatedAt: new Date().toISOString(),
+  };
+}
