@@ -1125,7 +1125,9 @@ function renderWorldMap(data) {
   } else if (direction === "inbound") {
     empty.textContent = activeInbound.length
       ? "检测到入站连接，地理定位暂不可用"
-      : "暂无公网入站连接";
+      : activeOutbound.length
+        ? "暂无公网入站连接；点右上角“出站”查看本机外联"
+        : "暂无公网入站连接";
     empty.classList.toggle("hidden", inbound.length > 0);
   } else if (direction === "outbound") {
     empty.textContent = activeOutbound.length
@@ -1170,7 +1172,15 @@ function renderNetworkList(data) {
   });
   const list = $("network-list");
   if (!rows.length) {
-    list.innerHTML = `<p class="network-empty">${direction === "inbound" ? "当前没有公网入站连接。" : direction === "outbound" ? "当前没有公网出站连接。" : "当前没有公网连接。"} Tailscale 和私有网段不会显示在这里。</p>`;
+    const hint =
+      direction === "inbound" && (data.outbound?.length ?? 0) > 0
+        ? "当前没有公网入站连接；切换到右上角“出站”可查看本机外联。"
+        : direction === "inbound"
+          ? "当前没有公网入站连接。"
+          : direction === "outbound"
+            ? "当前没有公网出站连接。"
+            : "当前没有公网连接。";
+    list.innerHTML = `<p class="network-empty">${hint} Tailscale 和私有网段不会显示在这里。</p>`;
     return;
   }
   list.innerHTML = rows
