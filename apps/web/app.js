@@ -2098,6 +2098,8 @@ async function copyComputeSsh(button) {
 
 /* ---------- metrics history ---------- */
 
+const historyChartData = new Map();
+
 const historyMetrics = [
   {
     metric: "cpu.percent",
@@ -2122,6 +2124,8 @@ const historyMetrics = [
     color: "amber",
     min: 0,
     max: 100,
+    warn: 85,
+    critical: 95,
   },
   {
     metric: "disk.free.percent",
@@ -2130,9 +2134,19 @@ const historyMetrics = [
     color: "green",
     min: 0,
     max: 100,
+    warn: 20,
+    critical: 10,
+    invert: true,
   },
   { metric: "power.watts", label: "功耗", unit: "W", color: "amber" },
-  { metric: "temp.cpu.c", label: "CPU 温度", unit: "°C", color: "red" },
+  {
+    metric: "temp.cpu.c",
+    label: "CPU 温度",
+    unit: "°C",
+    color: "red",
+    warn: 80,
+    critical: 90,
+  },
 ];
 
 function formatMetricValue(value, unit) {
@@ -2143,6 +2157,20 @@ function formatMetricValue(value, unit) {
   if (unit === "°C") return `${value.toFixed(1)} °C`;
   if (unit === "rpm") return `${value.toFixed(0)} rpm`;
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function historyTone(value, options) {
+  if (!Number.isFinite(value)) return "";
+  if (options.invert) {
+    if (options.critical !== undefined && value <= options.critical)
+      return "critical";
+    if (options.warn !== undefined && value <= options.warn) return "warn";
+    return "";
+  }
+  if (options.critical !== undefined && value >= options.critical)
+    return "critical";
+  if (options.warn !== undefined && value >= options.warn) return "warn";
+  return "";
 }
 
 function historyChartHtml(series, options) {
@@ -2179,8 +2207,12 @@ function historyChartHtml(series, options) {
     .join(" ");
   const area = `${path} L${width - pad},${height - pad} L${pad},${height - pad} Z`;
   const latest = values.at(-1);
+  const tone = historyTone(latest, options);
   const subtitle = options.subtitle
-    ? `<small>${escapeHtml(options.subtitle)}</small>`
+    ? `<small class="history-subtitle">${escapeHtml(options.subtitle)}</small>`
+    : "";
+  const delta = options.delta
+    ? `<small class="history-delta" title="较上一周期均值">${escapeHtml(options.delta)}</small>`
     : "";
   const axis =
     firstTs && lastTs
@@ -2193,15 +2225,24 @@ function historyChartHtml(series, options) {
           })
           .join("")}</div>`
       : "";
-  return `<article class="history-card">
+  return `<article class="history-card"${tone ? ` data-tone="${tone}"` : ""}${
+    options.chartId ? ` data-chart-id="${escapeHtml(options.chartId)}"` : ""
+  }>
     <header>
       <span>${escapeHtml(options.label)}</span>
-      <strong>${escapeHtml(formatMetricValue(latest, options.unit))}${subtitle}</strong>
+      <strong>${escapeHtml(formatMetricValue(latest, options.unit))}${delta}${subtitle}</strong>
     </header>
-    <svg class="history-svg ${options.color ?? "green"}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(options.label)} 曲线：最低 ${escapeHtml(formatMetricValue(dataMin, options.unit))}，平均 ${escapeHtml(formatMetricValue(dataAvg, options.unit))}，最高 ${escapeHtml(formatMetricValue(dataMax, options.unit))}">
-      <path class="history-area ${options.color ?? "green"}" d="${area}" />
-      <path class="history-line ${options.color ?? "green"}" d="${path}" vector-effect="non-scaling-stroke" />
-    </svg>
+    <div class="history-chart-wrap ${options.color ?? "green"}">
+      <svg class="history-svg ${options.color ?? "green"}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(options.label)} 曲线：最低 ${escapeHtml(formatMetricValue(dataMin, options.unit))}，平均 ${escapeHtml(formatMetricValue(dataAvg, options.unit))}，最高 ${escapeHtml(formatMetricValue(dataMax, options.unit))}">
+        <path class="history-area ${options.color ?? "green"}" d="${area}" />
+        <path class="history-line ${options.color ?? "green"}" d="${path}" vector-effect="non-scaling-stroke" />
+      </svg>
+      <div class="history-hover" hidden>
+        <i class="history-hover-line"></i>
+        <span class="history-hover-dot"></span>
+        <div class="history-hover-tip"></div>
+      </div>
+    </div>
     ${axis}
     <footer>
       <span>最低 ${escapeHtml(formatMetricValue(dataMin, options.unit))}</span>
@@ -2264,9 +2305,35 @@ function historyMetricWithSubtitle(data, definition) {
   return definition;
 }
 
+function historyDelta(data, previous, scope, scopeId, definition) {
+  if (!previous) return "";
+  const currentSeries = findMetricSeries(
+    data,
+    scope,
+    scopeId,
+    definition.metric,
+  );
+  const previousSeries = findMetricSeries(
+    previous,
+    scope,
+    scopeId,
+    definition.metric,
+  );
+  if (!currentSeries?.points.length || !previousSeries?.points.length)
+    return "";
+  const average = (points) =>
+    points.reduce((sum, point) => sum + point.value, 0) / points.length;
+  const delta = average(currentSeries.points) - average(previousSeries.points);
+  if (!Number.isFinite(delta)) return "";
+  const rounded = Math.abs(delta) < 0.05 ? 0 : delta;
+  const arrow = rounded > 0 ? "↑" : rounded < 0 ? "↓" : "→";
+  return `${arrow} ${formatMetricValue(Math.abs(rounded), definition.unit)}`;
+}
+
 function renderHistory() {
   const data = state.historyData;
   if (!data) return;
+  historyChartData.clear();
   const rangeLabels = { "5m": "5 分钟", "1h": "1 小时", "24h": "24 小时" };
   const systemCount = data.series.filter(
     (series) => series.scope === "system",
@@ -2274,16 +2341,39 @@ function renderHistory() {
   const serviceCount = data.series.filter(
     (series) => series.scope === "service",
   ).length;
+  const compareLabel = state.historyPrevious?.series?.length
+    ? " · 对比上一周期"
+    : "";
   $("history-meta").textContent =
-    `${rangeLabels[data.range] ?? data.range} · ${systemCount} 个系统指标 · ${serviceCount} 个服务指标 · 更新于 ${fmtHistoryTime(data.to, data.range)}`;
+    `${rangeLabels[data.range] ?? data.range} · ${systemCount} 个系统指标 · ${serviceCount} 个服务指标${compareLabel} · 更新于 ${fmtHistoryTime(data.to, data.range)}`;
   $("history-system").innerHTML = historyMetrics
-    .map((definition) =>
-      historyChartHtml(
-        findMetricSeries(data, "system", "local", definition.metric),
-        { ...historyMetricWithSubtitle(data, definition), range: data.range },
-      ),
-    )
+    .map((definition) => {
+      const series = findMetricSeries(
+        data,
+        "system",
+        "local",
+        definition.metric,
+      );
+      const options = {
+        ...historyMetricWithSubtitle(data, definition),
+        range: data.range,
+        delta: historyDelta(
+          data,
+          state.historyPrevious,
+          "system",
+          "local",
+          definition,
+        ),
+        chartId: `system:${definition.metric}`,
+      };
+      historyChartData.set(options.chartId, {
+        points: series?.points ?? [],
+        options,
+      });
+      return historyChartHtml(series, options);
+    })
     .join("");
+  bindHistoryHover();
 
   const serviceSeries = data.series.filter(
     (series) => series.scope === "service",
@@ -2349,21 +2439,119 @@ function renderHistory() {
       color: "amber",
     },
   ]
-    .map((definition) =>
-      historyChartHtml(
-        findMetricSeries(data, "service", selected, definition.metric),
-        { ...definition, range: data.range },
-      ),
-    )
+    .map((definition) => {
+      const series = findMetricSeries(
+        data,
+        "service",
+        selected,
+        definition.metric,
+      );
+      const options = {
+        ...definition,
+        range: data.range,
+        delta: historyDelta(
+          data,
+          state.historyPrevious,
+          "service",
+          selected,
+          definition,
+        ),
+        chartId: `service:${selected}:${definition.metric}`,
+      };
+      historyChartData.set(options.chartId, {
+        points: series?.points ?? [],
+        options,
+      });
+      return historyChartHtml(series, options);
+    })
     .join("");
+  bindHistoryHover();
+}
+
+function bindHistoryHover() {
+  document.querySelectorAll(".history-chart-wrap").forEach((wrap) => {
+    if (wrap.dataset.hoverBound === "1") return;
+    wrap.dataset.hoverBound = "1";
+    wrap.addEventListener("mousemove", (event) =>
+      showHistoryHover(wrap, event),
+    );
+    wrap.addEventListener("mouseleave", () => hideHistoryHover(wrap));
+  });
+}
+
+function showHistoryHover(wrap, event) {
+  const card = wrap.closest(".history-card");
+  const chart = historyChartData.get(card?.dataset.chartId);
+  if (!chart?.points.length) return;
+  const points = chart.points;
+  const firstTs = points[0].ts;
+  const lastTs = points.at(-1).ts;
+  const timeSpan = lastTs - firstTs || 1;
+  const rect = wrap.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const padX = (8 / 320) * rect.width;
+  const padY = (8 / 140) * rect.height;
+  const x = Math.min(
+    Math.max(event.clientX - rect.left, padX),
+    rect.width - padX,
+  );
+  const ratio = (x - padX) / Math.max(rect.width - padX * 2, 1);
+  const targetTs = firstTs + ratio * timeSpan;
+  let nearest = points[0];
+  let best = Infinity;
+  for (const point of points) {
+    const distance = Math.abs(point.ts - targetTs);
+    if (distance < best) {
+      best = distance;
+      nearest = point;
+    }
+  }
+  const options = chart.options;
+  const values = points.map((point) => point.value);
+  const minValue = options.min ?? Math.min(...values);
+  const maxValue = options.max ?? Math.max(...values);
+  const span = maxValue - minValue || 1;
+  const pointRatio = (nearest.ts - firstTs) / timeSpan;
+  const lineX = padX + pointRatio * (rect.width - padX * 2);
+  const y =
+    padY + (1 - (nearest.value - minValue) / span) * (rect.height - padY * 2);
+  const hover = wrap.querySelector(".history-hover");
+  const line = wrap.querySelector(".history-hover-line");
+  const dot = wrap.querySelector(".history-hover-dot");
+  const tip = wrap.querySelector(".history-hover-tip");
+  if (!hover || !line || !dot || !tip) return;
+  line.style.left = `${lineX}px`;
+  line.style.top = `${padY}px`;
+  line.style.height = `${rect.height - padY * 2}px`;
+  dot.style.left = `${lineX}px`;
+  dot.style.top = `${y}px`;
+  tip.textContent = `${fmtHistoryTick(
+    nearest.ts,
+    options.range,
+    options.range === "24h",
+  )} · ${formatMetricValue(nearest.value, options.unit)}`;
+  hover.hidden = false;
+  const tipWidth = tip.offsetWidth;
+  const left =
+    lineX + 10 + tipWidth > rect.width ? lineX - tipWidth - 10 : lineX + 10;
+  tip.style.left = `${Math.max(4, left)}px`;
+  tip.style.top = `${Math.max(4, y - 30)}px`;
+}
+
+function hideHistoryHover(wrap) {
+  const hover = wrap.querySelector(".history-hover");
+  if (hover) hover.hidden = true;
 }
 
 async function loadHistory({ quiet = false } = {}) {
   if (!quiet && state.view !== "history") return;
   try {
-    state.historyData = await api(
-      `/api/metrics/history?range=${encodeURIComponent(state.historyRange)}`,
-    );
+    const range = encodeURIComponent(state.historyRange);
+    const data = await api(`/api/metrics/history?range=${range}`);
+    state.historyData = data;
+    state.historyPrevious = await api(
+      `/api/metrics/history?range=${range}&to=${encodeURIComponent(data.from)}`,
+    ).catch(() => null);
     renderHistory();
   } catch (error) {
     if (!quiet) toast(error.message, true);

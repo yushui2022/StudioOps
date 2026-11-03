@@ -1228,10 +1228,13 @@ app.get("/api/metrics/history", (c) => {
   const scopeValue = c.req.query("scope");
   if (scopeValue && scopeValue !== "system" && scopeValue !== "service")
     return c.json({ error: "scope must be system or service" }, 400);
+  const toValue = Number(c.req.query("to") ?? "");
+  const now = Number.isFinite(toValue) && toValue > 0 ? toValue : undefined;
   return json(
     metricsStore.history(range, {
       scope: scopeValue as MetricScope | undefined,
       scopeId: c.req.query("scopeId"),
+      now,
     }),
   );
 });
