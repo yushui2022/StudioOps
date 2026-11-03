@@ -1,48 +1,62 @@
 #!/bin/bash
-# 把 VPS 回环端口反向映射到本机 StudioOps Inference Gateway。
+# 把 VPS 回环端口反向映射到本机 StudioOps Inference Gateway 和 SSH。
 #
 #   VPS 127.0.0.1:11434 -> 本机 127.0.0.1:11435 -> Gateway -> Ollama 11434
 #   VPS 127.0.0.1:8190  -> 本机 127.0.0.1:8191  -> Gateway -> ComfyUI 8190
+#   VPS 127.0.0.1:22022 -> 本机 127.0.0.1:22    -> macOS sshd（供 VPS Warpgate）
+#   本机 127.0.0.1:18888 -> VPS 127.0.0.1:8888  -> Warpgate 管理台
 #
 # 前置：~/.ssh/config 里要有 Host vps，且 StudioOps Gateway LaunchAgent 已运行。
 #
 # 用法：
 #   ollama-tunnel                         前台运行，看日志
-#   FORWARDS="11434:11435 8190:8191" ollama-tunnel
+#   FORWARDS="11434:11435 8190:8191 22022:22" ollama-tunnel
+#   LOCAL_FORWARDS="18888:8888" ollama-tunnel
 #
 # FORWARDS 每项格式为「远端端口:本机端口」；省略「:本机端口」时两端相同。
+# LOCAL_FORWARDS 每项格式为「本机端口:远端端口」；省略「:远端端口」时两端相同。
 
 set -uo pipefail
 
 HOST="${TUNNEL_HOST:-vps}"
-FORWARDS="${FORWARDS:-11434:11435 8190:8191}"
+FORWARDS="${FORWARDS:-11434:11435 8190:8191 22022:22}"
+LOCAL_FORWARDS="${LOCAL_FORWARDS:-18888:8888}"
+DATA_DIR="${STUDIOOPS_DATA_DIR:-$HOME/Library/Application Support/com.studioops.desktop}"
+PIDFILE="${STUDIOOPS_TUNNEL_PIDFILE:-${DATA_DIR}/tunnel.pid}"
 
 args=()
 for mapping in $FORWARDS; do
-  remote="${mapping%%:*}"
-  local="${mapping#*:}"
-  if [ "$local" = "$mapping" ]; then
-    local="$remote"
+  remote_port="${mapping%%:*}"
+  local_port="${mapping#*:}"
+  if [ "$local_port" = "$mapping" ]; then
+    local_port="$remote_port"
   fi
-  args+=(-R "127.0.0.1:${remote}:127.0.0.1:${local}")
+  args+=(-R "127.0.0.1:${remote_port}:127.0.0.1:${local_port}")
 done
 
-first="${FORWARDS%% *}"
-first_remote="${first%%:*}"
-first_local="${first#*:}"
-if [ "$first_local" = "$first" ]; then
-  first_local="$first_remote"
+local_args=()
+for mapping in $LOCAL_FORWARDS; do
+  local_port="${mapping%%:*}"
+  remote_port="${mapping#*:}"
+  if [ "$remote_port" = "$mapping" ]; then
+    remote_port="$local_port"
+  fi
+  local_args+=(-L "127.0.0.1:${local_port}:127.0.0.1:${remote_port}")
+done
+
+if [ -f "$PIDFILE" ]; then
+  old_pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    echo "[tunnel] 已在运行 (pid ${old_pid})"
+    exit 0
+  fi
+  rm -f "$PIDFILE"
 fi
 
-# 避免重复启动（按第一条映射判断）
-if pgrep -f "127.0.0.1:${first_remote}:127.0.0.1:${first_local} ${HOST}" >/dev/null 2>&1; then
-  echo "[tunnel] 已在运行"
-  exit 0
-fi
+mkdir -p "$(dirname "$PIDFILE")"
+echo "[tunnel] $(date '+%F %T') 建立隧道 ${HOST} 映射: ${FORWARDS}；本地转发: ${LOCAL_FORWARDS}"
 
-echo "[tunnel] $(date '+%F %T') 建立隧道 ${HOST} 映射: ${FORWARDS}"
-
-exec ssh -N \
+ssh -N \
   -o ServerAliveInterval=20 \
   -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes \
@@ -50,4 +64,9 @@ exec ssh -N \
   -o ConnectTimeout=15 \
   -o BatchMode=yes \
   "${args[@]}" \
-  "${HOST}"
+  "${local_args[@]}" \
+  "${HOST}" &
+ssh_pid=$!
+printf '%s\n' "$ssh_pid" > "$PIDFILE"
+trap 'kill "$ssh_pid" 2>/dev/null; rm -f "$PIDFILE"' EXIT INT TERM
+wait "$ssh_pid"

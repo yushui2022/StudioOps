@@ -6,12 +6,12 @@
 
 **A local-first control plane for macOS AI servers.**
 
-把 Ollama、ComfyUI、MiniMax H3 视频、launchd 常驻服务、请求队列和内存保护放进一个本地控制台。
+把 Ollama、ComfyUI、MiniMax H3 视频、launchd 常驻服务、请求队列和内存保护放进一个本地控制台；可选 VPS 中转，让 Mac 不直接暴露公网。
 
 [![macOS](https://img.shields.io/badge/platform-macOS%2014%2B-black)](https://www.apple.com/macos/)
 [![Node](https://img.shields.io/badge/Node.js-22.5%2B-339933)](https://nodejs.org/)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB)](https://tauri.app/)
-[![Tests](https://img.shields.io/badge/tests-71%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-79%20passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -40,6 +40,150 @@
 <p align="center"><sub>SSH 网关：VPS 2222 入口、目标、连接命令和 macOS 直连 22 状态</sub></p>
 
 > StudioOps 目前是 pre-1.0 项目。它优先解决一台 Mac 上“AI 服务能稳定跑、不会把内存打爆、外部请求能排队”的问题，而不是做一个聊天客户端。
+
+## 项目定位
+
+StudioOps 是给「一台 Mac + 少量用户」用的本地 AI 服务器控制面。
+
+它优先解决运维问题，而不是模型能力：
+
+- 服务是否活着、能否开机自启、崩溃后是否恢复
+- 模型请求是否排队、并发是否受控、统一内存会不会被打爆
+- 谁能远程登录、做了什么、什么时候调用了哪个模型
+- 出问题时能不能看到日志、指标、进程和审计
+
+它不是什么：
+
+- 不是聊天客户端，不提供对话 UI
+- 不是模型运行时，Ollama / ComfyUI / H3 仍然由它们自己跑
+- 不是云 GPU 平台，模型始终在 Mac 上
+- 不是多租户 SaaS
+- 不替代公网模型 API；公网入口可以用 VPS + Nginx / Sub2API
+
+适合：
+
+- 一台 Apple Silicon Mac，自己和几个朋友 / CI 用
+- 本地跑 Ollama、ComfyUI、MiniMax H3
+- 希望 Mac 不直接暴露公网，通过 VPS 做 SSH 和模型 API 中转
+
+## 部署形态
+
+### 形态一：只在本机
+
+Mac 上跑 Agent + Gateway + 模型，全部监听 `127.0.0.1`。  
+适合自己用，不需要 VPS。
+
+### 形态二：Mac + VPS 中转（推荐）
+
+VPS 做公网门面，Mac 通过 SSH 反向隧道主动连出去。
+
+```text
+朋友 / CI
+  │
+  ├─ SSH
+  │   → VPS:2222
+  │   → Warpgate 认证 + 会话录像
+  │   → VPS 127.0.0.1:22022
+  │   → SSH 反向隧道
+  │   → Mac 127.0.0.1:22
+  │   → compute
+  │
+  └─ 模型 API（可选）
+      → VPS:443 / Nginx / Sub2API
+      → VPS 127.0.0.1:11434 / 8190（H3 需另加 8192）
+      → SSH 反向隧道
+      → Mac Inference Gateway
+      → Ollama / ComfyUI / H3
+```
+
+这个形态下：
+
+- Mac 不开放任何入站端口
+- VPS 只负责认证、TLS、限流和转发，不跑模型
+- 朋友只需要知道 VPS 地址，不需要你的 Mac IP 或 Tailscale
+- 吊销访问：在 StudioOps 删除公钥，或在 VPS 撤销 API Key
+
+## 你需要什么
+
+### Mac
+
+| 项目    | 最低                   | 推荐                              |
+| ------- | ---------------------- | --------------------------------- |
+| 芯片    | Apple Silicon（arm64） | M2 Pro / M3 / M4 / M5             |
+| 系统    | macOS 14 Sonoma        | macOS 15+                         |
+| 内存    | 32 GB                  | 64 GB 或更高（H3 视频建议 64GB+） |
+| 磁盘    | 100 GB 可用            | 300 GB+ 可用                      |
+| Node.js | 22.5+（开发/源码运行） | 22 LTS                            |
+| 运行时  | Ollama                 | Ollama + ComfyUI + H3             |
+| 容器    | 可选                   | Docker Desktop（管理 Compose）    |
+
+还需要：
+
+- 一个标准用户 `compute`，给朋友 / CI 用；不要给管理员权限
+- 可选：Tailscale，用于私网访问
+- 可选：Docker Desktop，用于容器化服务
+
+### VPS
+
+VPS 只做中转，不需要 GPU，也不需要大内存。
+
+| 项目   | 最低                     | 推荐           | 说明                 |
+| ------ | ------------------------ | -------------- | -------------------- |
+| CPU    | 1 vCPU                   | 2 vCPU         | Warpgate + Nginx     |
+| 内存   | 1 GB                     | 2 GB           | 不跑模型             |
+| 磁盘   | 10 GB                    | 20 GB          | 镜像、日志、会话录像 |
+| 系统   | Debian 12 / Ubuntu 22.04 | Debian 12      | x86_64 或 arm64      |
+| Docker | 24+                      | 29+            | Warpgate 容器        |
+| 公网   | IPv4                     | IPv4 + 域名    | 朋友连接             |
+| 防火墙 | UFW                      | UFW            | 只放行必要端口       |
+| 带宽   | 按需                     | 视频建议大流量 | H3 视频文件较大      |
+
+补充：
+
+- 位置：建议选离朋友较近、到 Mac 上行稳定的节点；模型仍在 Mac 上跑，VPS 只增加网络延迟
+- 域名：SSH 不需要域名；如果要用 HTTPS 暴露模型 API，建议一个子域名 + Let's Encrypt
+- Warpgate 需要先做一次初始化（数据目录、监听地址、管理台密码），完整命令见 [SSH 网关](docs/ssh-gateway.md)
+
+端口规划：
+
+| 端口                    | 位置     | 用途                        | 是否公网 |
+| ----------------------- | -------- | --------------------------- | -------- |
+| `2222/tcp`              | VPS      | Warpgate SSH 入口           | 是       |
+| `443/tcp`               | VPS      | 模型 API / 现有站点（可选） | 可选     |
+| `22/tcp`                | VPS      | 管理员 SSH                  | 建议限制 |
+| `8888`                  | VPS 回环 | Warpgate 管理台             | 否       |
+| `22022`                 | VPS 回环 | 反向隧道到 Mac 22           | 否       |
+| `11434`                 | VPS 回环 | 反向隧道到 Ollama Gateway   | 否       |
+| `8190`                  | VPS 回环 | 反向隧道到 ComfyUI Gateway  | 否       |
+| `8192`                  | VPS 回环 | H3 视频（需另加隧道）       | 否       |
+| `7227`                  | Mac 回环 | StudioOps Agent             | 否       |
+| `11435/8191/8192/11436` | Mac 回环 | Inference Gateway           | 否       |
+| `22`                    | Mac 回环 | sshd（只给反向隧道）        | 否       |
+
+VPS 上建议安装：
+
+- Docker（Warpgate）
+- 可选：Nginx / Caddy（模型 API 反向代理、TLS）
+- 可选：Sub2API（如果已经有用户 / Key / 配额体系）
+- UFW（只放行 2222、443 和管理 SSH）
+
+VPS 不需要：
+
+- GPU
+- 模型文件
+- 大内存
+- 把 Mac 的 `22`、`7227`、`11434`、`8190`、`8192` 直接映射到公网
+
+### 组件放在哪里
+
+| 组件                  | 位置      | 作用                            |
+| --------------------- | --------- | ------------------------------- |
+| Warpgate              | VPS       | SSH 认证、会话录像、目标转发    |
+| Nginx / Sub2API       | VPS       | 模型 API 公网入口、TLS、API Key |
+| SSH 反向隧道          | Mac → VPS | 把 VPS 回环端口映射到 Mac       |
+| StudioOps Agent       | Mac       | 控制面：服务、审计、配置        |
+| Inference Gateway     | Mac       | 队列、并发、超时、内存准入      |
+| Ollama / ComfyUI / H3 | Mac       | 真正的模型推理                  |
 
 ## 为什么做 StudioOps
 
@@ -108,7 +252,7 @@ H3 视频:      8192  → 8193 → 8188
 ### 远程访问与安全
 
 - 所有服务默认只监听 `127.0.0.1`
-- 非回环访问必须使用 Bearer Token
+- 非回环访问默认要求 Bearer Token；不要把 Agent 端口暴露到公网
 - Tailscale Serve 只对 tailnet 开放，不启用 Funnel
 - 项目可以单独开放 Tailnet 入口
 - 安全审计检查敏感端口、Funnel、Token 和 ACL 风险
@@ -124,7 +268,7 @@ H3 视频:      8192  → 8193 → 8188
 - 终端风格面板，`1–8` 切视图、`r` 刷新、`/` 搜索、`Esc` 关闭
 - 一张面板里同时看服务、模型、队列、日志、指标和历史
 
-## 架构
+## 本机组件
 
 ```text
 ┌──────────────────────┐      ┌──────────────────────┐
@@ -143,24 +287,29 @@ H3 视频:      8192  → 8193 → 8188
        │ launchd    │ Docker     │ AI         │ Tunnel     │
        │ adapter    │ adapter    │ runtime    │ adapter    │
        └────────────┴────────────┴────────────┴────────────┘
+```
 
 外部推理流量：
 
-Sub2API / 客户端
-  → SSH / Tailscale
+```text
+朋友 / Sub2API
+  → VPS（可选）
+  → SSH 反向隧道 / Tailscale
   → Inference Gateway（队列、并发、超时、内存准入）
   → Ollama 11434 / ComfyUI 8188 / H3 Video Bridge 8193
 ```
+
+Agent 和 Gateway 都只监听 `127.0.0.1`；远程访问由 VPS 中转，不在 Mac 上开公网端口。
 
 ## 快速开始
 
 ### 环境要求
 
-- macOS 14 Sonoma 或更高
-- Node.js **22.5+**（Agent 使用内置 `node:sqlite`）
-- npm
+- 一台 Apple Silicon Mac（macOS 14+），配置建议见「你需要什么 → Mac」
+- Node.js **22.5+** 和 npm（源码运行；Agent 使用内置 `node:sqlite`）
 - 可选：Rust / Tauri 2 工具链（构建桌面 App）
 - 可选：Ollama、ComfyUI、Docker Desktop
+- 可选：一台 Linux VPS（远程 SSH / 模型 API 中转），配置见「你需要什么 → VPS」
 
 ### 启动 Web 控制台
 
@@ -194,6 +343,60 @@ apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app
 ```bash
 npm run build:services
 ```
+
+### 加 VPS 远程访问（可选）
+
+最小步骤：
+
+1. VPS 安装 Docker，运行 Warpgate：
+   - SSH 监听 `0.0.0.0:2222`
+   - 管理台监听 `127.0.0.1:8888`
+   - 数据目录持久化
+   - 开启会话录像
+2. 在 Warpgate 里创建目标 `mac-compute`：
+   - host `127.0.0.1`
+   - port `22022`
+   - username `compute`
+   - auth `PublicKey`
+3. 在 Mac 上建立反向隧道（`scripts/ollama-tunnel` 已包含这些默认转发；默认读取 `~/.ssh/config` 的 `Host vps`，没有就设置 `TUNNEL_HOST=user@server`）：
+
+   ```bash
+   ssh -N \
+     -R 127.0.0.1:22022:127.0.0.1:22 \
+     -R 127.0.0.1:11434:127.0.0.1:11435 \
+     -R 127.0.0.1:8190:127.0.0.1:8191 \
+     -L 127.0.0.1:18888:127.0.0.1:8888 \
+     vps
+   ```
+
+4. 把 Mac 的 sshd 收紧到回环：
+
+   ```bash
+   sudo bash scripts/ssh-loopback-mode.sh gateway
+   ```
+
+5. 在 StudioOps「算力 → SSH 网关 → 访问公钥」添加朋友的公钥。
+6. 测试：
+
+   ```bash
+   ssh -p 2222 compute-guest:mac-compute@VPS_IP
+   ```
+
+详细说明和回滚方式见 [SSH 网关](docs/ssh-gateway.md)。
+
+### 模型 API 对外（可选）
+
+如果朋友需要调用 Ollama / ComfyUI / H3，不要让 Mac 直接开公网端口。推荐：
+
+```text
+朋友 → VPS:443 → Nginx / Sub2API → VPS 127.0.0.1:11434/8190
+  → SSH 反向隧道 → Mac Gateway → Ollama/ComfyUI/H3
+```
+
+- VPS 只做 TLS、API Key、限流和转发
+- Mac Gateway 继续做队列、并发和内存准入
+- 不要把 `11434`、`8190`、`8192`、`7227`、`8888` 直接暴露到公网
+- H3 视频当前只监听本机，尚未自动映射到 VPS；需要时再加 `8192` 隧道
 
 ## 配置示例
 
@@ -310,13 +513,17 @@ H3 模型文件不随仓库分发。64GB M5 Max 实测：
 ## 安全模型
 
 - Agent、Gateway 和模型端口默认全部绑定 `127.0.0.1`
-- 通过非回环地址或 Tailscale 访问时必须提供 Token
-- Token 文件权限为 `0600`
+- 非回环访问默认要求 Bearer Token；Token 文件权限 `0600`
+- StudioOps 相关入口只公开 `2222` 和可选的 `443`；管理台 `8888`、隧道 `22022/11434/8190/8192` 只绑回环
+- Mac 的 sshd 只监听 `127.0.0.1:22`；远程 SSH 必须先过 Warpgate
+- Warpgate 做公钥认证和会话录像；删除公钥即吊销
 - Tailscale Serve 只开放给 tailnet，不启用 Funnel
 - 所有服务动作经过适配器和白名单
 - 客户端不能提交任意 shell、路径或 launchd label
 - Gateway 只保存请求元数据，不保存 prompt
 - 证书、私钥、`.env`、SQLite、日志和本机 `services.yaml` 不进入 Git
+
+> 不要把 Agent 的 `7227` 暴露到公网。Agent 的远程鉴权正在从 Host 头判断迁移到真实 socket 来源；完成前只通过本机或 VPS 回环访问。
 
 > 如果你发现安全问题，请不要开公开 issue，先通过仓库维护者私下联系。详见 [SECURITY.md](SECURITY.md)。
 
@@ -361,18 +568,23 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 - macOS 没有 cgroup 式硬内存限制，内存保护是应用层准入
 - H3 视频模型需要数十 GB 内存和数分钟到数十分钟生成时间
 - Gateway 的按用户 API Key、配额和限流还未完成
-- 没有 CI、代码签名、公证和自动更新
+- VPS 模型 API 入口需要自行配置 Nginx / Sub2API；仓库不包含公网用户体系
+- H3 视频入口尚未映射到 VPS
+- Agent 远程鉴权仍在加固，不要把 `7227` 暴露到公网
+- CI 目前只构建 DMG，没有自动跑测试；代码签名、公证和自动更新未完成
 - 模型文件、真实 `services.yaml`、证书和日志都不在仓库中
 - pre-1.0，配置和 API 仍可能变化
 
 ## Roadmap
 
 - [ ] Gateway API Key、配额和每用户限流
+- [ ] VPS 模型 API 入口（Nginx/Sub2API + Key/配额）
 - [ ] 按模型大小做加载前内存预估
 - [ ] Gateway / SSH 隧道健康告警
 - [x] SSH 网关（Warpgate）：VPS 2222 认证和会话录制，Mac 仅回环 sshd
-- [ ] 视频队列对外映射
-- [ ] CI、签名、公证和自动更新
+- [ ] H3 视频对外映射
+- [ ] Agent 鉴权改为真实 socket 来源 + `timingSafeEqual`
+- [ ] CI 自动跑测试、签名、公证和自动更新
 - [ ] 数据与配置统一备份
 
 ## 贡献
@@ -399,7 +611,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 - [网络地图与隐私边界](docs/network-map.md)
 - [卸载与恢复](docs/uninstall.md)
 - [算力用户与审计](docs/compute-user.md)
-- [SSH 网关与短期凭证规划](docs/ssh-gateway.md)
+- [SSH 网关（Warpgate / VPS 中转）](docs/ssh-gateway.md)
 - [开发交接](docs/agent-handoff.md)
 
 ## Acknowledgements
