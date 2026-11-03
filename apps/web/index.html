@@ -1016,6 +1016,28 @@
                   公钥可以公开分享；私钥不要发给任何人。
                 </p>
               </div>
+              <div class="friend-guide">
+                <div class="friend-guide-head">
+                  <strong>发给朋友的说明</strong>
+                  <span id="friend-guide-status">—</span>
+                  <button class="btn btn-small" id="friend-guide-refresh">
+                    刷新
+                  </button>
+                  <button class="btn btn-small" id="friend-guide-copy">
+                    复制说明
+                  </button>
+                </div>
+                <textarea
+                  class="text-input"
+                  id="friend-guide-text"
+                  rows="14"
+                  spellcheck="false"
+                  readonly
+                ></textarea>
+                <p class="network-note">
+                  复制后可以直接发给朋友；内容根据当前网关和机器配置自动生成。
+                </p>
+              </div>
             </section>
 
             <section class="panel" data-title="当前会话">

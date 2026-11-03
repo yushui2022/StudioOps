@@ -114,7 +114,7 @@ H3 视频:      8192  → 8193 → 8188
 - 安全审计检查敏感端口、Funnel、Token 和 ACL 风险
 - 服务目标来自受控 YAML，不接受网页提交任意 shell 或路径
 - 算力用户：独立 `compute` 标准用户的会话、进程、磁盘、登录历史、Tailscale SSH 状态和审计
-- SSH 网关：Warpgate 在 VPS 2222，Mac sshd 仅回环；StudioOps 可直接添加/删除 `compute-guest` 公钥
+- SSH 网关：Warpgate 在 VPS 2222，Mac sshd 仅回环；StudioOps 可直接添加/删除 `compute-guest` 公钥，并生成可复制的使用说明
 
 ### 桌面体验
 

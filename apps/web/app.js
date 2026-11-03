@@ -1756,6 +1756,7 @@ function renderWarpgate() {
       ? `Warpgate 不可用：${warpgate.error}`
       : "Warpgate 尚未运行。";
   $("warpgate-copy").disabled = !command.startsWith("ssh ");
+  renderFriendGuide();
 }
 
 function renderWarpgateKeys() {
@@ -1866,12 +1867,121 @@ async function deleteWarpgateKey(id, button) {
   }
 }
 
+function buildFriendGuide() {
+  const system = state.system;
+  const warpgate = state.warpgate;
+  const compute = state.compute;
+  const hardware = system?.hardware;
+  const host = warpgate?.sshHost || "156.239.2.231";
+  const port = warpgate?.sshPort || 2222;
+  const gatewayUser = warpgate?.user || "compute-guest";
+  const target = warpgate?.target || "mac-compute";
+  const account = compute?.username || "compute";
+  const command = `ssh -p ${port} ${gatewayUser}:${target}@${host}`;
+  const hostname = system?.hostname || "Mac Studio";
+  const chip = hardware?.chip || "Apple Silicon";
+  const gpu = hardware?.gpuCores ? `，${hardware.gpuCores} 核 GPU` : "";
+  const cpu = hardware
+    ? `${hardware.totalCores} 核（${hardware.performanceCores}P + ${hardware.superCores}S）`
+    : system?.cpuCount
+      ? `${system.cpuCount} 核`
+      : "—";
+  const guideBytes = (bytes) => `${Math.round(bytes / 1024 ** 3)} GB`;
+  const memory = system?.memory
+    ? `${guideBytes(system.memory.totalBytes)} 统一内存`
+    : "—";
+  const disk = system?.disk
+    ? `${guideBytes(system.disk.totalBytes)}（可用 ${guideBytes(system.disk.freeBytes)}）`
+    : "—";
+  const platform = system ? `${system.platform} ${system.arch}` : "macOS arm64";
+
+  return `【StudioOps AI 算力机使用说明】
+
+一、连接方式
+这台机器是「香港 VPS 中转 + Mac Studio 执行」的双向结构：
+- 你连接的是香港 VPS：${host}:${port}
+- 命令实际在 Mac Studio 上执行，用户是 ${account}
+- 香港 VPS 只负责认证、录像和转发，不执行你的命令
+
+连接命令：
+${command}
+
+第一次连接前：
+1. 在你自己的电脑生成密钥：ssh-keygen -t ed25519
+2. 把 ~/.ssh/id_ed25519.pub 发给管理员
+3. 管理员在 StudioOps 添加后，你才能连接
+4. 私钥只留在你自己的电脑，不要发给任何人
+
+二、机器配置
+- 主机：${hostname}
+- 芯片：${chip}${gpu}
+- CPU：${cpu}
+- 内存：${memory}
+- 磁盘：${disk}
+- 系统：${platform}
+
+三、登录后
+- 用户：${account}
+- 主目录：/Users/${account}
+- 权限：标准用户，不是管理员
+- 命令在 Mac Studio 上执行，不是在 VPS 上
+
+四、请遵守
+- 不要使用 sudo、不要尝试提权、不要修改系统设置
+- 不要读取 /Users/orlando 或其他用户目录
+- 不要停止/重启机器，不要杀掉别人的进程
+- 不要安装系统级服务；Python 包请用虚拟环境
+- 不要挖矿、不要做公共代理、不要存放违法内容
+- 不要自行开放端口或做公网穿透；需要对外服务先联系管理员
+- 长任务请用 tmux/nohup，并先检查内存
+- 大模型/视频任务请排队，避免同时占满统一内存
+- 训练优先在 macOS 宿主上跑；Linux 容器没有 Apple GPU/MPS
+- 会话会被录像和审计；不要在终端里粘贴密码、Token 或私钥
+- /Users/${account} 不是长期备份，重要文件请自己备份
+- 不要把访问权限转借给其他人
+- 需要新模型、端口或权限，先联系管理员
+
+五、常用检查
+whoami
+pwd
+uname -a
+df -h
+ollama list
+
+有问题先联系管理员，不要自行重启机器。`;
+}
+
+function renderFriendGuide({ force = false } = {}) {
+  const textarea = $("friend-guide-text");
+  if (!textarea) return;
+  const stale = /CPU：—|内存：—|磁盘：—|Apple Silicon/.test(textarea.value);
+  if (!force && textarea.value.trim() && !stale) return;
+  textarea.value = buildFriendGuide();
+  $("friend-guide-status").textContent = "已生成";
+}
+
+async function copyFriendGuide(button) {
+  renderFriendGuide({ force: true });
+  const text = $("friend-guide-text")?.value ?? "";
+  if (!text) return;
+  if (button) button.disabled = true;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("说明已复制");
+  } catch {
+    toast("无法自动复制，请手动选择", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadCompute({ quiet = false } = {}) {
   const results = await Promise.allSettled([
     api("/api/compute"),
     api("/api/warpgate/status"),
+    api("/api/system"),
   ]);
-  const [compute, warpgate] = results;
+  const [compute, warpgate, system] = results;
   if (compute.status === "fulfilled") {
     state.compute = compute.value;
   } else {
@@ -1883,6 +1993,7 @@ async function loadCompute({ quiet = false } = {}) {
     $("compute-warnings").classList.remove("hidden");
   }
   if (warpgate.status === "fulfilled") state.warpgate = warpgate.value;
+  if (system.status === "fulfilled") state.system = system.value;
   if (compute.status === "fulfilled") {
     renderCompute();
     renderWarpgate();
@@ -4261,6 +4372,15 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "warpgate-keys-refresh") {
     loadWarpgateKeys();
+    return;
+  }
+  if (target.id === "friend-guide-refresh") {
+    renderFriendGuide({ force: true });
+    toast("说明已刷新");
+    return;
+  }
+  if (target.id === "friend-guide-copy") {
+    copyFriendGuide(target);
     return;
   }
   if (target.dataset.warpgateKeyDelete) {

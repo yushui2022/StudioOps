@@ -294,6 +294,19 @@ ssh -i ~/.ssh/id_ed25519 -p 2222 compute-guest:mac-compute@156.239.2.231
 删除公钥会立即吊销该设备的登录能力。也可以在 Warpgate 管理台
 `Config → Users → compute-guest → Public keys` 操作。
 
+### 发给朋友的说明
+
+StudioOps「算力 → SSH 网关 → 发给朋友的说明」会自动生成一段可复制文本，
+包含：
+
+- 连接命令
+- 机器配置（芯片、CPU、内存、磁盘）
+- 首次连接步骤
+- 使用规则（不提权、不读他人目录、不开放公网端口、长任务排队、会话录像等）
+
+点「复制说明」即可直接发给朋友。机器配置和连接命令来自当前状态，
+点「刷新」会重新生成。
+
 不要共享本机测试私钥
 `~/Library/Application Support/com.studioops.desktop/warpgate-test-key`。
 
