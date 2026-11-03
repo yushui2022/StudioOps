@@ -1621,11 +1621,14 @@ function renderCompute() {
         : "仅回环";
   $("compute-ssh-toggle").classList.add("hidden");
 
-  const command = tailscale.ip
-    ? `ssh ${data.username}@${tailscale.ip}`
-    : "Tailscale 未在线";
+  const warpgate = state.warpgate;
+  const command = warpgate?.running
+    ? `ssh -p ${warpgate.sshPort} ${warpgate.user}:${warpgate.target}@${warpgate.sshHost}`
+    : tailscale.ip
+      ? `ssh ${data.username}@${tailscale.ip}`
+      : "SSH 入口不可用";
   $("compute-ssh-command").textContent = command;
-  $("compute-copy-ssh").disabled = !tailscale.ip;
+  $("compute-copy-ssh").disabled = command === "SSH 入口不可用";
 
   $("compute-account-user").textContent = data.username ?? "—";
   $("compute-account-type").textContent = account.exists
@@ -1648,13 +1651,9 @@ function renderCompute() {
   $("compute-disk").textContent = fmtBytes(data.diskBytes);
   $("compute-resource-note").textContent = `Tailscale ${
     tailscale.online ? "在线" : "离线"
-  } · ${tailscale.dnsName ?? "—"} · ${
-    !sshSupported
-      ? "Tailscale SSH 不支持 GUI 构建"
-      : tailscale.sshEnabled
-        ? "Tailscale SSH 已开"
-        : "Tailscale SSH 关闭"
-  } · macOS Remote Login ${ssh.remoteLogin === "enabled" ? "已开" : "关闭"}`;
+  } · ${tailscale.dnsName ?? "—"} · SSH ${
+    state.warpgate?.running ? "经 Warpgate 网关" : "未配置网关"
+  } · 本机 22 ${state.warpgate?.directSshOpen ? "对外开放" : "仅回环"}`;
 
   const warningBox = $("compute-warnings");
   warningBox.textContent = warnings.join(" · ");
@@ -1836,7 +1835,7 @@ async function toggleComputeSsh(button) {
 
 async function copyComputeSsh(button) {
   const command = $("compute-ssh-command").textContent;
-  if (!command || command === "Tailscale 未在线") return;
+  if (!command || command === "SSH 入口不可用") return;
   if (button) button.disabled = true;
   try {
     await navigator.clipboard.writeText(command);

@@ -59,9 +59,9 @@ PLIST
 
 case "$MODE" in
   gateway)
-    # 系统 sshd 会监听所有网卡；先关掉，避免绕过网关。
-    /usr/sbin/systemsetup -setremotelogin off >/dev/null 2>&1 || true
+    # 系统 sshd 由 launchd socket 激活，会监听所有网卡；先卸载并禁用。
     launchctl bootout system/com.openssh.sshd >/dev/null 2>&1 || true
+    launchctl disable system/com.openssh.sshd >/dev/null 2>&1 || true
     install_loopback_sshd
     launchctl bootout "system/${LABEL}" >/dev/null 2>&1 || true
     launchctl bootstrap system "$PLIST"
@@ -77,13 +77,13 @@ case "$MODE" in
   direct)
     launchctl bootout "system/${LABEL}" >/dev/null 2>&1 || true
     rm -f "$PLIST"
-    /usr/sbin/systemsetup -setremotelogin on >/dev/null 2>&1 || true
+    launchctl enable system/com.openssh.sshd >/dev/null 2>&1 || true
     launchctl bootstrap system /System/Library/LaunchDaemons/ssh.plist >/dev/null 2>&1 || true
     echo "direct mode: macOS Remote Login restored on all interfaces"
     ;;
   status)
-    /usr/sbin/systemsetup -getremotelogin 2>/dev/null || true
     launchctl print "system/${LABEL}" 2>/dev/null | grep -E "state =|pid =" | head -2 || true
+    launchctl print system/com.openssh.sshd 2>/dev/null | grep -E "state =" | head -2 || echo "system sshd: not loaded"
     /usr/sbin/netstat -an -p tcp | grep '\.22 ' || true
     ;;
   *)

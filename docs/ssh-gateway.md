@@ -1,7 +1,7 @@
 # SSH 网关与短期凭证规划
 
 更新时间：2026-11-02  
-状态：Warpgate 已迁移到香港 VPS；Mac 直连 22 的收紧脚本已就绪，等待管理员确认
+状态：Warpgate 已迁移到香港 VPS；Mac sshd 仅监听回环，直连 22 已关闭
 
 ## 背景
 
@@ -174,7 +174,7 @@ Teleport 更完整：
 
 ## 当前部署状态
 
-Warpgate 已迁移到香港 VPS。Mac 直连 22 的收紧脚本已就绪，等待管理员确认。
+Warpgate 已迁移到香港 VPS。Mac sshd 仅监听回环，直连 22 已关闭。
 
 ```text
 VPS:        156.239.2.231（Debian 12 / Docker 29.7.2）
@@ -194,13 +194,14 @@ Mac 侧：
 
 ```text
 反向隧道:   VPS 127.0.0.1:22022 → Mac 127.0.0.1:22
-sshd:       目标：仅监听 127.0.0.1:22
-macOS:      Remote Login 待关闭
+sshd:       仅监听 127.0.0.1:22
+macOS:      系统 Remote Login 已卸载，仅保留回环 LaunchDaemon
 ```
 
-执行 `sudo bash scripts/ssh-loopback-mode.sh gateway` 后，系统 sshd 会换成
-仅回环的 LaunchDaemon `ai.local.studioops.sshd`。macOS Remote Login 的
-`com.apple.access_ssh` ACL 仍然生效，`compute` 在允许列表中。
+已执行 `sudo bash scripts/ssh-loopback-mode.sh gateway`，系统 sshd 被
+`launchctl` 卸载并禁用，换成仅回环的 LaunchDaemon
+`ai.local.studioops.sshd`。macOS Remote Login 的 `com.apple.access_ssh`
+ACL 仍然生效，`compute` 在允许列表中。
 
 ### 验证命令
 
@@ -225,7 +226,7 @@ Warpgate 日志确认：
 - `Recording session ...` 生成会话录制
 - 录制文件位于 `/opt/studioops/warpgate/recordings/`
 
-收紧后确认直连 22 已关闭：
+确认直连 22 已关闭：
 
 ```bash
 nc -vz -w 3 100.115.137.62 22   # 应失败

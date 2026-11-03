@@ -369,7 +369,7 @@ cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 - [ ] Gateway API Key、配额和每用户限流
 - [ ] 按模型大小做加载前内存预估
 - [ ] Gateway / SSH 隧道健康告警
-- [ ] SSH 网关（Warpgate）：VPS 2222 认证和会话录制已验证，待关闭 Mac 直连 22
+- [x] SSH 网关（Warpgate）：VPS 2222 认证和会话录制，Mac 仅回环 sshd
 - [ ] 视频队列对外映射
 - [ ] CI、签名、公证和自动更新
 - [ ] 数据与配置统一备份
