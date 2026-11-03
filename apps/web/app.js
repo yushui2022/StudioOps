@@ -155,6 +155,31 @@ const fmtClock = (iso) =>
 const fmtDateTime = (iso) =>
   iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "—";
 
+const fmtHistoryTime = (ts, range) =>
+  new Date(ts).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(range === "5m" ? { second: "2-digit" } : {}),
+    hour12: false,
+  });
+
+const fmtHistoryTick = (ts, range, edge = false) => {
+  const date = new Date(ts);
+  const pad = (value) => String(value).padStart(2, "0");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}${
+    range === "5m" ? `:${pad(date.getSeconds())}` : ""
+  }`;
+  return range === "24h" && edge
+    ? `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${time}`
+    : time;
+};
+
+const fmtHistoryBytes = (bytes) => {
+  if (!Number.isFinite(bytes)) return "—";
+  const gb = bytes / 1024 ** 3;
+  return gb >= 100 ? `${gb.toFixed(0)} GB` : `${gb.toFixed(1)} GB`;
+};
+
 const baseName = (command) => {
   const trimmed = String(command ?? "").trim();
   if (!trimmed) return "—";
@@ -2100,7 +2125,7 @@ const historyMetrics = [
   },
   {
     metric: "disk.free.percent",
-    label: "磁盘余量",
+    label: "磁盘可用",
     unit: "%",
     color: "green",
     min: 0,
@@ -2129,11 +2154,17 @@ function historyChartHtml(series, options) {
     </article>`;
   }
   const width = 320;
-  const height = 90;
-  const pad = 6;
+  const height = 140;
+  const pad = 8;
   const values = points.map((point) => point.value);
-  const minValue = options.min ?? Math.min(...values);
-  const maxValue = options.max ?? Math.max(...values);
+  const dataMin = values.reduce((min, value) => Math.min(min, value), Infinity);
+  const dataMax = values.reduce(
+    (max, value) => Math.max(max, value),
+    -Infinity,
+  );
+  const dataAvg = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const minValue = options.min ?? dataMin;
+  const maxValue = options.max ?? dataMax;
   const span = maxValue - minValue || 1;
   const lastTs = points.at(-1)?.ts;
   const firstTs = points[0]?.ts;
@@ -2148,18 +2179,34 @@ function historyChartHtml(series, options) {
     .join(" ");
   const area = `${path} L${width - pad},${height - pad} L${pad},${height - pad} Z`;
   const latest = values.at(-1);
+  const subtitle = options.subtitle
+    ? `<small>${escapeHtml(options.subtitle)}</small>`
+    : "";
+  const axis =
+    firstTs && lastTs
+      ? `<div class="history-axis">${[0, 0.25, 0.5, 0.75, 1]
+          .map((ratio) => {
+            const ts = firstTs + (lastTs - firstTs) * ratio;
+            return `<span>${escapeHtml(
+              fmtHistoryTick(ts, options.range, ratio === 0 || ratio === 1),
+            )}</span>`;
+          })
+          .join("")}</div>`
+      : "";
   return `<article class="history-card">
     <header>
       <span>${escapeHtml(options.label)}</span>
-      <strong>${escapeHtml(formatMetricValue(latest, options.unit))}</strong>
+      <strong>${escapeHtml(formatMetricValue(latest, options.unit))}${subtitle}</strong>
     </header>
-    <svg class="history-svg ${options.color ?? "green"}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="${escapeHtml(options.label)} 曲线">
+    <svg class="history-svg ${options.color ?? "green"}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(options.label)} 曲线：最低 ${escapeHtml(formatMetricValue(dataMin, options.unit))}，平均 ${escapeHtml(formatMetricValue(dataAvg, options.unit))}，最高 ${escapeHtml(formatMetricValue(dataMax, options.unit))}">
       <path class="history-area ${options.color ?? "green"}" d="${area}" />
       <path class="history-line ${options.color ?? "green"}" d="${path}" vector-effect="non-scaling-stroke" />
     </svg>
+    ${axis}
     <footer>
-      <span>低 ${escapeHtml(formatMetricValue(minValue, options.unit))}</span>
-      <span>高 ${escapeHtml(formatMetricValue(maxValue, options.unit))}</span>
+      <span>最低 ${escapeHtml(formatMetricValue(dataMin, options.unit))}</span>
+      <span>平均 ${escapeHtml(formatMetricValue(dataAvg, options.unit))}</span>
+      <span>最高 ${escapeHtml(formatMetricValue(dataMax, options.unit))}</span>
     </footer>
   </article>`;
 }
@@ -2173,17 +2220,67 @@ function findMetricSeries(data, scope, scopeId, metric) {
   );
 }
 
+function historyMetricWithSubtitle(data, definition) {
+  if (definition.metric === "memory.percent") {
+    const used = findMetricSeries(
+      data,
+      "system",
+      "local",
+      "memory.used.bytes",
+    )?.points.at(-1)?.value;
+    const total = findMetricSeries(
+      data,
+      "system",
+      "local",
+      "memory.total.bytes",
+    )?.points.at(-1)?.value;
+    if (Number.isFinite(used) && Number.isFinite(total)) {
+      return {
+        ...definition,
+        subtitle: `${fmtHistoryBytes(used)} / ${fmtHistoryBytes(total)}`,
+      };
+    }
+  }
+  if (definition.metric === "disk.free.percent") {
+    const free = findMetricSeries(
+      data,
+      "system",
+      "local",
+      "disk.free.bytes",
+    )?.points.at(-1)?.value;
+    const total = findMetricSeries(
+      data,
+      "system",
+      "local",
+      "disk.total.bytes",
+    )?.points.at(-1)?.value;
+    if (Number.isFinite(free) && Number.isFinite(total)) {
+      return {
+        ...definition,
+        subtitle: `${fmtHistoryBytes(free)} 可用 / ${fmtHistoryBytes(total)}`,
+      };
+    }
+  }
+  return definition;
+}
+
 function renderHistory() {
   const data = state.historyData;
   if (!data) return;
   const rangeLabels = { "5m": "5 分钟", "1h": "1 小时", "24h": "24 小时" };
+  const systemCount = data.series.filter(
+    (series) => series.scope === "system",
+  ).length;
+  const serviceCount = data.series.filter(
+    (series) => series.scope === "service",
+  ).length;
   $("history-meta").textContent =
-    `${rangeLabels[data.range] ?? data.range} · ${data.series.length} 个序列 · ${fmtClock(new Date(data.to).toISOString())}`;
+    `${rangeLabels[data.range] ?? data.range} · ${systemCount} 个系统指标 · ${serviceCount} 个服务指标 · 更新于 ${fmtHistoryTime(data.to, data.range)}`;
   $("history-system").innerHTML = historyMetrics
     .map((definition) =>
       historyChartHtml(
         findMetricSeries(data, "system", "local", definition.metric),
-        definition,
+        { ...historyMetricWithSubtitle(data, definition), range: data.range },
       ),
     )
     .join("");
@@ -2214,8 +2311,28 @@ function renderHistory() {
     .join("");
   select.value = selected;
   const service = state.services.find((item) => item.id === selected);
-  $("history-service-meta").textContent =
-    `${service?.name ?? selected} · ${serviceSeries.filter((series) => series.scopeId === selected).length} 个指标`;
+  const serviceMetricCount = serviceSeries.filter(
+    (series) => series.scopeId === selected,
+  ).length;
+  const up = findMetricSeries(data, "service", selected, "up")?.points.at(
+    -1,
+  )?.value;
+  const health = findMetricSeries(
+    data,
+    "service",
+    selected,
+    "health.up",
+  )?.points.at(-1)?.value;
+  const statuses = [
+    Number.isFinite(up)
+      ? `<span class="history-status ${up >= 1 ? "online" : "offline"}">${up >= 1 ? "运行中" : "未运行"}</span>`
+      : "",
+    Number.isFinite(health)
+      ? `<span class="history-status ${health >= 1 ? "online" : "offline"}">${health >= 1 ? "健康" : "异常"}</span>`
+      : "",
+  ].join("");
+  $("history-service-meta").innerHTML =
+    `${escapeHtml(`${service?.name ?? selected} · ${serviceMetricCount} 个指标`)}${statuses ? `<span class="history-status-group">${statuses}</span>` : ""}`;
   $("history-service-charts").innerHTML = [
     {
       metric: "cpu.percent",
@@ -2235,7 +2352,7 @@ function renderHistory() {
     .map((definition) =>
       historyChartHtml(
         findMetricSeries(data, "service", selected, definition.metric),
-        definition,
+        { ...definition, range: data.range },
       ),
     )
     .join("");
@@ -4162,6 +4279,16 @@ function switchView(view, { updateHash = true } = {}) {
   const meta = viewMeta[view];
   $("page-title").textContent = meta.title;
   document.title = `StudioOps · ${meta.title}`;
+  const liveLabel = document.querySelector(".live-tag em");
+  if (liveLabel) {
+    const liveRanges = {
+      history: "10s",
+      network: "5s",
+      gateway: "3s",
+      processes: "4s",
+    };
+    liveLabel.textContent = liveRanges[view] ?? "2s";
+  }
   if (view !== "services") state.expandedServiceId = null;
   closeServiceForm();
   if (view === "services") renderServices();
@@ -4343,6 +4470,7 @@ document.addEventListener("click", (event) => {
     refreshAll();
     loadProcesses();
     if (state.view === "containers") loadDocker();
+    if (state.view === "history") loadHistory();
     return;
   }
   if (target.id === "error-retry") {

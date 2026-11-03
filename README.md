@@ -18,6 +18,12 @@
 
 ![StudioOps 总览](docs/assets/overview.png)
 
+<p align="center">
+  <img src="docs/assets/history.png" width="72%" alt="历史指标" />
+</p>
+
+<p align="center"><sub>历史：24 小时趋势、最低/平均/最高、时间轴、系统指标与服务运行状态</sub></p>
+
 ## 界面截图
 
 <p align="center">
