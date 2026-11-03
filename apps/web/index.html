@@ -985,6 +985,37 @@
                 >
               </div>
               <p class="network-note" id="warpgate-note">—</p>
+              <div class="warpgate-keys">
+                <div class="warpgate-keys-head">
+                  <strong>访问公钥</strong>
+                  <span id="warpgate-keys-summary">—</span>
+                  <button class="btn btn-small" id="warpgate-keys-refresh">
+                    刷新
+                  </button>
+                </div>
+                <div id="warpgate-keys-list" class="warpgate-keys-list">
+                  <p class="network-note">正在读取公钥…</p>
+                </div>
+                <form id="warpgate-key-form" class="warpgate-key-form">
+                  <input
+                    class="text-input"
+                    id="warpgate-key-label"
+                    maxlength="64"
+                    placeholder="备注，例如 朋友的 MacBook"
+                  />
+                  <textarea
+                    class="text-input"
+                    id="warpgate-key-value"
+                    rows="3"
+                    placeholder="粘贴公钥，以 ssh-ed25519 或 ssh-rsa 开头（不要粘贴私钥）"
+                    required
+                  ></textarea>
+                  <button class="btn btn-small" type="submit">添加公钥</button>
+                </form>
+                <p class="network-note" id="warpgate-keys-note">
+                  公钥可以公开分享；私钥不要发给任何人。
+                </p>
+              </div>
             </section>
 
             <section class="panel" data-title="当前会话">

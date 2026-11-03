@@ -277,17 +277,42 @@ sudo bash scripts/ssh-loopback-mode.sh status
 
 ### 给朋友添加公钥
 
-1. 朋友在自己的机器生成密钥：`ssh-keygen -t ed25519`
-2. 把 `~/.ssh/id_ed25519.pub` 发给你
-3. 在 Warpgate 管理台：Config → Users → `compute-guest` → Public keys
+朋友只需要一行公钥，不需要下载 Warpgate 或安装客户端。
+
+1. 朋友生成密钥：`ssh-keygen -t ed25519`
+2. 把 `~/.ssh/id_ed25519.pub` 发给你（公钥可以公开，私钥不要发）
+3. 在 StudioOps「算力 → SSH 网关 → 访问公钥」：
+   - 备注填 `朋友的 MacBook`
+   - 粘贴整行 `ssh-ed25519 ...`
+   - 点「添加公钥」
 4. 朋友连接：
 
 ```bash
 ssh -i ~/.ssh/id_ed25519 -p 2222 compute-guest:mac-compute@156.239.2.231
 ```
 
+删除公钥会立即吊销该设备的登录能力。也可以在 Warpgate 管理台
+`Config → Users → compute-guest → Public keys` 操作。
+
 不要共享本机测试私钥
 `~/Library/Application Support/com.studioops.desktop/warpgate-test-key`。
+
+### StudioOps 如何管理公钥
+
+StudioOps 通过本机 `127.0.0.1:18888` 的转发调用 VPS Warpgate 管理 API，
+使用只保存在本机的 API Token：
+
+```text
+$STUDIOOPS_DATA_DIR/warpgate-api-token   (mode 600)
+```
+
+- 不把 Warpgate 管理员密码写进前端
+- Token 通过 Warpgate `/profile/api-tokens` 创建
+- 当前 token 标签 `studioops`，有效期 1 年
+- 到期或泄露时，在 Warpgate 重新创建 token，替换该文件即可
+- Token 拥有管理 API 权限，不要提交到 Git 或发给朋友
+
+StudioOps 只调用用户和公钥相关接口，不实现 SSH 协议，也不保存私钥。
 
 ### StudioOps 状态
 

@@ -114,6 +114,7 @@ H3 视频:      8192  → 8193 → 8188
 - 安全审计检查敏感端口、Funnel、Token 和 ACL 风险
 - 服务目标来自受控 YAML，不接受网页提交任意 shell 或路径
 - 算力用户：独立 `compute` 标准用户的会话、进程、磁盘、登录历史、Tailscale SSH 状态和审计
+- SSH 网关：Warpgate 在 VPS 2222，Mac sshd 仅回环；StudioOps 可直接添加/删除 `compute-guest` 公钥
 
 ### 桌面体验
 
@@ -330,7 +331,7 @@ npm run format:check
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
-当前测试：**71 个 TypeScript 测试**，覆盖配置、适配器、鉴权、告警、指标、网络地图和 Gateway 队列/内存准入。
+当前测试：**79 个 TypeScript 测试**，覆盖配置、适配器、鉴权、告警、指标、网络地图和 Gateway 队列/内存准入。
 
 ### 目录
 

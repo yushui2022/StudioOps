@@ -1,33 +1,11 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import { readTailscaleInfo } from "./tailscale.js";
+import { resolveWarpgateConfig } from "./warpgate-config.js";
 
 const execFileAsync = promisify(execFile);
-
-interface WarpgateSettings {
-  host?: string;
-  sshPort?: number;
-  adminPort?: number;
-  container?: string;
-  target?: string;
-  user?: string;
-}
-
-function readSettings(): WarpgateSettings {
-  const dataDir = process.env.STUDIOOPS_DATA_DIR;
-  if (!dataDir) return {};
-  try {
-    return JSON.parse(
-      readFileSync(join(dataDir, "warpgate.json"), "utf8"),
-    ) as WarpgateSettings;
-  } catch {
-    return {};
-  }
-}
 
 export interface WarpgateStatus {
   mode: "vps" | "local";
@@ -48,21 +26,17 @@ export interface WarpgateStatus {
 }
 
 export async function getWarpgateStatus(): Promise<WarpgateStatus> {
-  const settings = readSettings();
-  const remoteHost =
-    process.env.WARPGATE_HOST?.trim() || settings.host?.trim() || undefined;
-  const sshPort = Number(
-    process.env.WARPGATE_SSH_PORT ?? settings.sshPort ?? 2222,
-  );
-  const adminPort = Number(
-    process.env.WARPGATE_ADMIN_PORT ?? settings.adminPort ?? 18888,
-  );
-  const container =
-    process.env.WARPGATE_CONTAINER ??
-    settings.container ??
-    "studioops-warpgate";
+  const {
+    mode,
+    host: remoteHost,
+    sshPort,
+    adminPort,
+    container,
+    target,
+    user,
+  } = resolveWarpgateConfig();
   const base: WarpgateStatus = {
-    mode: remoteHost ? "vps" : "local",
+    mode,
     installed: false,
     running: false,
     container: remoteHost ? `vps:${container}` : container,
@@ -72,8 +46,8 @@ export async function getWarpgateStatus(): Promise<WarpgateStatus> {
     sshHost: remoteHost ?? "127.0.0.1",
     httpListening: false,
     adminUrl: `https://127.0.0.1:${adminPort}/@warpgate/admin`,
-    target: process.env.WARPGATE_TARGET ?? settings.target ?? "mac-compute",
-    user: process.env.WARPGATE_USER ?? settings.user ?? "compute-guest",
+    target,
+    user,
     directSshOpen: false,
   };
 

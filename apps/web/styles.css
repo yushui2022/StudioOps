@@ -3897,3 +3897,81 @@ select {
 #warpgate-note {
   padding: 0 13px 10px;
 }
+
+.warpgate-keys {
+  border-top: 1px solid var(--border);
+  margin: 0 13px 13px;
+  padding-top: 10px;
+}
+
+.warpgate-keys-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+}
+
+.warpgate-keys-head span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.warpgate-keys-head .btn {
+  margin-left: auto;
+}
+
+.warpgate-keys-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.warpgate-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 8px;
+}
+
+.warpgate-key-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.warpgate-key-main strong {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.warpgate-key-main code {
+  color: var(--muted);
+  font-size: 8.5px;
+  overflow-wrap: anywhere;
+}
+
+.warpgate-key-meta {
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.warpgate-key-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.warpgate-key-form .text-input {
+  width: 100%;
+}
+
+.warpgate-key-form textarea {
+  resize: vertical;
+}
+
+.warpgate-key-form .btn {
+  justify-self: start;
+}

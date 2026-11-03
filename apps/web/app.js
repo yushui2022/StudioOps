@@ -91,6 +91,8 @@ const state = {
   gatewayRecordsError: "",
   compute: null,
   warpgate: null,
+  warpgateKeys: null,
+  warpgateKeysError: "",
   gatewayRecordSearch: "",
   metricsSettings: null,
   alerts: null,
@@ -1756,6 +1758,114 @@ function renderWarpgate() {
   $("warpgate-copy").disabled = !command.startsWith("ssh ");
 }
 
+function renderWarpgateKeys() {
+  const snapshot = state.warpgateKeys;
+  const list = $("warpgate-keys-list");
+  if (!list) return;
+  if (!snapshot) {
+    $("warpgate-keys-summary").textContent = "—";
+    list.innerHTML = `<p class="network-note">${escapeHtml(
+      state.warpgateKeysError || "公钥列表不可用",
+    )}</p>`;
+    return;
+  }
+  const keys = snapshot.keys ?? [];
+  $("warpgate-keys-summary").textContent =
+    `${snapshot.username} · ${keys.length} 个公钥`;
+  if (!keys.length) {
+    list.innerHTML = `<p class="network-note">还没有添加公钥。把朋友的 .pub 文件内容粘贴到下面即可。</p>`;
+    return;
+  }
+  list.innerHTML = keys
+    .map((key) => {
+      const meta = [
+        key.addedAt ? `添加于 ${fmtDateTime(key.addedAt)}` : "",
+        key.lastUsedAt ? `最近使用 ${fmtDateTime(key.lastUsedAt)}` : "尚未使用",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `<div class="warpgate-key-row">
+        <div class="warpgate-key-main">
+          <strong>${escapeHtml(key.label || "未命名")}</strong>
+          <span class="warpgate-key-meta">${escapeHtml(meta)}</span>
+          <code title="${escapeHtml(key.publicKey)}">${escapeHtml(
+            key.publicKey.length > 72
+              ? `${key.publicKey.slice(0, 72)}…`
+              : key.publicKey,
+          )}</code>
+        </div>
+        <button class="btn btn-small" data-warpgate-key-delete="${escapeHtml(
+          key.id,
+        )}">删除</button>
+      </div>`;
+    })
+    .join("");
+}
+
+async function loadWarpgateKeys({ quiet = false } = {}) {
+  try {
+    state.warpgateKeys = await api("/api/warpgate/keys");
+    state.warpgateKeysError = "";
+  } catch (error) {
+    state.warpgateKeys = null;
+    state.warpgateKeysError =
+      error instanceof Error ? error.message : "读取公钥失败";
+    if (!quiet) toast(state.warpgateKeysError, true);
+  }
+  renderWarpgateKeys();
+}
+
+async function addWarpgateKey() {
+  const input = $("warpgate-key-value");
+  const labelInput = $("warpgate-key-label");
+  const button = $("warpgate-key-form")?.querySelector("button[type=submit]");
+  const publicKey = input?.value.trim() ?? "";
+  if (!publicKey) {
+    toast("请先粘贴公钥", true);
+    input?.focus();
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    state.warpgateKeys = await api("/api/warpgate/keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        label: labelInput?.value.trim() || undefined,
+        publicKey,
+      }),
+    });
+    state.warpgateKeysError = "";
+    renderWarpgateKeys();
+    if (input) input.value = "";
+    if (labelInput) labelInput.value = "";
+    toast("公钥已添加");
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "添加公钥失败", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function deleteWarpgateKey(id, button) {
+  if (!confirm("删除这个公钥？使用它的设备将无法再通过 Warpgate 登录。")) {
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    state.warpgateKeys = await api(
+      `/api/warpgate/keys/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+    state.warpgateKeysError = "";
+    renderWarpgateKeys();
+    toast("公钥已删除");
+  } catch (error) {
+    toast(error instanceof Error ? error.message : "删除公钥失败", true);
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadCompute({ quiet = false } = {}) {
   const results = await Promise.allSettled([
     api("/api/compute"),
@@ -1776,6 +1886,9 @@ async function loadCompute({ quiet = false } = {}) {
   if (compute.status === "fulfilled") {
     renderCompute();
     renderWarpgate();
+    if (!quiet || (!state.warpgateKeys && !state.warpgateKeysError)) {
+      await loadWarpgateKeys({ quiet });
+    }
   }
 }
 
@@ -4102,6 +4215,11 @@ document.addEventListener(
   true,
 );
 
+$("warpgate-key-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  addWarpgateKey();
+});
+
 document.addEventListener("click", (event) => {
   const target = event.target.closest("button, [data-service]");
   if (!target) return;
@@ -4139,6 +4257,14 @@ document.addEventListener("click", (event) => {
   }
   if (target.id === "warpgate-copy") {
     copyWarpgateCommand(target);
+    return;
+  }
+  if (target.id === "warpgate-keys-refresh") {
+    loadWarpgateKeys();
+    return;
+  }
+  if (target.dataset.warpgateKeyDelete) {
+    deleteWarpgateKey(target.dataset.warpgateKeyDelete, target);
     return;
   }
   if (target.id === "gateway-install") {

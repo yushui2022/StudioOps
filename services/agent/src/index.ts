@@ -25,6 +25,11 @@ import {
 import { cancelComfyTask, getComfySnapshot } from "./core/comfyui.js";
 import { getComputeSnapshot, setComputeTailscaleSsh } from "./core/compute.js";
 import { getWarpgateStatus } from "./core/warpgate.js";
+import {
+  addWarpgateKey,
+  deleteWarpgateKey,
+  listWarpgateKeys,
+} from "./core/warpgate-keys.js";
 import { changedRuntimeFields } from "./core/config-diff.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getDockerSnapshot, runContainerAction } from "./core/docker-status.js";
@@ -831,6 +836,75 @@ app.get("/api/compute", async (c) => {
   });
 });
 app.get("/api/warpgate/status", async (c) => json(await getWarpgateStatus()));
+app.get("/api/warpgate/keys", async (c) => {
+  try {
+    return json(await listWarpgateKeys());
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "读取 Warpgate 公钥失败";
+    return c.json({ error: message }, 400);
+  }
+});
+app.post("/api/warpgate/keys", async (c) => {
+  try {
+    const body = await readJsonObject(c.req.raw);
+    const snapshot = await addWarpgateKey({
+      label: typeof body.label === "string" ? body.label : undefined,
+      publicKey: typeof body.publicKey === "string" ? body.publicKey : "",
+    });
+    eventStore.record({
+      serviceId: `warpgate:${snapshot.username}`,
+      action: "config",
+      state: "running",
+      success: true,
+      actor: actorFor(c),
+      ...remoteIdentity(c),
+      at: new Date().toISOString(),
+    });
+    return json(snapshot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "添加公钥失败";
+    eventStore.record({
+      serviceId: "warpgate:keys",
+      action: "config",
+      state: "unknown",
+      success: false,
+      actor: actorFor(c),
+      ...remoteIdentity(c),
+      error: message,
+      at: new Date().toISOString(),
+    });
+    return c.json({ error: message }, 400);
+  }
+});
+app.delete("/api/warpgate/keys/:id", async (c) => {
+  try {
+    const snapshot = await deleteWarpgateKey(c.req.param("id"));
+    eventStore.record({
+      serviceId: `warpgate:${snapshot.username}`,
+      action: "config",
+      state: "running",
+      success: true,
+      actor: actorFor(c),
+      ...remoteIdentity(c),
+      at: new Date().toISOString(),
+    });
+    return json(snapshot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "删除公钥失败";
+    eventStore.record({
+      serviceId: "warpgate:keys",
+      action: "config",
+      state: "unknown",
+      success: false,
+      actor: actorFor(c),
+      ...remoteIdentity(c),
+      error: message,
+      at: new Date().toISOString(),
+    });
+    return c.json({ error: message }, 400);
+  }
+});
 app.post("/api/compute/tailscale-ssh", async (c) => {
   try {
     const body = await readJsonObject(c.req.raw);
