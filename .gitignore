@@ -6,6 +6,7 @@ node_modules/
 data/
 config/services.yaml
 config/services.local.yaml
+apps/web/share.local.json
 dist/
 coverage/
 target/

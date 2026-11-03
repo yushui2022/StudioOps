@@ -16,6 +16,9 @@ export interface ModelCallRecord {
   waitMs?: number;
   durationMs?: number;
   bytes: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
   error?: string;
 }
 

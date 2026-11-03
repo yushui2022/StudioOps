@@ -1,0 +1,58 @@
+{
+  "base_url": "https://example.invalid/v1",
+  "scheduling": [
+    "本机文本模型只有一个槽。拉起一个模型会卸掉其他空闲模型。",
+    "正在回答的模型不会被中途杀掉。换模型会冷启动。",
+    "额度或队列满返回 429。内存不够返回 503。上下文超过窗口返回 400。"
+  ],
+  "capabilities": [
+    {
+      "id": "text",
+      "title": "文本",
+      "public": true,
+      "model": "your-text-model",
+      "local_model": "your-text-model:local",
+      "api_key": "sk-replace-me",
+      "method": "POST",
+      "path": "/chat/completions",
+      "context_tokens": 131072,
+      "quota": "按你的网关额度填写",
+      "notes": [
+        "OpenAI Chat Completions。建议 stream: true。",
+        "如果是思考模型，max_tokens 太小会把额度花在思考上，正文为空。"
+      ],
+      "example": {
+        "model": "your-text-model",
+        "messages": [{ "role": "user", "content": "你好" }],
+        "max_tokens": 2000,
+        "stream": true
+      }
+    },
+    {
+      "id": "image",
+      "title": "文生图",
+      "public": true,
+      "model": "your-image-model",
+      "api_key": "sk-replace-me",
+      "method": "POST",
+      "path": "/images/generations",
+      "notes": ["只支持文生图。返回 data[0].b64_json。"],
+      "example": {
+        "model": "your-image-model",
+        "prompt": "a rainy street at night",
+        "size": "1024x1024",
+        "n": 1
+      }
+    },
+    {
+      "id": "video",
+      "title": "视频",
+      "public": false,
+      "model": "your-video-model",
+      "method": "POST",
+      "path": "/videos/generations",
+      "local_base_url": "http://127.0.0.1:8192/v1",
+      "notes": ["公网未开通。不要对 base_url 调用。"]
+    }
+  ]
+}

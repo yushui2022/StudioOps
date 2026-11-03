@@ -1,3 +1,5 @@
+import { buildModelShareGuide } from "./share-guide.js";
+
 const $ = (id) => document.getElementById(id);
 
 // Release builds load the web assets from Tauri (tauri://localhost), so a
@@ -1290,6 +1292,22 @@ const gatewayBackendLabels = {
   video: "视频 H3",
 };
 
+function fmtTokens(record) {
+  const prompt = record?.promptTokens;
+  const completion = record?.completionTokens;
+  const total =
+    record?.totalTokens ??
+    (Number.isFinite(prompt) && Number.isFinite(completion)
+      ? prompt + completion
+      : undefined);
+  if (!Number.isFinite(prompt) && !Number.isFinite(completion) && !Number.isFinite(total))
+    return "—";
+  const input = Number.isFinite(prompt) ? prompt : "—";
+  const output = Number.isFinite(completion) ? completion : "—";
+  const sum = Number.isFinite(total) ? total : "—";
+  return `${input}+${output}=${sum}`;
+}
+
 function fmtDuration(ms) {
   if (!Number.isFinite(ms)) return "—";
   if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
@@ -1449,6 +1467,7 @@ function renderGateway() {
         <td class="mono">${escapeHtml(row.job.client ?? "—")}</td>
         <td class="num">${fmtDuration(row.wait)}</td>
         <td class="num">${fmtDuration(row.running)}</td>
+        <td class="num" title="输入+输出=合计">${fmtTokens(row.job)}</td>
         <td class="num actions-col"><button class="btn btn-small" data-gateway-cancel="${escapeHtml(row.job.id)}">取消</button></td>
       </tr>`,
     )
@@ -1465,6 +1484,7 @@ function renderGateway() {
         <td class="mono">${escapeHtml(fmtClock(event.finishedAt ?? event.enqueuedAt))}</td>
         <td>${escapeHtml(gatewayBackendLabels[event.backend] ?? event.backend)}</td>
         <td class="mono gateway-model">${escapeHtml(event.model ?? "—")}</td>
+        <td class="num" title="输入+输出=合计">${fmtTokens(event)}</td>
         <td><span class="gateway-job-state ${escapeHtml(event.state)}" title="${escapeHtml(event.error ?? "")}">${escapeHtml(gatewayStateLabels[event.state] ?? event.state)}</span></td>
         <td class="mono gateway-path">${escapeHtml(event.method)} ${escapeHtml(event.path)}${event.error ? `<small class="cell-sub" title="${escapeHtml(event.error)}">${escapeHtml(event.error)}</small>` : ""}</td>
         <td class="mono">${escapeHtml(event.client ?? "—")}</td>
@@ -1480,6 +1500,62 @@ function renderGateway() {
   $("gateway-events-empty").classList.toggle("hidden", events.length > 0);
 }
 
+async function loadModelShare({ quiet = false } = {}) {
+  const status = $("model-share-status");
+  const note = $("model-share-note");
+  const textarea = $("model-share-text");
+  if (!textarea) return;
+  try {
+    const response = await fetch(`${agentOrigin}/share.local.json`, {
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`分享配置不存在 (${response.status})`);
+    const profile = await response.json();
+    textarea.value = buildModelShareGuide(profile);
+    const capabilities = Array.isArray(profile.capabilities)
+      ? profile.capabilities
+      : [];
+    const publicNames = capabilities
+      .filter((item) => item.public === true)
+      .map((item) => item.title || item.id);
+    const privateNames = capabilities
+      .filter((item) => item.public !== true)
+      .map((item) => item.title || item.id);
+    if (status) status.textContent = "已生成";
+    if (note) {
+      note.textContent = `可公网复制：${publicNames.join("、") || "无"}。未开通公网：${privateNames.join("、") || "无"}。改 share.local.json 后点刷新。`;
+    }
+  } catch (error) {
+    textarea.value = "";
+    if (status) status.textContent = "未配置";
+    if (note) {
+      note.textContent =
+        "没有读到 share.local.json。复制 apps/web/share.example.json 为 share.local.json 后刷新。";
+    }
+    if (!quiet) toast(error.message, true);
+  }
+}
+
+async function copyModelShare(button) {
+  await loadModelShare({ quiet: true });
+  const text = $("model-share-text")?.value ?? "";
+  if (!text) {
+    toast("没有可复制的模型说明", true);
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("模型说明已复制");
+  } catch {
+    $("model-share-text")?.focus();
+    $("model-share-text")?.select();
+    toast("无法自动复制，请手动选择", true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadGateway({ quiet = false } = {}) {
   try {
     state.gateway = await api("/api/gateway/status");
@@ -1491,6 +1567,7 @@ async function loadGateway({ quiet = false } = {}) {
     $("gateway-error").textContent = error.message;
     $("gateway-error").classList.remove("hidden");
   }
+  await loadModelShare({ quiet: true });
 }
 
 async function gatewayAction(path, button, successMessage) {
@@ -1593,6 +1670,7 @@ function renderGatewayRecords() {
       (record) => `<tr>
         <td class="mono">${escapeHtml(fmtClock(record.finishedAt ?? record.enqueuedAt))}</td>
         <td class="mono gateway-model" title="${escapeHtml(record.model ?? "")}">${escapeHtml(record.model ?? (record.backend === "comfyui" ? "ComfyUI 工作流" : "—"))}</td>
+        <td class="num" title="输入+输出=合计">${fmtTokens(record)}</td>
         <td>${escapeHtml(gatewayBackendLabels[record.backend] ?? record.backend)}</td>
         <td><span class="gateway-job-state ${escapeHtml(record.state)}" title="${escapeHtml(record.error ?? "")}">${escapeHtml(gatewayStateLabels[record.state] ?? record.state)}</span></td>
         <td class="mono gateway-path">${escapeHtml(record.method)} ${escapeHtml(record.path)}${record.error ? `<small class="cell-sub" title="${escapeHtml(record.error)}">${escapeHtml(record.error)}</small>` : ""}</td>
@@ -4701,6 +4779,14 @@ document.addEventListener("click", (event) => {
   }
   if (target.dataset.warpgateKeyDelete) {
     deleteWarpgateKey(target.dataset.warpgateKeyDelete, target);
+    return;
+  }
+  if (target.id === "model-share-refresh") {
+    loadModelShare();
+    return;
+  }
+  if (target.id === "model-share-copy") {
+    copyModelShare(target);
     return;
   }
   if (target.id === "gateway-install") {

@@ -752,6 +752,29 @@
               <p class="gateway-error hidden" id="gateway-error"></p>
             </div>
 
+            <section class="panel" data-title="发给 Agent">
+              <div class="friend-guide model-share">
+                <div class="friend-guide-head">
+                  <strong>模型接入说明</strong>
+                  <span id="model-share-status">—</span>
+                  <button class="btn btn-small" id="model-share-refresh" type="button">
+                    刷新
+                  </button>
+                  <button class="btn btn-small" id="model-share-copy" type="button">
+                    复制说明
+                  </button>
+                </div>
+                <p class="network-note" id="model-share-note">
+                  复制后可以直接发给别人的 Agent。文本和出图走公网；视频目前只在本机，说明里会写明不要对公网调用。
+                </p>
+                <textarea
+                  id="model-share-text"
+                  readonly
+                  spellcheck="false"
+                ></textarea>
+              </div>
+            </section>
+
             <div class="gateway-backends" id="gateway-backends">
               <section class="panel" data-title="Ollama 队列">
                 <p class="muted gateway-placeholder">正在读取网关状态…</p>
@@ -772,6 +795,7 @@
                       <th>来源</th>
                       <th class="num">等待</th>
                       <th class="num">已运行</th>
+                      <th class="num">Token</th>
                       <th class="actions-col">操作</th>
                     </tr>
                   </thead>
@@ -792,6 +816,7 @@
                       <th>时间</th>
                       <th>后端</th>
                       <th>模型</th>
+                      <th class="num">Token</th>
                       <th>状态</th>
                       <th>请求</th>
                       <th>来源</th>
@@ -831,6 +856,7 @@
                     <tr>
                       <th>时间</th>
                       <th>模型</th>
+                      <th class="num">Token</th>
                       <th>后端</th>
                       <th>状态</th>
                       <th>请求</th>
@@ -848,8 +874,8 @@
                 <span>外部请求经过网关并调用模型后，这里会保留记录。</span>
               </div>
               <p class="network-note gateway-records-note">
-                只记录模型、路线、来源、状态和耗时，不记录 prompt
-                或请求体。日志文件：
+                记录模型、路线、来源、状态、耗时和 token 数量，不记录 prompt
+                或请求体。Token 列是输入+输出=合计。日志文件：
                 <code id="gateway-records-file">—</code>
               </p>
             </section>

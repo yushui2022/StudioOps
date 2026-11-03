@@ -94,6 +94,9 @@ export interface GatewayJob {
   startedAt?: string;
   waitMs?: number;
   bytes: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 export interface GatewayRecentEvent {
@@ -110,6 +113,9 @@ export interface GatewayRecentEvent {
   waitMs?: number;
   durationMs?: number;
   bytes: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
   error?: string;
 }
 
@@ -358,6 +364,9 @@ export interface GatewayRecord {
   waitMs?: number;
   durationMs?: number;
   bytes: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
   error?: string;
 }
 

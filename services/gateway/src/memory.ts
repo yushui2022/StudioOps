@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
 import type { BackendName } from "./gateway.js";
+import { sameResidentModel } from "./usage.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -72,7 +73,7 @@ export class MemoryGuard implements MemoryAdmission {
   private modelTimer?: NodeJS.Timeout;
   private sampling = false;
   private refreshingModels = false;
-  private unloading?: Promise<boolean>;
+  private unloadQueue: Promise<unknown> = Promise.resolve();
   private readonly readMemory: () => Promise<SystemMemory>;
   private readonly fetchImpl: typeof fetch;
   private readonly reserveBytes: number;
@@ -160,37 +161,52 @@ export class MemoryGuard implements MemoryAdmission {
 
   async admit(request: AdmissionRequest): Promise<AdmissionDecision> {
     if (!isMemoryInfluencing(request)) return { allowed: true };
+    if (request.backend === "ollama" && request.model) {
+      await this.releaseIdleModels(request);
+    } else if (
+      (request.backend === "comfyui" || request.backend === "video") &&
+      this.memoryDecision(request)
+    ) {
+      await this.releaseIdleModels(request);
+    }
+
     const memoryDenied = this.memoryDecision(request);
     if (memoryDenied) return memoryDenied;
     if (request.backend !== "ollama" || !request.model)
       return { allowed: true, snapshot: this.status() };
 
-    // A different model is requested while the slot is full. Unload an idle
-    // model instead of letting Ollama silently load a second one.
-    const initialSlot = this.slotDecision(request);
-    if (!initialSlot) return { allowed: true, snapshot: this.status() };
-    const active = new Set(request.activeModels ?? []);
-    const candidate = this.loadedModels.find((model) => !active.has(model));
-    if (candidate) {
-      const unloaded = await this.ensureUnloaded(candidate);
-      if (unloaded) {
-        const afterUnload = this.slotDecision(request);
-        if (!afterUnload) {
-          const deniedAfterUnload = this.memoryDecision(request);
-          if (deniedAfterUnload) return deniedAfterUnload;
-          return { allowed: true, snapshot: this.status() };
-        }
-        return afterUnload;
-      }
-    }
+    const slot = this.slotDecision(request);
+    if (!slot) return { allowed: true, snapshot: this.status() };
+    const blocking = [
+      ...this.loadedModels,
+      ...(request.activeModels ?? []),
+    ].filter((name) => !sameResidentModel(request.model ?? "", name));
     return {
-      allowed: false,
-      code: "model-slot",
-      reason: candidate
-        ? `内存准入：Ollama 已加载 ${this.loadedModels.length} 个模型（上限 ${this.maxLoadedModels}），自动卸载空闲模型 ${candidate} 失败；请先在服务页手动卸载`
-        : `内存准入：Ollama 已加载或正在加载 ${this.maxLoadedModels} 个模型，且有请求正在使用；请求的 ${request.model} 需要额外加载`,
-      snapshot: this.status(),
+      ...slot,
+      reason: blocking.length
+        ? `内存准入：${blocking.join("、")} 正在占用唯一模型槽，请等它结束后再调用 ${request.model}`
+        : slot.reason,
     };
+  }
+
+  /**
+   * One resident Ollama model. A request for a different model unloads the
+   * idle one first. A model that still has a request in flight stays loaded.
+   */
+  private async releaseIdleModels(request: AdmissionRequest): Promise<void> {
+    const active = request.activeModels ?? [];
+    const targets = this.loadedModels.filter((loaded) => {
+      if (active.some((name) => sameResidentModel(name, loaded))) return false;
+      if (
+        request.backend === "ollama" &&
+        request.model &&
+        sameResidentModel(request.model, loaded)
+      )
+        return false;
+      return true;
+    });
+    for (const model of targets) await this.enqueueUnload(model);
+    if (targets.length > 0) await this.sample();
   }
 
   /**
@@ -201,10 +217,18 @@ export class MemoryGuard implements MemoryAdmission {
     request: AdmissionRequest,
   ): AdmissionDecision | undefined {
     if (request.backend !== "ollama" || !request.model) return undefined;
-    const active = new Set(request.activeModels ?? []);
-    const effective = new Set([...this.loadedModels, ...active]);
-    if (effective.size < this.maxLoadedModels || effective.has(request.model))
+    const names = [...this.loadedModels, ...(request.activeModels ?? [])];
+    const distinct: string[] = [];
+    for (const name of names) {
+      if (!distinct.some((item) => sameResidentModel(item, name)))
+        distinct.push(name);
+    }
+    const requestedResident = distinct.some((name) =>
+      sameResidentModel(request.model ?? "", name),
+    );
+    if (distinct.length < this.maxLoadedModels || requestedResident)
       return undefined;
+    const effective = new Set(distinct);
     return {
       allowed: false,
       code: "model-slot",
@@ -222,7 +246,12 @@ export class MemoryGuard implements MemoryAdmission {
     // model, so it stays available while the machine is within the hard floor.
     const warm =
       request?.backend === "ollama" &&
-      Boolean(request.model && this.loadedModels.includes(request.model));
+      Boolean(
+        request.model &&
+          this.loadedModels.some((model) =>
+            sameResidentModel(request.model ?? "", model),
+          ),
+      );
     const minimumFreeBytes = Number(
       process.env.STUDIOOPS_GATEWAY_MEMORY_MIN_FREE_BYTES ?? 2 * 1024 ** 3,
     );
@@ -268,12 +297,13 @@ export class MemoryGuard implements MemoryAdmission {
     };
   }
 
-  private async ensureUnloaded(model: string): Promise<boolean> {
-    if (this.unloading) return this.unloading;
-    this.unloading = this.unloadModel(model).finally(() => {
-      this.unloading = undefined;
-    });
-    return this.unloading;
+  private enqueueUnload(model: string): Promise<boolean> {
+    const task = this.unloadQueue.then(() => this.unloadModel(model));
+    this.unloadQueue = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
   }
 
   private async unloadModel(model: string): Promise<boolean> {

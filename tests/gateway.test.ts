@@ -14,6 +14,10 @@ import {
   MemoryGuard,
   type MemoryAdmission,
 } from "../services/gateway/src/memory.js";
+import {
+  sameResidentModel,
+  UsageObserver,
+} from "../services/gateway/src/usage.js";
 
 interface HarnessOptions {
   concurrency?: number;
@@ -912,4 +916,176 @@ test("memory guard reserves headroom for H3 video jobs", async () => {
     ).allowed,
     true,
   );
+});
+
+test("usage observer keeps the last token counts and ignores prompt text", () => {
+  const observer = new UsageObserver();
+  observer.observe('data: {"content":"secret-prompt"}\n');
+  observer.observe('{"prompt_eval_');
+  observer.observe('count": 128, "eval_count": 16}\n');
+  assert.equal(observer.usage.promptTokens, 128);
+  assert.equal(observer.usage.completionTokens, 16);
+  assert.equal(observer.usage.totalTokens, 144);
+  observer.observe(
+    JSON.stringify({
+      usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+    }),
+  );
+  assert.deepEqual(observer.usage, {
+    promptTokens: 20,
+    completionTokens: 5,
+    totalTokens: 25,
+  });
+  assert.equal(sameResidentModel("ravenx-cyber", "ravenx-cyber:35b"), true);
+  assert.equal(sameResidentModel("ravenx-cyber:35b", "ravenx-cyber"), true);
+  assert.equal(
+    sameResidentModel(
+      "qwen3.8-27b-uncensored",
+      "qwen3.8-27b-abliterated:q4km",
+    ),
+    false,
+  );
+  assert.equal(
+    sameResidentModel("ravenx-cyber:35b", "qwen3.8-27b-abliterated:q4km"),
+    false,
+  );
+});
+
+test("memory guard keeps the requested model and unloads the other idle one", async () => {
+  let loaded = ["qwen3.8-27b-abliterated:q4km", "ravenx-cyber:35b"];
+  const unloaded: string[] = [];
+  const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/ps") {
+      return new Response(
+        JSON.stringify({ models: loaded.map((name) => ({ name })) }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.pathname === "/api/generate") {
+      const body = JSON.parse(String(init?.body)) as { model?: string };
+      unloaded.push(body.model ?? "");
+      loaded = loaded.filter((name) => name !== body.model);
+      return new Response(JSON.stringify({ done: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("unsupported", { status: 404 });
+  }) as typeof fetch;
+  const guard = new MemoryGuard({
+    ollamaUpstream: new URL("http://127.0.0.1:11434"),
+    reserveBytes: 12 * 1024 ** 3,
+    maxLoadedModels: 1,
+    readMemory: async () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 20 * 1024 ** 3,
+      freeBytes: 44 * 1024 ** 3,
+    }),
+    fetchImpl,
+  });
+  await guard.start();
+  guard.stop();
+  const allowed = await guard.admit({
+    backend: "ollama",
+    method: "POST",
+    path: "/api/chat",
+    model: "ravenx-cyber",
+    activeModels: [],
+  });
+  assert.equal(allowed.allowed, true);
+  assert.deepEqual(unloaded, ["qwen3.8-27b-abliterated:q4km"]);
+  assert.deepEqual(guard.status().ollama.loadedModels, ["ravenx-cyber:35b"]);
+
+  const busy = new MemoryGuard({
+    ollamaUpstream: new URL("http://127.0.0.1:11434"),
+    reserveBytes: 12 * 1024 ** 3,
+    maxLoadedModels: 1,
+    readMemory: async () => ({
+      totalBytes: 64 * 1024 ** 3,
+      usedBytes: 20 * 1024 ** 3,
+      freeBytes: 44 * 1024 ** 3,
+    }),
+    fetchImpl: (async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/ps") {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: "qwen3.8-27b-abliterated:q4km" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      unloaded.push("should-not-unload");
+      return new Response(JSON.stringify({ done: true }), { status: 200 });
+    }) as typeof fetch,
+  });
+  await busy.start();
+  busy.stop();
+  const blocked = await busy.admit({
+    backend: "ollama",
+    method: "POST",
+    path: "/api/chat",
+    model: "ravenx-cyber:35b",
+    activeModels: ["qwen3.8-27b-abliterated:q4km"],
+  });
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.code, "model-slot");
+  assert.equal(unloaded.includes("should-not-unload"), false);
+});
+
+test("gateway records token counts without the prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-tokens-"));
+  const recordsFile = join(root, "model-calls.jsonl");
+  const harness = await startHarness({
+    recordsFile,
+    handler: (_req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          choices: [{ message: { content: "ok" } }],
+          usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+        }),
+      );
+    },
+  });
+  try {
+    const prompt = "secret-prompt-must-not-be-recorded";
+    const response = await fetch(`${harness.base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "ravenx-cyber:35b",
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    await waitFor(async () => {
+      const records = await (await fetch(`${harness.admin}/records`)).json();
+      return (records as { records: unknown[] }).records.length === 1;
+    });
+    const payload = (await (
+      await fetch(`${harness.admin}/records?limit=5`)
+    ).json()) as {
+      records: Array<{
+        promptTokens?: number;
+        completionTokens?: number;
+        totalTokens?: number;
+        model?: string;
+      }>;
+    };
+    assert.equal(payload.records[0]?.model, "ravenx-cyber:35b");
+    assert.equal(payload.records[0]?.promptTokens, 11);
+    assert.equal(payload.records[0]?.completionTokens, 7);
+    assert.equal(payload.records[0]?.totalTokens, 18);
+    const raw = readFileSync(recordsFile, "utf8");
+    assert.equal(raw.includes(prompt), false);
+    const summary = await status(harness);
+    const event = summary.recent.find(
+      (item) => item.path === "/v1/chat/completions",
+    );
+    assert.equal(event?.totalTokens, 18);
+  } finally {
+    await harness.close();
+  }
 });

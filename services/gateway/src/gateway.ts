@@ -6,6 +6,7 @@ import http, {
 import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
 import { extractModel, type MemoryAdmission } from "./memory.js";
+import { UsageObserver } from "./usage.js";
 import { ModelCallLog, type ModelCallRecord } from "./records.js";
 
 export type BackendName = "ollama" | "comfyui" | "video";
@@ -63,6 +64,9 @@ export interface RecentEvent {
   durationMs?: number;
   bytes: number;
   model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
   error?: string;
 }
 
@@ -83,6 +87,9 @@ interface Job {
   statusCode?: number;
   bytesOut: number;
   model?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
   queueTimer?: NodeJS.Timeout;
   requestTimer?: NodeJS.Timeout;
   upstreamRequest?: http.ClientRequest;
@@ -432,8 +439,13 @@ class BackendQueue {
             upstreamRes.statusMessage,
             forwardableHeaders(upstreamRes.headers),
           );
+          const usage = new UsageObserver();
           upstreamRes.on("data", (chunk: Buffer) => {
             job.bytesOut += chunk.length;
+            const seen = usage.observe(chunk);
+            job.promptTokens = seen.promptTokens;
+            job.completionTokens = seen.completionTokens;
+            job.totalTokens = seen.totalTokens;
           });
           upstreamRes.on("error", (error) => {
             job.res.destroy();
@@ -512,6 +524,9 @@ class BackendQueue {
           : undefined,
       bytes: job.body.length,
       model: job.model,
+      promptTokens: job.promptTokens,
+      completionTokens: job.completionTokens,
+      totalTokens: job.totalTokens,
       error: job.error,
     };
     this.recent.unshift(event);
@@ -761,5 +776,8 @@ function jobDetails(job: Job) {
     waitMs: job.startedAt ? job.startedAt - job.enqueuedAt : undefined,
     bytes: job.body.length,
     model: job.model,
+    promptTokens: job.promptTokens,
+    completionTokens: job.completionTokens,
+    totalTokens: job.totalTokens,
   };
 }

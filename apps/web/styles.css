@@ -4023,6 +4023,16 @@ select {
   resize: vertical;
 }
 
+.model-share {
+  margin: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.model-share textarea {
+  height: 280px;
+}
+
 .history-axis {
   display: flex;
   justify-content: space-between;
