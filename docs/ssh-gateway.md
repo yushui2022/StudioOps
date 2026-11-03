@@ -256,7 +256,7 @@ curl -k https://127.0.0.1:18888/@warpgate/admin
 -L 127.0.0.1:18888:127.0.0.1:8888    本机访问 VPS Warpgate 管理台
 ```
 
-由 LaunchAgent `ai.local.ollama-tunnel` 常驻。
+由系统 LaunchDaemon `ai.local.studioops.tunnel` 常驻（开机自启，不依赖用户登录）。旧的用户级 LaunchAgent 已重命名为 `ai.local.ollama-tunnel.plist.disabled`。
 
 ### 回滚
 
