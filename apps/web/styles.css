@@ -2107,13 +2107,33 @@ select {
 .world-map-arc {
   fill: none;
   stroke: var(--green);
-  stroke-width: 1.1;
-  opacity: 0.72;
+  stroke-width: 1.15;
+  opacity: 0.38;
 }
 
 .world-map-arc.outbound {
   stroke: var(--amber);
-  opacity: 0.34;
+  opacity: 0.32;
+}
+
+.world-map-flow {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2.15;
+  stroke-linecap: round;
+  stroke-dasharray: 16 74;
+  opacity: 0.95;
+  animation: world-map-send 1.05s linear infinite;
+}
+
+.world-map-flow.outbound {
+  stroke: var(--amber);
+}
+
+@keyframes world-map-send {
+  to {
+    stroke-dashoffset: -90;
+  }
 }
 
 .world-map-point {
@@ -2137,6 +2157,32 @@ select {
   stroke: var(--amber);
   stroke-width: 1;
   opacity: 0.36;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: world-server-ping 2.6s ease-out infinite;
+}
+
+@keyframes world-server-ping {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.62;
+  }
+  100% {
+    transform: scale(2.15);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world-map-flow,
+  .world-map-server-ring {
+    animation: none;
+  }
+
+  .world-map-flow {
+    stroke-dasharray: none;
+    opacity: 0.72;
+  }
 }
 
 .world-map-empty {

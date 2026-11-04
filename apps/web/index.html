@@ -632,6 +632,12 @@
                   <button class="btn btn-small" data-history-range="24h">
                     24 小时
                   </button>
+                  <button class="btn btn-small" data-history-range="7d">
+                    1 周
+                  </button>
+                  <button class="btn btn-small" data-history-range="all">
+                    总历史
+                  </button>
                 </div>
                 <span class="muted" id="history-meta">—</span>
                 <button class="btn btn-small" id="history-refresh">
@@ -679,7 +685,8 @@
               </div>
               <p class="network-note">
                 只显示公网地址；Tailscale、回环和私有网段会被过滤。绿色为入站，
-                金色为出站；IP 通过 ipwho.is 解析国家/城市，不保存请求内容。
+                金色为出站。入站还包含香港网关最近 24 小时的调用来源。IP 通过
+                ipwho.is 解析国家/城市，不保存请求内容。
               </p>
             </div>
             <div class="world-map-panel panel" data-title="实时世界连接">
@@ -1257,7 +1264,7 @@
                 </div>
                 <p class="uninstall-result hidden" id="metrics-result"></p>
                 <p class="uninstall-hint">
-                  原始采样用于 5 分钟曲线，1 分钟聚合用于 1 小时。历史记录写入
+                  原始采样用于 5 分钟，1 分钟聚合用于 1 小时和 24 小时，1 小时聚合用于 1 周和总历史。总历史画出已保留的记录，小时数据默认留 365 天。历史写入
                   SQLite，重启后保留。
                 </p>
               </section>

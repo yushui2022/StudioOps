@@ -76,6 +76,7 @@ import { buildMetricSamples } from "../services/agent/src/core/metrics-sampler.j
 import {
   isPublicAddress,
   parseConnections,
+  parseGatewayInbound,
   parseLsofFields,
   parseSocketName,
 } from "../services/agent/src/core/network-connections.js";
@@ -435,6 +436,25 @@ test("network collector parses lsof sockets and separates inbound/outbound", () 
   assert.equal(isPublicAddress("fd7a:115c:a1e0::5"), false);
 });
 
+test("gateway inbound keeps recent public callers and drops private ones", () => {
+  const now = Date.parse("2026-11-04T02:50:00Z");
+  const connections = parseGatewayInbound(
+    [
+      "36.36.196.222|45|20261103153448",
+      "172.20.0.1|33|20261103120000",
+      "8.8.8.8|1|20261101000000",
+      "not-an-ip|1|20261103153448",
+      "",
+    ].join("\n"),
+    now,
+  );
+  assert.equal(connections.length, 1);
+  assert.equal(connections[0]?.direction, "inbound");
+  assert.equal(connections[0]?.remoteAddress, "36.36.196.222");
+  assert.equal(connections[0]?.lastSeenAt, "2026-11-03T15:34:48.000Z");
+  assert.match(connections[0]?.note ?? "", /45 次/);
+});
+
 test("ComfyUI queue summarizes running, pending and history with MPS stats", () => {
   const snapshot = summarizeComfyState(
     "http://127.0.0.1:8188",
@@ -716,6 +736,48 @@ test("metrics store writes raw samples, rollups and prunes old data", () => {
 
   store.prune(now + 120_000);
   assert.equal(store.count().raw, 0);
+  store.close();
+});
+
+test("metrics history serves a week and the retained history", () => {
+  const root = mkdtempSync(join(tmpdir(), "studioops-metrics-range-"));
+  const now = Date.UTC(2026, 10, 4, 12, 0, 0);
+  const day = 86_400_000;
+  const store = new MetricsStore(root, {
+    intervalMs: 10_000,
+    rawRetentionMs: 60_000,
+    minuteRetentionMs: day,
+    hourRetentionMs: 30 * day,
+  });
+  const sample = (ts: number, value: number) => ({
+    ts,
+    scope: "system" as const,
+    scopeId: "local",
+    metric: "cpu.percent",
+    value,
+    unit: "%",
+  });
+  store.insert([
+    sample(now - 10 * day, 10),
+    sample(now - 2 * day, 40),
+    sample(now, 80),
+  ]);
+
+  const week = store.history("7d", { now });
+  assert.equal(week.range, "7d");
+  assert.equal(week.resolutionMs, 3_600_000);
+  assert.deepEqual(
+    week.series[0]?.points.map((point) => point.value),
+    [40, 80],
+  );
+
+  const all = store.history("all", { now });
+  assert.equal(all.range, "all");
+  assert.ok(all.from <= now - 10 * day);
+  assert.deepEqual(
+    all.series[0]?.points.map((point) => point.value),
+    [10, 40, 80],
+  );
   store.close();
 });
 

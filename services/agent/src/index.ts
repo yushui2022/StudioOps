@@ -1223,8 +1223,8 @@ app.post("/api/alerts/test", async (c) => {
 });
 app.get("/api/metrics/history", (c) => {
   const range = (c.req.query("range") ?? "5m") as MetricRange;
-  if (!["5m", "1h", "24h"].includes(range))
-    return c.json({ error: "range must be 5m, 1h or 24h" }, 400);
+  if (!["5m", "1h", "24h", "7d", "all"].includes(range))
+    return c.json({ error: "range must be 5m, 1h, 24h, 7d or all" }, 400);
   const scopeValue = c.req.query("scope");
   if (scopeValue && scopeValue !== "system" && scopeValue !== "service")
     return c.json({ error: "scope must be system or service" }, 400);

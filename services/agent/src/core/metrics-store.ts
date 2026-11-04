@@ -7,7 +7,7 @@ const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
 export type MetricScope = "system" | "service";
-export type MetricRange = "5m" | "1h" | "24h";
+export type MetricRange = "5m" | "1h" | "24h" | "7d" | "all";
 
 export interface MetricSample {
   ts: number;
@@ -60,11 +60,15 @@ export const DEFAULT_METRICS_SETTINGS: MetricsSettings = {
   hourRetentionMs: 365 * DAY_MS,
 };
 
-const RANGE_MS: Record<MetricRange, number> = {
+const RANGE_MS: Record<Exclude<MetricRange, "all">, number> = {
   "5m": 5 * MINUTE_MS,
   "1h": 60 * MINUTE_MS,
   "24h": 24 * HOUR_MS,
+  "7d": 7 * DAY_MS,
 };
+
+/** Keep a long chart near two weeks of hourly points. */
+const ALL_TARGET_POINTS = 336;
 
 /**
  * SQLite-backed metric history. Raw samples are kept for short queries and
@@ -225,7 +229,8 @@ export class MetricsStore {
     options: { scope?: MetricScope; scopeId?: string; now?: number } = {},
   ): MetricsHistory {
     const to = options.now ?? Date.now();
-    const from = to - RANGE_MS[range];
+    const from =
+      range === "all" ? this.oldestHour(to) : to - RANGE_MS[range];
     const filter = options.scope ? "AND scope = ?" : "";
     const filterArgs: Array<MetricScope | string> = options.scope
       ? [options.scope]
@@ -250,26 +255,49 @@ export class MetricsStore {
         .all(from, ...filterArgs) as Array<Record<string, unknown>>;
     } else if (range === "1h") {
       resolutionMs = MINUTE_MS;
-      rows = this.db
-        .prepare(
-          `SELECT bucket AS ts, scope, scope_id AS scopeId, metric, unit, avg_value AS value
-           FROM metric_rollups
-           WHERE resolution = ? AND bucket >= ? ${filter} ${scopeIdFilter}
-           ORDER BY bucket`,
-        )
-        .all(MINUTE_MS, from, ...filterArgs) as Array<Record<string, unknown>>;
-    } else {
+      rows = this.hourOrMinuteRows(
+        MINUTE_MS,
+        MINUTE_MS,
+        from,
+        filter,
+        scopeIdFilter,
+        filterArgs,
+      );
+    } else if (range === "24h") {
       resolutionMs = 5 * MINUTE_MS;
-      rows = this.db
-        .prepare(
-          `SELECT (bucket / ${resolutionMs}) * ${resolutionMs} AS ts,
-                  scope, scope_id AS scopeId, metric, unit, AVG(avg_value) AS value
-           FROM metric_rollups
-           WHERE resolution = ? AND bucket >= ? ${filter} ${scopeIdFilter}
-           GROUP BY scope, scope_id, metric, ts
-           ORDER BY ts`,
-        )
-        .all(MINUTE_MS, from, ...filterArgs) as Array<Record<string, unknown>>;
+      rows = this.hourOrMinuteRows(
+        MINUTE_MS,
+        resolutionMs,
+        from,
+        filter,
+        scopeIdFilter,
+        filterArgs,
+      );
+    } else if (range === "7d") {
+      resolutionMs = HOUR_MS;
+      rows = this.hourOrMinuteRows(
+        HOUR_MS,
+        HOUR_MS,
+        from,
+        filter,
+        scopeIdFilter,
+        filterArgs,
+      );
+    } else {
+      const span = Math.max(to - from, HOUR_MS);
+      const hoursPerPoint = Math.max(
+        1,
+        Math.ceil(span / HOUR_MS / ALL_TARGET_POINTS),
+      );
+      resolutionMs = hoursPerPoint * HOUR_MS;
+      rows = this.hourOrMinuteRows(
+        HOUR_MS,
+        resolutionMs,
+        from,
+        filter,
+        scopeIdFilter,
+        filterArgs,
+      );
     }
 
     for (const row of rows) {
@@ -305,6 +333,42 @@ export class MetricsStore {
         ),
       ),
     };
+  }
+
+  private oldestHour(now: number): number {
+    const row = this.db
+      .prepare(
+        "SELECT MIN(bucket) AS bucket FROM metric_rollups WHERE resolution = ?",
+      )
+      .get(HOUR_MS) as { bucket?: number | null };
+    const bucket = Number(row?.bucket);
+    return Number.isFinite(bucket) ? bucket : now;
+  }
+
+  private hourOrMinuteRows(
+    sourceResolution: number,
+    outputResolution: number,
+    from: number,
+    filter: string,
+    scopeIdFilter: string,
+    filterArgs: Array<MetricScope | string>,
+  ): Array<Record<string, unknown>> {
+    return this.db
+      .prepare(
+        `SELECT (bucket / ?) * ? AS ts,
+                scope, scope_id AS scopeId, metric, unit, AVG(avg_value) AS value
+         FROM metric_rollups
+         WHERE resolution = ? AND bucket >= ? ${filter} ${scopeIdFilter}
+         GROUP BY scope, scope_id, metric, ts
+         ORDER BY ts`,
+      )
+      .all(
+        outputResolution,
+        outputResolution,
+        sourceResolution,
+        from,
+        ...filterArgs,
+      ) as Array<Record<string, unknown>>;
   }
 
   prune(now = Date.now()): void {

@@ -171,9 +171,9 @@ const fmtHistoryTick = (ts, range, edge = false) => {
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}${
     range === "5m" ? `:${pad(date.getSeconds())}` : ""
   }`;
-  return range === "24h" && edge
-    ? `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${time}`
-    : time;
+  const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  if (range === "7d" || range === "all") return edge ? `${day} ${time}` : day;
+  return range === "24h" && edge ? `${day} ${time}` : time;
 };
 
 const fmtHistoryBytes = (bytes) => {
@@ -1105,6 +1105,31 @@ function networkArc(from, to) {
   return `M${from.x.toFixed(1)},${from.y.toFixed(1)} Q${midX.toFixed(1)},${midY.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}`;
 }
 
+function networkLink(from, to, direction, index, title, point) {
+  const d = networkArc(from, to);
+  const duration = 880 + (index % 5) * 140;
+  const delay = -((index * 0.37) % 2.4);
+  const motion = `style="animation-duration:${duration}ms;animation-delay:${delay.toFixed(2)}s"`;
+  return `<g class="world-map-link">
+    <path class="world-map-arc ${direction}" d="${d}"><title>${title}</title></path>
+    <path class="world-map-flow ${direction}" d="${d}" ${motion}></path>
+    <circle class="world-map-point ${direction}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${direction === "inbound" ? "3.2" : "2.8"}"><title>${title}</title></circle>
+  </g>`;
+}
+
+function locatedLinks(connections) {
+  const seen = new Set();
+  const links = [];
+  for (const connection of connections) {
+    if (!connection.location) continue;
+    const key = `${connection.location.latitude.toFixed(1)},${connection.location.longitude.toFixed(1)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push(connection);
+  }
+  return links;
+}
+
 function renderWorldMap(data) {
   const overlay = $("network-map");
   const empty = $("network-empty");
@@ -1115,47 +1140,49 @@ function renderWorldMap(data) {
     : undefined;
   const activeInbound = data.inbound ?? [];
   const activeOutbound = data.outbound ?? [];
-  const inbound = activeInbound.filter((connection) => connection.location);
-  const outbound = activeOutbound.filter((connection) => connection.location);
-  const inboundArcs =
-    server && direction !== "outbound"
-      ? inbound
-          .map((connection) => {
-            const source = worldPoint(
-              connection.location.latitude,
-              connection.location.longitude,
-            );
-            return `<path class="world-map-arc inbound" d="${networkArc(source, server)}"><title>${escapeHtml(
-              `${connection.process} · ${connection.location.city ?? connection.location.country}`,
-            )}</title></path>
-            <circle class="world-map-point inbound" cx="${source.x.toFixed(1)}" cy="${source.y.toFixed(1)}" r="3.2"><title>${escapeHtml(
-              `${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
-            )}</title></circle>`;
-          })
-          .join("")
-      : "";
-  const outboundArcs =
-    server && direction !== "inbound"
-      ? outbound
-          .map((connection) => {
-            const target = worldPoint(
-              connection.location.latitude,
-              connection.location.longitude,
-            );
-            return `<path class="world-map-arc outbound" d="${networkArc(server, target)}"><title>${escapeHtml(
-              `${connection.process} → ${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
-            )}</title></path>
-            <circle class="world-map-point outbound" cx="${target.x.toFixed(1)}" cy="${target.y.toFixed(1)}" r="2.8"><title>${escapeHtml(
-              `${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
-            )}</title></circle>`;
-          })
-          .join("")
-      : "";
-  const marker = server
-    ? `<circle class="world-map-server" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="4.5" />
-       <circle class="world-map-server-ring" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="9" />`
-    : "";
-  overlay.innerHTML = inboundArcs + outboundArcs + marker;
+  const inbound = locatedLinks(activeInbound);
+  const outbound = locatedLinks(activeOutbound);
+  const parts = [];
+  let index = 0;
+  if (server && direction !== "outbound") {
+    for (const connection of inbound) {
+      const source = worldPoint(
+        connection.location.latitude,
+        connection.location.longitude,
+      );
+      const title = escapeHtml(
+        `${connection.process} · ${connection.location.city ?? connection.location.country}`,
+      );
+      parts.push(networkLink(source, server, "inbound", index, title, source));
+      index += 1;
+    }
+  }
+  if (server && direction !== "inbound") {
+    for (const connection of outbound) {
+      const target = worldPoint(
+        connection.location.latitude,
+        connection.location.longitude,
+      );
+      const title = escapeHtml(
+        `${connection.process} → ${connection.remoteAddress} · ${connection.location.city ?? connection.location.country}`,
+      );
+      parts.push(networkLink(server, target, "outbound", index, title, target));
+      index += 1;
+    }
+  }
+  if (server) {
+    parts.push(
+      `<g class="world-map-home">
+        <circle class="world-map-server-ring" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="9" />
+        <circle class="world-map-server" cx="${server.x.toFixed(1)}" cy="${server.y.toFixed(1)}" r="4.5" />
+      </g>`,
+    );
+  }
+  const signature = parts.join("");
+  if (overlay.dataset.map !== signature) {
+    overlay.dataset.map = signature;
+    overlay.innerHTML = signature;
+  }
   if (!data.serverLocation) {
     empty.textContent = "服务器公网位置尚未解析";
     empty.classList.remove("hidden");
@@ -1163,7 +1190,7 @@ function renderWorldMap(data) {
     empty.textContent = activeInbound.length
       ? "检测到入站连接，地理定位暂不可用"
       : activeOutbound.length
-        ? "暂无公网入站连接；点右上角“出站”查看本机外联"
+        ? "没有公网入站。连到本机端口的都是回环或局域网；香港网关最近 24 小时也没有调用"
         : "暂无公网入站连接";
     empty.classList.toggle("hidden", inbound.length > 0);
   } else if (direction === "outbound") {
@@ -1227,7 +1254,11 @@ function renderNetworkList(data) {
         <span class="network-dir ${connection.direction}">${connection.direction === "inbound" ? "入站" : "出站"}</span>
         <div class="network-main">
           <strong>${escapeHtml(connection.process)}${connection.pid ? ` · ${connection.pid}` : ""}</strong>
-          <small>本地 :${connection.localPort} → ${escapeHtml(connection.remoteAddress)}:${connection.remotePort}</small>
+          <small>${
+            connection.direction === "inbound"
+              ? `${escapeHtml(connection.remoteAddress)} → 本地 :${connection.localPort}`
+              : `本地 :${connection.localPort} → ${escapeHtml(connection.remoteAddress)}:${connection.remotePort}`
+          }${connection.note ? ` · ${escapeHtml(connection.note)}` : ""}</small>
         </div>
         <span class="network-place">${escapeHtml(
           connection.location
@@ -2412,7 +2443,13 @@ function renderHistory() {
   const data = state.historyData;
   if (!data) return;
   historyChartData.clear();
-  const rangeLabels = { "5m": "5 分钟", "1h": "1 小时", "24h": "24 小时" };
+  const rangeLabels = {
+    "5m": "5 分钟",
+    "1h": "1 小时",
+    "24h": "24 小时",
+    "7d": "1 周",
+    all: "总历史",
+  };
   const systemCount = data.series.filter(
     (series) => series.scope === "system",
   ).length;
@@ -2422,8 +2459,12 @@ function renderHistory() {
   const compareLabel = state.historyPrevious?.series?.length
     ? " · 对比上一周期"
     : "";
+  const spanLabel =
+    data.range === "7d" || data.range === "all"
+      ? ` · ${fmtHistoryTick(data.from, data.range, true)} 起`
+      : "";
   $("history-meta").textContent =
-    `${rangeLabels[data.range] ?? data.range} · ${systemCount} 个系统指标 · ${serviceCount} 个服务指标${compareLabel} · 更新于 ${fmtHistoryTime(data.to, data.range)}`;
+    `${rangeLabels[data.range] ?? data.range}${spanLabel} · ${systemCount} 个系统指标 · ${serviceCount} 个服务指标${compareLabel} · 更新于 ${fmtHistoryTime(data.to, data.range)}`;
   $("history-system").innerHTML = historyMetrics
     .map((definition) => {
       const series = findMetricSeries(
@@ -2606,7 +2647,9 @@ function showHistoryHover(wrap, event) {
   tip.textContent = `${fmtHistoryTick(
     nearest.ts,
     options.range,
-    options.range === "24h",
+    options.range === "24h" ||
+      options.range === "7d" ||
+      options.range === "all",
   )} · ${formatMetricValue(nearest.value, options.unit)}`;
   hover.hidden = false;
   const tipWidth = tip.offsetWidth;
@@ -2627,9 +2670,12 @@ async function loadHistory({ quiet = false } = {}) {
     const range = encodeURIComponent(state.historyRange);
     const data = await api(`/api/metrics/history?range=${range}`);
     state.historyData = data;
-    state.historyPrevious = await api(
-      `/api/metrics/history?range=${range}&to=${encodeURIComponent(data.from)}`,
-    ).catch(() => null);
+    state.historyPrevious =
+      state.historyRange === "all"
+        ? null
+        : await api(
+            `/api/metrics/history?range=${range}&to=${encodeURIComponent(data.from)}`,
+          ).catch(() => null);
     renderHistory();
   } catch (error) {
     if (!quiet) toast(error.message, true);
@@ -2637,7 +2683,7 @@ async function loadHistory({ quiet = false } = {}) {
 }
 
 function setHistoryRange(range) {
-  if (!["5m", "1h", "24h"].includes(range)) return;
+  if (!["5m", "1h", "24h", "7d", "all"].includes(range)) return;
   state.historyRange = range;
   document
     .querySelectorAll("#history-range [data-history-range]")

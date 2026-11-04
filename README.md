@@ -4,14 +4,14 @@
 
 # StudioOps
 
-**A local-first control plane for macOS AI servers.**
+**一台 Mac 上的本地 AI 服务器控制台。**
 
-把 Ollama、ComfyUI、MiniMax H3 视频、launchd 常驻服务、请求队列和内存保护放进一个本地控制台；可选 VPS 中转，让 Mac 不直接暴露公网。
+模型留在这台 Apple Silicon Mac 上。香港 VPS 只做门面：SSH 登录和模型 API 都先到 VPS，再经反向隧道回到本机。Mac 不开放公网端口。
 
 [![macOS](https://img.shields.io/badge/platform-macOS%2014%2B-black)](https://www.apple.com/macos/)
 [![Node](https://img.shields.io/badge/Node.js-22.5%2B-339933)](https://nodejs.org/)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB)](https://tauri.app/)
-[![Tests](https://img.shields.io/badge/tests-79%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-85%20passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -22,7 +22,77 @@
   <img src="docs/assets/history.png" width="72%" alt="历史指标" />
 </p>
 
-<p align="center"><sub>历史：24 小时趋势、最低/平均/最高、时间轴、系统指标与服务运行状态</sub></p>
+<p align="center"><sub>历史：5 分钟、1 小时、24 小时、1 周和已保留的总历史</sub></p>
+
+StudioOps 目前是 pre-1.0。它管的是这台机器能不能稳定接请求，不是一个聊天窗口。
+
+## 这套系统在干什么
+
+一个人用一台 Mac 给自己和几个朋友提供本地模型。StudioOps 是这台机器的控制面，负责四件事：
+
+1. **服务还在不在。** Ollama、ComfyUI、视频桥、反向隧道和 LaunchAgent 统一启动、保活、看日志。
+2. **请求会不会把内存打满。** 外部调用先进入本机 Inference Gateway，排队、限并发、超时，内存不够就拒绝。
+3. **同一时间只留一个文本模型。** 拉起另一个模型时，先卸掉空闲的那个。正在回答的模型不会被中途杀掉。
+4. **谁进来了、机器现在什么样。** 记录每次调用的模型和 token 数量，画系统历史，并在地图上区分入站和出站。
+
+它不是聊天客户端，不自己跑模型，也不是多租户云平台。Ollama、ComfyUI 和 MiniMax H3 仍由它们自己的进程推理。
+
+## 流量怎么走
+
+```text
+朋友 / CI
+  │
+  ├─ SSH
+  │    VPS:2222  Warpgate（公钥、会话录像）
+  │    → VPS 127.0.0.1:22022
+  │    → SSH 反向隧道
+  │    → Mac 127.0.0.1:22
+  │    → 标准用户 compute
+  │
+  └─ 模型 API
+       VPS:443  Sub2API（Key、额度、模型名）
+       → VPS 127.0.0.1:11434 / 8190
+       → SSH 反向隧道
+       → Mac Inference Gateway
+       → Ollama / ComfyUI
+```
+
+视频不在这条公网路径上，只听本机 `8192`。
+
+VPS 不跑模型，也不保存 Mac 上的模型文件。朋友只需要 VPS 的地址和一把 Key，不需要这台 Mac 的 IP。
+
+吊销访问有两个地方：StudioOps 里删掉 `compute` 的公钥，或在 Sub2API 里停掉那把 API Key。
+
+## 控制台里有什么
+
+桌面窗口是 Tauri 2，页面也由本机 Agent 提供，地址是 <http://127.0.0.1:7227>。
+
+| 视图 | 看什么 |
+| --- | --- |
+| 总览 | 服务是否在跑、CPU、内存、GPU、温度 |
+| 服务 / 项目 / 进程 / 容器 | launchd、进程、Compose 和健康检查 |
+| 日志 | 某个服务的实时日志 |
+| 历史 | 5 分钟、1 小时、24 小时、1 周、总历史。1 周和总历史用小时聚合，小时数据默认留 365 天。总历史不和上一周期对比 |
+| 网络 | 世界地图。绿色入站，金色出站，光点沿弧线移动。回环、局域网和 Tailscale 不画 |
+| 推理网关 | 三个队列、模型调用记录。Token 列是输入+输出=合计。不记录 prompt |
+| 算力 | `compute` 用户的会话、进程、磁盘、登录历史，以及发给朋友的接入说明 |
+| 设置 | 采样保留、告警、Tailscale、备份、卸载 |
+
+快捷键：`1–8` 切视图，`r` 刷新，`/` 搜索，`Esc` 关闭。
+
+### 入站为什么要单独算
+
+本机 `lsof` 只能看到 TCP 对端。朋友的请求到了香港 Sub2API，再从反向隧道进来，Mac 上的对端是 `127.0.0.1`，所以光看本机套接字，公网入站永远是 0。
+
+控制面会通过 SSH 主机 `vps` 读取 Sub2API 最近 24 小时的调用来源，把公网 IP 画成绿色入站，并标上上次时间和次数。数据库密码留在 VPS 容器里，不进这个仓库。出站仍是这台 Mac 自己向外拨出的连接。
+
+同一城市只画一条线。地理信息来自 `ipwho.is`，不抓包，不保存请求内容。说明见 [网络地图](docs/network-map.md)。
+
+### 发给朋友的说明
+
+算力页可以复制一段给别人的 Agent 看的接入说明。真实地址、模型名和 Key 写在本机的 `apps/web/share.local.json`，这个文件已忽略，不会进 Git。仓库里只有 [`apps/web/share.example.json`](apps/web/share.example.json) 的占位。
+
+公网目前开放文本和文生图。视频在说明里会写成不要对公网调用。
 
 ## 界面截图
 
@@ -31,293 +101,107 @@
   <img src="docs/assets/services.png" width="49%" alt="服务列表" />
 </p>
 
-<p align="center"><sub>推理网关：Ollama / ComfyUI / 视频 H3 三个队列与模型调用记录 · 服务：launchd、Bridge 和健康状态</sub></p>
+<p align="center"><sub>推理网关的三个队列和调用记录 · 服务的 launchd、Bridge 和健康状态</sub></p>
 
 <p align="center">
-  <img src="docs/assets/compute.png" width="72%" alt="算力用户审计" />
+  <img src="docs/assets/compute.png" width="49%" alt="算力用户审计" />
+  <img src="docs/assets/warpgate.png" width="49%" alt="SSH 网关" />
 </p>
 
-<p align="center"><sub>算力用户：独立 compute 标准用户的会话、进程、磁盘、登录历史、SSH 状态和审计</sub></p>
+<p align="center"><sub>compute 用户审计 · VPS 2222 上的 Warpgate，以及 Mac 的 22 只听回环</sub></p>
 
-<p align="center">
-  <img src="docs/assets/warpgate.png" width="72%" alt="Warpgate SSH 网关状态" />
-</p>
+## 各部件放在哪
 
-<p align="center"><sub>SSH 网关：VPS 2222 入口、目标、连接命令和 macOS 直连 22 状态</sub></p>
-
-> StudioOps 目前是 pre-1.0 项目。它优先解决一台 Mac 上“AI 服务能稳定跑、不会把内存打爆、外部请求能排队”的问题，而不是做一个聊天客户端。
-
-## 项目定位
-
-StudioOps 是给「一台 Mac + 少量用户」用的本地 AI 服务器控制面。
-
-它优先解决运维问题，而不是模型能力：
-
-- 服务是否活着、能否开机自启、崩溃后是否恢复
-- 模型请求是否排队、并发是否受控、统一内存会不会被打爆
-- 谁能远程登录、做了什么、什么时候调用了哪个模型
-- 出问题时能不能看到日志、指标、进程和审计
-
-它不是什么：
-
-- 不是聊天客户端，不提供对话 UI
-- 不是模型运行时，Ollama / ComfyUI / H3 仍然由它们自己跑
-- 不是云 GPU 平台，模型始终在 Mac 上
-- 不是多租户 SaaS
-- 不替代公网模型 API；公网入口可以用 VPS + Nginx / Sub2API
-
-适合：
-
-- 一台 Apple Silicon Mac，自己和几个朋友 / CI 用
-- 本地跑 Ollama、ComfyUI、MiniMax H3
-- 希望 Mac 不直接暴露公网，通过 VPS 做 SSH 和模型 API 中转
-
-## 部署形态
-
-### 形态一：只在本机
-
-Mac 上跑 Agent + Gateway + 模型，全部监听 `127.0.0.1`。  
-适合自己用，不需要 VPS。
-
-### 形态二：Mac + VPS 中转（推荐）
-
-VPS 做公网门面，Mac 通过 SSH 反向隧道主动连出去。
-
-```text
-朋友 / CI
-  │
-  ├─ SSH
-  │   → VPS:2222
-  │   → Warpgate 认证 + 会话录像
-  │   → VPS 127.0.0.1:22022
-  │   → SSH 反向隧道
-  │   → Mac 127.0.0.1:22
-  │   → compute
-  │
-  └─ 模型 API（可选）
-      → VPS:443 / Nginx / Sub2API
-      → VPS 127.0.0.1:11434 / 8190（H3 需另加 8192）
-      → SSH 反向隧道
-      → Mac Inference Gateway
-      → Ollama / ComfyUI / H3
-```
-
-这个形态下：
-
-- Mac 不开放任何入站端口
-- VPS 只负责认证、TLS、限流和转发，不跑模型
-- 朋友只需要知道 VPS 地址，不需要你的 Mac IP 或 Tailscale
-- 吊销访问：在 StudioOps 删除公钥，或在 VPS 撤销 API Key
-
-## 你需要什么
-
-### Mac
-
-| 项目    | 最低                   | 推荐                              |
-| ------- | ---------------------- | --------------------------------- |
-| 芯片    | Apple Silicon（arm64） | M2 Pro / M3 / M4 / M5             |
-| 系统    | macOS 14 Sonoma        | macOS 15+                         |
-| 内存    | 32 GB                  | 64 GB 或更高（H3 视频建议 64GB+） |
-| 磁盘    | 100 GB 可用            | 300 GB+ 可用                      |
-| Node.js | 22.5+（开发/源码运行） | 22 LTS                            |
-| 运行时  | Ollama                 | Ollama + ComfyUI + H3             |
-| 容器    | 可选                   | Docker Desktop（管理 Compose）    |
-
-还需要：
-
-- 一个标准用户 `compute`，给朋友 / CI 用；不要给管理员权限
-- 可选：Tailscale，用于私网访问
-- 可选：Docker Desktop，用于容器化服务
-
-### VPS
-
-VPS 只做中转，不需要 GPU，也不需要大内存。
-
-| 项目   | 最低                     | 推荐           | 说明                 |
-| ------ | ------------------------ | -------------- | -------------------- |
-| CPU    | 1 vCPU                   | 2 vCPU         | Warpgate + Nginx     |
-| 内存   | 1 GB                     | 2 GB           | 不跑模型             |
-| 磁盘   | 10 GB                    | 20 GB          | 镜像、日志、会话录像 |
-| 系统   | Debian 12 / Ubuntu 22.04 | Debian 12      | x86_64 或 arm64      |
-| Docker | 24+                      | 29+            | Warpgate 容器        |
-| 公网   | IPv4                     | IPv4 + 域名    | 朋友连接             |
-| 防火墙 | UFW                      | UFW            | 只放行必要端口       |
-| 带宽   | 按需                     | 视频建议大流量 | H3 视频文件较大      |
-
-补充：
-
-- 位置：建议选离朋友较近、到 Mac 上行稳定的节点；模型仍在 Mac 上跑，VPS 只增加网络延迟
-- 域名：SSH 不需要域名；如果要用 HTTPS 暴露模型 API，建议一个子域名 + Let's Encrypt
-- Warpgate 需要先做一次初始化（数据目录、监听地址、管理台密码），完整命令见 [SSH 网关](docs/ssh-gateway.md)
-
-端口规划：
-
-| 端口                    | 位置     | 用途                        | 是否公网 |
-| ----------------------- | -------- | --------------------------- | -------- |
-| `2222/tcp`              | VPS      | Warpgate SSH 入口           | 是       |
-| `443/tcp`               | VPS      | 模型 API / 现有站点（可选） | 可选     |
-| `22/tcp`                | VPS      | 管理员 SSH                  | 建议限制 |
-| `8888`                  | VPS 回环 | Warpgate 管理台             | 否       |
-| `22022`                 | VPS 回环 | 反向隧道到 Mac 22           | 否       |
-| `11434`                 | VPS 回环 | 反向隧道到 Ollama Gateway   | 否       |
-| `8190`                  | VPS 回环 | 反向隧道到 ComfyUI Gateway  | 否       |
-| `8192`                  | VPS 回环 | H3 视频（需另加隧道）       | 否       |
-| `7227`                  | Mac 回环 | StudioOps Agent             | 否       |
-| `11435/8191/8192/11436` | Mac 回环 | Inference Gateway           | 否       |
-| `22`                    | Mac 回环 | sshd（只给反向隧道）        | 否       |
-
-VPS 上建议安装：
-
-- Docker（Warpgate）
-- 可选：Nginx / Caddy（模型 API 反向代理、TLS）
-- 可选：Sub2API（如果已经有用户 / Key / 配额体系）
-- UFW（只放行 2222、443 和管理 SSH）
-
-VPS 不需要：
-
-- GPU
-- 模型文件
-- 大内存
-- 把 Mac 的 `22`、`7227`、`11434`、`8190`、`8192` 直接映射到公网
-
-### 组件放在哪里
-
-| 组件                  | 位置      | 作用                            |
-| --------------------- | --------- | ------------------------------- |
-| Warpgate              | VPS       | SSH 认证、会话录像、目标转发    |
-| Nginx / Sub2API       | VPS       | 模型 API 公网入口、TLS、API Key |
-| SSH 反向隧道          | Mac → VPS | 把 VPS 回环端口映射到 Mac       |
-| StudioOps Agent       | Mac       | 控制面：服务、审计、配置        |
-| Inference Gateway     | Mac       | 队列、并发、超时、内存准入      |
-| Ollama / ComfyUI / H3 | Mac       | 真正的模型推理                  |
-
-## 为什么做 StudioOps
-
-在 Mac 上跑本地 AI，常见状态是：
-
-- Ollama、ComfyUI、Compose 项目和各种脚本散落在多个终端里
-- 服务没有统一的开机启动、崩溃恢复、日志和健康检查
-- 外部请求直接打模型端口，没有队列、并发限制和超时
-- Ollama 和 ComfyUI 同时加载大模型，把统一内存和 swap 打满
-- 远程访问靠临时 SSH 隧道，缺少审计和安全边界
-- 出问题只能看进程列表，不知道是谁、什么时候、调用了哪个模型
-
-StudioOps 把这些事情收进一个 macOS 原生控制台：
-
-```text
-服务生命周期 + AI 运行时 + 请求网关 + 内存准入 + 可观测性 + 私网访问
-```
-
-## 主要能力
-
-### 服务控制面
-
-- 统一管理 `launchd`、普通进程、Docker Compose、cloudflared
-- 启动 / 停止 / 重启 / 暂停 / 恢复，动作白名单约束
-- 开机启动、KeepAlive、崩溃恢复、日志和健康检查
-- 项目服务可生成独立 LaunchAgent
-- 进程身份持久化，Agent 重启后仍能识别原进程
-- 配置写入前校验、自动备份、热加载和回滚
-
-### AI 运行时与内存保护
-
-- Ollama 模型列表、加载/卸载、VRAM、内存占用和到期时间
-- ComfyUI 队列、历史、MPS VRAM、中断和取消
-- 读取 macOS `vm_stat`，按推理预算和系统保留线做准入
-- Ollama 模型槽位限制，空闲模型自动卸载
-- ComfyUI 图片和 H3 视频分别设置可用内存门槛
-- 内存紧张时拒绝新任务，而不是让系统进入 OOM
-
-### Inference Gateway
-
-外部请求不再直接访问模型端口：
+| 部件 | 在哪 | 做什么 |
+| --- | --- | --- |
+| Warpgate | 香港 VPS | SSH 公钥认证、会话录像、转到 Mac |
+| Sub2API | 香港 VPS | 模型 API 的 HTTPS、API Key、额度和对外模型名 |
+| SSH 反向隧道 | Mac → VPS | 把 VPS 回环端口接到 Mac，由 Mac 主动连出去 |
+| StudioOps Agent | Mac `127.0.0.1:7227` | 控制面：服务、历史、地图、审计 |
+| Inference Gateway | Mac 回环 | 队列、并发、超时、内存准入、调用记录 |
+| Ollama / ComfyUI / H3 | Mac | 真正的推理 |
 
 ```text
 Ollama:       11435 → 11434
 ComfyUI 图片: 8191  → 8190
 H3 视频:      8192  → 8193 → 8188
-管理 API:     11436
+Gateway 管理: 11436
 ```
 
-- 每个后端独立的并发、队列上限、排队超时和请求超时
-- 队列满返回 `429`，内存不足返回 `503`
-- 客户端断开时取消排队或中止上游
-- 支持流式响应，不缓冲完整模型输出
-- 持久化模型调用记录：模型、后端、状态、耗时、来源
-- 默认不记录 prompt、请求体或 Authorization
+端口：
 
-### 可观测性
+| 端口 | 位置 | 用途 | 公网 |
+| --- | --- | --- | --- |
+| `2222/tcp` | VPS | Warpgate SSH | 是 |
+| `443/tcp` | VPS | Sub2API / 站点 | 是 |
+| `22/tcp` | VPS | 管理员 SSH | 建议限制来源 |
+| `8888` | VPS 回环 | Warpgate 管理台 | 否 |
+| `22022` | VPS 回环 | 反向隧道到 Mac 22 | 否 |
+| `11434` / `8190` | VPS 回环 | 反向隧道到 Gateway | 否 |
+| `7227` | Mac 回环 | StudioOps Agent | 否 |
+| `11435` / `8191` / `8192` / `11436` | Mac 回环 | Inference Gateway | 否 |
+| `22` | Mac 回环 | sshd，只给反向隧道 | 否 |
 
-- 2 秒系统指标、5 秒服务状态 WebSocket 推送
-- SQLite 指标历史：5 分钟 / 1 小时 / 24 小时
-- 服务掉线、操作失败、内存、磁盘、温度告警
-- 实时日志流、搜索、错误高亮和轮转重置
-- 操作审计，记录 actor 和 Tailscale 远程身份
-- 公网入站/出站连接世界地图，不抓包
+不要把 Mac 的 `22`、`7227`、`11434`、`8190`、`8192` 映射到公网。
 
-### 远程访问与安全
+## 机器要求
 
-- 所有服务默认只监听 `127.0.0.1`
-- 非回环访问默认要求 Bearer Token；不要把 Agent 端口暴露到公网
-- Tailscale Serve 只对 tailnet 开放，不启用 Funnel
-- 项目可以单独开放 Tailnet 入口
-- 安全审计检查敏感端口、Funnel、Token 和 ACL 风险
-- 服务目标来自受控 YAML，不接受网页提交任意 shell 或路径
-- 算力用户：独立 `compute` 标准用户的会话、进程、磁盘、登录历史、Tailscale SSH 状态和审计
-- SSH 网关：Warpgate 在 VPS 2222，Mac sshd 仅回环；StudioOps 可直接添加/删除 `compute-guest` 公钥，并生成可复制的使用说明
+### Mac
 
-### 桌面体验
+| 项目 | 最低 | 这台机器上的用法 |
+| --- | --- | --- |
+| 芯片 | Apple Silicon | arm64 |
+| 系统 | macOS 14 | 桌面端和 `vm_stat` 内存采样 |
+| 内存 | 32 GB | 64 GB 才能同时考虑 ComfyUI 或 H3。文本模型仍只留一个 |
+| 磁盘 | 100 GB 可用 | 模型文件不在这个仓库里 |
+| Node.js | 22.5+ | Agent 用内置 `node:sqlite` |
+| 运行时 | Ollama | 另有 ComfyUI 和 H3 视频桥 |
 
-- Tauri 2 原生窗口，关闭后保留菜单栏
-- Agent 异常退出自动重启
-- 单实例、启动错误弹窗、配置错误横幅
-- 终端风格面板，`1–8` 切视图、`r` 刷新、`/` 搜索、`Esc` 关闭
-- 一张面板里同时看服务、模型、队列、日志、指标和历史
+给朋友或 CI 登录时使用标准用户 `compute`，不要给管理员权限。Tailscale 只作为私网入口，不启用 Funnel。
 
-## 本机组件
+### VPS
+
+VPS 不需要 GPU。1 到 2 个 vCPU、1 到 2 GB 内存、Debian 12 和 Docker 就够跑 Warpgate 与 Sub2API。模型延迟主要来自 Mac 的推理和上行，不来自 VPS 的算力。
+
+SSH 不需要域名。模型 API 用一个子域名和证书。防火墙只放行 `2222`、`443` 和管理 SSH。
+
+## 本机怎么同时保护内存
+
+Gateway 读三样东西：`vm_stat` 里的 active + wired + compressed、Ollama `/api/ps` 里已加载的模型、自己正在跑的任务。
 
 ```text
-┌──────────────────────┐      ┌──────────────────────┐
-│ Tauri 2 desktop      │      │ Browser / Tailnet    │
-│ 主入口 / 菜单栏       │      │ Web companion        │
-└──────────┬───────────┘      └──────────┬───────────┘
-           └──────────────┬──────────────┘
-                          ▼
-              ┌────────────────────────┐
-              │ Local Agent            │
-              │ Hono API + WebSocket   │
-              │ auth / audit / registry│
-              └────────────┬───────────┘
-                           ▼
-       ┌────────────┬────────────┬────────────┬────────────┐
-       │ launchd    │ Docker     │ AI         │ Tunnel     │
-       │ adapter    │ adapter    │ runtime    │ adapter    │
-       └────────────┴────────────┴────────────┴────────────┘
+推理预算：总内存 − 12 GB
+硬性安全线：至少 2 GB 可用
+文本模型：最多 1 个已加载模型，空闲的先卸掉
+ComfyUI：至少 24 GB 可用
+H3 视频：至少 30 GB 可用
 ```
 
-外部推理流量：
+队列满返回 `429`。内存不够返回 `503`。上下文超过窗口返回 `400`。换模型会冷启动；正在回答的那个不会被卸掉。
+
+默认队列：
+
+| 后端 | 端口 | 并发 | 队列 | 排队超时 | 请求超时 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ollama | 11435 | 2 | 8 | 60 秒 | 10 分钟 |
+| ComfyUI 图片 | 8191 | 1 | 8 | 30 分钟 | 30 分钟 |
+| H3 视频 | 8192 | 1 | 8 | 30 分钟 | 60 分钟 |
+
+调用记录在：
 
 ```text
-朋友 / Sub2API
-  → VPS（可选）
-  → SSH 反向隧道 / Tailscale
-  → Inference Gateway（队列、并发、超时、内存准入）
-  → Ollama 11434 / ComfyUI 8188 / H3 Video Bridge 8193
+~/Library/Application Support/com.studioops.desktop/gateway/model-calls.jsonl
 ```
 
-Agent 和 Gateway 都只监听 `127.0.0.1`；远程访问由 VPS 中转，不在 Mac 上开公网端口。
+记下模型、后端、路线、状态、耗时和 token 数量。不写 prompt、messages、图片或 Authorization。
+
+```bash
+curl http://127.0.0.1:11436/health
+curl http://127.0.0.1:11436/status
+curl 'http://127.0.0.1:11436/records?limit=50'
+```
 
 ## 快速开始
-
-### 环境要求
-
-- 一台 Apple Silicon Mac（macOS 14+），配置建议见「你需要什么 → Mac」
-- Node.js **22.5+** 和 npm（源码运行；Agent 使用内置 `node:sqlite`）
-- 可选：Rust / Tauri 2 工具链（构建桌面 App）
-- 可选：Ollama、ComfyUI、Docker Desktop
-- 可选：一台 Linux VPS（远程 SSH / 模型 API 中转），配置见「你需要什么 → VPS」
-
-### 启动 Web 控制台
 
 ```bash
 npm install
@@ -327,44 +211,24 @@ npm run dev
 
 打开 <http://127.0.0.1:7227>。
 
-`config/services.yaml` 是本机私有配置，已经被 `.gitignore` 忽略。不要提交真实路径、Token 或账号信息。
+`config/services.yaml` 已忽略。不要提交真实路径、Token 或账号。
 
-### 构建桌面 App
+桌面 App：
 
 ```bash
 npm --prefix apps/desktop install
 npm run desktop:dev
-# 或
+# 安装包
 npm run desktop:build
 ```
 
-构建产物默认在：
+产物在 `apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app`。构建时会先打包 Agent 和 Gateway。装到 `/Applications` 之后，窗口里的页面是打进 App 的那一份；改完页面要重新构建并完全退出再打开。Agent 读的是 App 里的 `Resources`，替换文件后需要让监听 `7227` 的进程重新起来。
 
-```text
-apps/desktop/src-tauri/target/release/bundle/macos/StudioOps.app
-```
+### 接上 VPS
 
-构建前会同时打包 Agent 和 Gateway：
-
-```bash
-npm run build:services
-```
-
-### 加 VPS 远程访问（可选）
-
-最小步骤：
-
-1. VPS 安装 Docker，运行 Warpgate：
-   - SSH 监听 `0.0.0.0:2222`
-   - 管理台监听 `127.0.0.1:8888`
-   - 数据目录持久化
-   - 开启会话录像
-2. 在 Warpgate 里创建目标 `mac-compute`：
-   - host `127.0.0.1`
-   - port `22022`
-   - username `compute`
-   - auth `PublicKey`
-3. 在 Mac 上建立反向隧道（`scripts/ollama-tunnel` 已包含这些默认转发；默认读取 `~/.ssh/config` 的 `Host vps`，没有就设置 `TUNNEL_HOST=user@server`）：
+1. VPS 上用 Docker 跑 Warpgate：SSH `0.0.0.0:2222`，管理台 `127.0.0.1:8888`，打开会话录像。
+2. Warpgate 目标 `mac-compute`：`127.0.0.1:22022`，用户 `compute`，公钥认证。
+3. Mac 上保持反向隧道。`scripts/ollama-tunnel` 会读 `~/.ssh/config` 里的 `Host vps`：
 
    ```bash
    ssh -N \
@@ -375,36 +239,15 @@ npm run build:services
      vps
    ```
 
-4. 把 Mac 的 sshd 收紧到回环：
+4. 把 Mac 的 sshd 收到回环：`sudo bash scripts/ssh-loopback-mode.sh gateway`
+5. 在「算力 → SSH 网关」贴上朋友的公钥。
+6. 朋友连接：`ssh -p 2222 compute-guest:mac-compute@VPS的地址`
 
-   ```bash
-   sudo bash scripts/ssh-loopback-mode.sh gateway
-   ```
+模型 API 走 VPS 上的 Sub2API，转发到上面的 `11434` 和 `8190`。不要让朋友直接打 Mac 的端口。视频要对外时再单独加 `8192` 的隧道，现在没有。
 
-5. 在 StudioOps「算力 → SSH 网关 → 访问公钥」添加朋友的公钥。
-6. 测试：
+细节和回滚见 [SSH 网关](docs/ssh-gateway.md)。
 
-   ```bash
-   ssh -p 2222 compute-guest:mac-compute@VPS_IP
-   ```
-
-详细说明和回滚方式见 [SSH 网关](docs/ssh-gateway.md)。
-
-### 模型 API 对外（可选）
-
-如果朋友需要调用 Ollama / ComfyUI / H3，不要让 Mac 直接开公网端口。推荐：
-
-```text
-朋友 → VPS:443 → Nginx / Sub2API → VPS 127.0.0.1:11434/8190
-  → SSH 反向隧道 → Mac Gateway → Ollama/ComfyUI/H3
-```
-
-- VPS 只做 TLS、API Key、限流和转发
-- Mac Gateway 继续做队列、并发和内存准入
-- 不要把 `11434`、`8190`、`8192`、`7227`、`8888` 直接暴露到公网
-- H3 视频当前只监听本机，尚未自动映射到 VPS；需要时再加 `8192` 隧道
-
-## 配置示例
+## 配置
 
 ```yaml
 services:
@@ -417,121 +260,24 @@ services:
     health:
       type: http
       endpoint: http://127.0.0.1:11434/api/tags
-
-  - id: comfyui
-    name: ComfyUI
-    kind: comfyui
-    adapter: launchd
-    target: gui/501/ai.local.comfyui
-    allowedActions: [start, stop, restart]
-    health:
-      type: http
-      endpoint: http://127.0.0.1:8188/system_stats
 ```
 
-支持的适配器：
+适配器：`launchd`、`process`、`docker-compose`、`cloudflared`。
 
-```text
-launchd / process / docker-compose / cloudflared
-```
+`kind`：`ollama`、`comfyui`、`process`、`launchd`、`docker-compose`、`tunnel`、`generic`。
 
-支持的 `kind`：
+字段见 `config/services.example.yaml`。网页不能提交任意 shell 或路径，动作必须在白名单里。
 
-```text
-ollama / comfyui / process / launchd / docker-compose / tunnel / generic
-```
+## 安全
 
-完整字段和模板见 `config/services.example.yaml`。
+- Agent、Gateway 和模型端口都绑在 `127.0.0.1`
+- 非本机访问 Agent 需要 Bearer Token，文件权限 `0600`
+- 公网只开放 VPS 的 `2222` 和 `443`
+- Mac 的 sshd 只听 `127.0.0.1:22`，远程登录必须先过 Warpgate
+- 删公钥即吊销 SSH。Tailscale 只对 tailnet 开放，不用 Funnel
+- 证书、私钥、`.env`、SQLite、日志、`services.yaml` 和 `share.local.json` 不进 Git
 
-## Inference Gateway
-
-Gateway 是独立 LaunchAgent，不依赖桌面 App 是否打开。
-
-### 默认策略
-
-| 后端         |  端口 | 并发 | 队列 | 排队超时 | 请求超时 | 请求体 |
-| ------------ | ----: | ---: | ---: | -------: | -------: | -----: |
-| Ollama       | 11435 |    2 |    8 |      60s |    10min |    4MB |
-| ComfyUI 图片 |  8191 |    1 |    8 |    30min |    30min |   32MB |
-| H3 视频      |  8192 |    1 |    8 |    30min |    60min |    2MB |
-
-### 状态与记录
-
-```bash
-curl http://127.0.0.1:11436/health
-curl http://127.0.0.1:11436/status
-curl 'http://127.0.0.1:11436/records?limit=50'
-```
-
-模型调用记录默认写入：
-
-```text
-~/Library/Application Support/com.studioops.desktop/gateway/model-calls.jsonl
-```
-
-记录字段：
-
-```text
-模型 / 后端 / 状态 / 方法 / 路径 / 来源
-状态码 / 等待时间 / 执行耗时 / 错误
-```
-
-不会写入 prompt、messages、图片、请求体或 Authorization。
-
-### 内存准入
-
-Gateway 会读取：
-
-- macOS `vm_stat` 的 active + wired + compressed
-- Ollama `/api/ps` 当前已加载模型
-- 当前 Gateway 活跃任务
-
-默认策略：
-
-```text
-推理预算：总内存 - 12GB
-硬性安全线：至少 2GB 可用
-Ollama：最多 1 个已加载模型
-ComfyUI：至少 24GB 可用
-H3 视频：至少 30GB 可用
-```
-
-内存不够时，新任务返回 `503`，不会先加载模型再失败。
-
-## ComfyUI 与 H3 视频（可选）
-
-StudioOps 可以只做服务器控制，不要求安装 ComfyUI/H3。需要图片或视频时再接入。
-
-- ComfyUI 图片桥：`scripts/comfy_openai_bridge.py`
-- H3 视频桥：`scripts/comfy_video_bridge.py`
-- H3 验证和实测数据：`docs/minimax-h3.md`
-
-H3 模型文件不随仓库分发。64GB M5 Max 实测：
-
-```text
-864×480 / 5 秒 / 4 步:     225 秒
-864×480 / 10 秒 / 4 步:    505 秒
-1344×768 / 5 秒 / 4 步:    681 秒
-```
-
-视频入口目前只监听本机，不会自动暴露到公网。
-
-## 安全模型
-
-- Agent、Gateway 和模型端口默认全部绑定 `127.0.0.1`
-- 非回环访问默认要求 Bearer Token；Token 文件权限 `0600`
-- StudioOps 相关入口只公开 `2222` 和可选的 `443`；管理台 `8888`、隧道 `22022/11434/8190/8192` 只绑回环
-- Mac 的 sshd 只监听 `127.0.0.1:22`；远程 SSH 必须先过 Warpgate
-- Warpgate 做公钥认证和会话录像；删除公钥即吊销
-- Tailscale Serve 只开放给 tailnet，不启用 Funnel
-- 所有服务动作经过适配器和白名单
-- 客户端不能提交任意 shell、路径或 launchd label
-- Gateway 只保存请求元数据，不保存 prompt
-- 证书、私钥、`.env`、SQLite、日志和本机 `services.yaml` 不进入 Git
-
-> 不要把 Agent 的 `7227` 暴露到公网。Agent 的远程鉴权正在从 Host 头判断迁移到真实 socket 来源；完成前只通过本机或 VPS 回环访问。
-
-> 如果你发现安全问题，请不要开公开 issue，先通过仓库维护者私下联系。详见 [SECURITY.md](SECURITY.md)。
+不要把 `7227` 暴露到公网。发现问题不要开公开 issue，先私下联系维护者，见 [SECURITY.md](SECURITY.md)。
 
 ## 开发
 
@@ -539,96 +285,49 @@ H3 模型文件不随仓库分发。64GB M5 Max 实测：
 npm run typecheck
 npm test
 npm run format:check
-
-# Rust 测试
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
-当前测试：**79 个 TypeScript 测试**，覆盖配置、适配器、鉴权、告警、指标、网络地图和 Gateway 队列/内存准入。
-
-### 目录
+85 个 TypeScript 测试，覆盖配置、适配器、鉴权、告警、指标历史、网络入站和 Gateway 的队列、内存与 token 记录。
 
 ```text
-services/agent      本机控制层：HTTP API、WebSocket、适配器、服务注册表
-services/gateway    Inference Gateway：代理、队列、内存准入、模型调用记录
-packages/contracts  Agent / Web / Desktop 共用契约
-apps/web            终端风格 Web 控制台
-apps/desktop        Tauri 2 桌面壳
-docs                架构、网关、H3、Tailscale、卸载和交接文档
-scripts             安装/卸载、隧道、ComfyUI/H3 桥
+services/agent      控制面：HTTP、WebSocket、适配器、指标、网络
+services/gateway    队列、内存准入、调用记录
+packages/contracts  共用类型
+apps/web            终端风格页面
+apps/desktop        Tauri 2 外壳
+docs                架构、网关、H3、Tailscale、卸载
+scripts             安装、隧道、ComfyUI / H3 桥
 tests               TypeScript 测试
 ```
 
-### 提交前检查
+## 现在的边界
 
-```bash
-npm run typecheck
-npm test
-npm run format:check
-cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
-```
-
-## 当前限制
-
-- 仅支持 macOS；Linux/Windows 不在当前范围内
-- macOS 没有 cgroup 式硬内存限制，内存保护是应用层准入
-- H3 视频模型需要数十 GB 内存和数分钟到数十分钟生成时间
-- Gateway 的按用户 API Key、配额和限流还未完成
-- VPS 模型 API 入口需要自行配置 Nginx / Sub2API；仓库不包含公网用户体系
-- H3 视频入口尚未映射到 VPS
-- Agent 远程鉴权仍在加固，不要把 `7227` 暴露到公网
-- CI 目前只构建 DMG，没有自动跑测试；代码签名、公证和自动更新未完成
-- 模型文件、真实 `services.yaml`、证书和日志都不在仓库中
-- pre-1.0，配置和 API 仍可能变化
-
-## Roadmap
-
-- [ ] Gateway API Key、配额和每用户限流
-- [ ] VPS 模型 API 入口（Nginx/Sub2API + Key/配额）
-- [ ] 按模型大小做加载前内存预估
-- [ ] Gateway / SSH 隧道健康告警
-- [x] SSH 网关（Warpgate）：VPS 2222 认证和会话录制，Mac 仅回环 sshd
-- [ ] H3 视频对外映射
-- [ ] Agent 鉴权改为真实 socket 来源 + `timingSafeEqual`
-- [ ] CI 自动跑测试、签名、公证和自动更新
-- [ ] 数据与配置统一备份
-
-## 贡献
-
-欢迎 issue 和 PR。
-
-- 修改前先看 `docs/architecture.md` 和 `docs/agent-handoff.md`
-- 不要提交真实 Token、证书、私钥、模型路径或本机日志
-- 新增服务动作必须经过适配器和白名单
-- 新增 UI 面板保持终端风格：等宽字体、细线边框、`data-title` 边框标题
-- 提交前跑完上面的检查命令
-
-## License
-
-[MIT](LICENSE) © 2026 StudioOps contributors
+- 只支持 macOS。没有 cgroup，内存保护是应用层准入，不是内核硬限制
+- H3 很慢，也还没映射到 VPS。64 GB 机器上，864×480、5 秒、4 步大约 225 秒，见 [H3 验证](docs/minimax-h3.md)
+- API Key 和额度在 Sub2API，不在 Gateway 里。Gateway 不做按用户计费
+- 换模型前，如果内存已经超过预算，空闲模型有时来不及先卸掉就被 `503` 拒绝
+- Agent 的远程鉴权还在收紧，完成前只从本机或 VPS 回环访问
+- 没有代码签名、公证和自动更新。CI 目前只构建 DMG
+- 模型文件不在仓库里。配置和 API 在 1.0 前还会变
 
 ## 文档
 
 - [技术架构](docs/architecture.md)
 - [Inference Gateway](docs/inference-gateway.md)
-- [MiniMax H3 本地验证](docs/minimax-h3.md)
-- [Tailscale 私网访问](docs/tailscale.md)
+- [MiniMax H3](docs/minimax-h3.md)
+- [Tailscale](docs/tailscale.md)
 - [cloudflared](docs/cloudflared.md)
-- [网络地图与隐私边界](docs/network-map.md)
+- [网络地图](docs/network-map.md)
+- [算力用户](docs/compute-user.md)
+- [SSH 网关](docs/ssh-gateway.md)
 - [卸载与恢复](docs/uninstall.md)
-- [算力用户与审计](docs/compute-user.md)
-- [SSH 网关（Warpgate / VPS 中转）](docs/ssh-gateway.md)
 - [开发交接](docs/agent-handoff.md)
 
-## Acknowledgements
+## 参考
 
-StudioOps 的架构和取舍受这些项目和社区工作影响：
+界面和取舍参考过 [mac-dash](https://github.com/talhaorak/mac-dash)、[macmon](https://github.com/vladkens/macmon)、[Ollama](https://ollama.com/)、[ComfyUI](https://www.comfy.org/)、[MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3)、[llama-swap](https://github.com/mostlygeek/llama-swap)、[LiteLLM](https://www.litellm.ai/) 和 [Off Grid AI Desktop](https://github.com/off-grid-ai/OGAD)。StudioOps 是独立项目，不隶属于它们。
 
-- [mac-dash](https://github.com/talhaorak/mac-dash)：macOS 系统面板和 launchd 管理
-- [macmon](https://github.com/vladkens/macmon)：Apple Silicon GPU/ANE/功耗/温度
-- [Ollama](https://ollama.com/) 与 [ComfyUI](https://www.comfy.org/)：本地模型运行时
-- [MiniMax H3](https://github.com/MiniMax-AI/MiniMax-H3)：开源全模态视频模型
-- [llama-swap](https://github.com/mostlygeek/llama-swap) / [LiteLLM](https://www.litellm.ai/)：本地模型切换和 AI Gateway 的参考
-- [Off Grid AI Desktop](https://github.com/off-grid-ai/OGAD)：本地 AI Gateway 和团队 Key 的参考
+## License
 
-StudioOps 自身是一个独立项目，不隶属于上述项目。
+[MIT](LICENSE) © 2026 StudioOps contributors

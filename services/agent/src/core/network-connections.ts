@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -25,6 +25,7 @@ export interface NetworkConnection {
   firstSeenAt: string;
   lastSeenAt: string;
   location?: NetworkLocation;
+  note?: string;
 }
 
 export interface NetworkSnapshot {
@@ -99,6 +100,68 @@ export function isPublicAddress(address: string): boolean {
   if (a === 192 && b === 168) return false;
   if (a === 100 && b >= 64 && b <= 127) return false;
   return true;
+}
+
+const GATEWAY_INBOUND_WINDOW_MS = 24 * 60 * 60 * 1000;
+const GATEWAY_INBOUND_SQL = `SELECT ip_address, count(*), to_char(max(created_at) AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISS')
+FROM usage_logs
+WHERE created_at > now() - make_interval(hours => 24)
+  AND ip_address IS NOT NULL AND btrim(ip_address) <> ''
+GROUP BY ip_address
+ORDER BY max(created_at) DESC
+LIMIT 30`;
+
+function parseUtcCompact(value: string): number {
+  const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value.trim());
+  if (!match) return Number.NaN;
+  return Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+    Number(match[6]),
+  );
+}
+
+function inboundNote(seenMs: number, count: number): string {
+  const date = new Date(seenMs);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `最近 ${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} · ${count} 次`;
+}
+
+/** Public callers recorded by the Hong Kong gateway, which never appear in local lsof. */
+export function parseGatewayInbound(
+  stdout: string,
+  now = Date.now(),
+  windowMs = GATEWAY_INBOUND_WINDOW_MS,
+): NetworkConnection[] {
+  const connections: NetworkConnection[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [addressRaw, countRaw, seenRaw] = line.split("|");
+    const address = addressRaw?.trim() ?? "";
+    const count = Number(countRaw);
+    const seenMs = parseUtcCompact(seenRaw ?? "");
+    if (!isPublicAddress(address) || !Number.isFinite(seenMs)) continue;
+    if (!Number.isFinite(count) || count <= 0) continue;
+    if (seenMs > now + 5 * 60_000 || now - seenMs > windowMs) continue;
+    const lastSeenAt = new Date(seenMs).toISOString();
+    connections.push({
+      id: `inbound:gateway:${address}`,
+      direction: "inbound",
+      process: "香港网关",
+      localAddress: "127.0.0.1",
+      localPort: 11435,
+      remoteAddress: address,
+      remotePort: 443,
+      remoteScope: "public",
+      firstSeenAt: lastSeenAt,
+      lastSeenAt,
+      note: inboundNote(seenMs, count),
+    });
+  }
+  return connections;
 }
 
 export function parseConnections(
@@ -214,6 +277,8 @@ export class NetworkMonitor {
   private busy = false;
   private previous = new Map<string, string>();
   private geo = new GeoResolver();
+  private gatewayInbound: NetworkConnection[] = [];
+  private gatewayFetchedAt = 0;
   private current: NetworkSnapshot = {
     capturedAt: new Date(0).toISOString(),
     inbound: [],
@@ -265,6 +330,14 @@ export class NetworkMonitor {
       const inbound = connections.filter(
         (connection) => connection.direction === "inbound",
       );
+      const seenInbound = new Set(
+        inbound.map((connection) => connection.remoteAddress),
+      );
+      for (const connection of await this.loadGatewayInbound(now)) {
+        if (seenInbound.has(connection.remoteAddress)) continue;
+        seenInbound.add(connection.remoteAddress);
+        inbound.push(connection);
+      }
       const outbound = connections.filter(
         (connection) => connection.direction === "outbound",
       );
@@ -320,6 +393,21 @@ export class NetworkMonitor {
     }
   }
 
+  private async loadGatewayInbound(now: number): Promise<NetworkConnection[]> {
+    if (now - this.gatewayFetchedAt < 60_000) return this.gatewayInbound;
+    this.gatewayFetchedAt = now;
+    try {
+      const stdout = await runGatewayInboundQuery();
+      this.gatewayInbound = parseGatewayInbound(stdout, now);
+    } catch {
+      this.gatewayInbound = this.gatewayInbound.filter(
+        (connection) =>
+          now - Date.parse(connection.lastSeenAt) <= GATEWAY_INBOUND_WINDOW_MS,
+      );
+    }
+    return this.gatewayInbound;
+  }
+
   private async enrichOutbound(addresses: string[]): Promise<void> {
     for (const address of addresses) {
       if (this.geo.cached(address)) continue;
@@ -343,6 +431,41 @@ export class NetworkMonitor {
       void this.refresh().finally(() => this.schedule());
     }, this.intervalMs);
   }
+}
+
+function runGatewayInboundQuery(): Promise<string> {
+  const remote = `docker exec -i sub2api-postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F "|"'`;
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "ssh",
+      ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "vps", remote],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("gateway inbound query timed out"));
+    }, 12_000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `gateway inbound query exited ${code}`));
+    });
+    child.stdin.end(GATEWAY_INBOUND_SQL);
+  });
 }
 
 async function runLsof(args: string[]): Promise<string> {
